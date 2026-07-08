@@ -188,6 +188,11 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
             secondary="Edge Score"
             muted={ov.edge_score == null}
           />
+          <ValueChip
+            primary={ov.playoff_odds == null ? DASH : `${Math.round(ov.playoff_odds * 100)}%`}
+            secondary="Playoff odds"
+            muted={ov.playoff_odds == null}
+          />
           {ov.verdict && (
             <span className="mono text-xs uppercase tracking-wide text-secondary">{ov.verdict}</span>
           )}

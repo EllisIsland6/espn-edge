@@ -75,6 +75,7 @@ export interface LeagueOverview {
   edge_score: number | null;
   grade: string | null;
   verdict: string | null;
+  playoff_odds: number | null;
 }
 
 export interface DraftPickOut {

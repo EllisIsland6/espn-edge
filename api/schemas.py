@@ -142,10 +142,11 @@ class LeagueOverview(BaseModel):
     account_label: str | None
     scoring: str | None
     teams: list[TeamOut]  # ordered by standing
-    # Phase 3 placeholders (null until analytics land):
+    # Phase 3 metrics for my team (null when pending):
     edge_score: float | None = None
     grade: str | None = None
     verdict: str | None = None
+    playoff_odds: float | None = None
 
 
 class PortfolioRow(BaseModel):

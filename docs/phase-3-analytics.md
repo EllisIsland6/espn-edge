@@ -82,11 +82,22 @@ One small schema addition: `leagues.playoff_team_count` (already parsed from
 ## 5. Invalidation / recompute
 
 Metrics are **recomputed on every sync**. `SyncService.sync_league` calls
-`metrics.recompute_league(session, league)` at step 6, after all ESPN data for the
-league is upserted. Recompute reads current DB state for every team and **upserts or
-clears** each metric: if a metric becomes pending (e.g. a league reverts to
-`pre_draft`, or projection data disappears), the stale row is **deleted**, so the API
-never serves a value that no longer holds. There is no separate cache to invalidate.
+`metrics.recompute_league(session, league, projections_fresh=...)` at step 6, after
+all ESPN data for the league is upserted. Recompute reads current DB state for every
+team and **upserts or clears** each metric: if a metric becomes pending (e.g. a league
+reverts to `pre_draft`, or projection data disappears), the stale row is **deleted**,
+so the API never serves a value that no longer holds. There is no separate cache to
+invalidate.
+
+**Stale-projection guard:** the projection-based edge branch (drafted / no-games
+leagues) must not be recomputed from possibly-stale `players.proj_ros`. If
+`kona_player_info` fails during a sync (`players_failed`), the sync passes
+`projections_fresh=False`, and `recompute_league` treats projection-based edge scores
+as **pending and clears them** — so a drafted league can't serve a freshly-stamped
+score derived from old projections. The record/points branch (in_season / complete
+with ≥1 game) does **not** depend on projections and still computes normally in this
+case. `playoff_odds` depends only on standings/size/`playoff_team_count`, so it is
+unaffected. The `players_failed` warning still surfaces in the sync result/UI.
 
 ## 6. Missing / incomplete data
 

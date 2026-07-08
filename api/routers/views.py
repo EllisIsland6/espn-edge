@@ -129,6 +129,7 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
         edge_score=edge.edge_score,
         grade=edge.grade,
         verdict=edge.verdict,
+        playoff_odds=edge.playoff_odds,
     )
 
 

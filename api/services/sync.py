@@ -193,6 +193,7 @@ class SyncService:
             result["errors"].append(f"transactions_failed: {exc}")
 
         # ---- Step 5: players (league-scoped kona) -------------------------
+        projections_fresh = True
         try:
             pdata = self.espn.fetch_views(
                 league.espn_league_id,
@@ -206,6 +207,9 @@ class SyncService:
             self._upsert_players(players)
             result["players"] = len(players)
         except EspnError as exc:
+            # Player projections were NOT refreshed — flag so projection-based edge
+            # scoring falls back to pending instead of reusing stale proj_ros.
+            projections_fresh = False
             result["errors"].append(f"players_failed: {exc}")
 
         # ---- Step 6: lifecycle, metrics recompute, last_synced_at ---------
@@ -214,7 +218,9 @@ class SyncService:
         # Recompute Edge metrics from the just-synced DB state (Phase 3, SPEC §6).
         # Deterministic + isolated; recompute-on-sync is the invalidation strategy.
         try:
-            metrics_result = metrics.recompute_league(self.session, league)
+            metrics_result = metrics.recompute_league(
+                self.session, league, projections_fresh=projections_fresh
+            )
             result["metrics"] = metrics_result
         except Exception as exc:  # analytics must never break a sync
             result["errors"].append(f"metrics_failed: {exc}")

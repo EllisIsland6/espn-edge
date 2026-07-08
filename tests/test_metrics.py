@@ -8,7 +8,7 @@ from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.edge_config import INSEASON_WEIGHTS, grade_for, verdict_for
 from api.main import app
-from api.models import Account, League, Metric, Team
+from api.models import Account, DraftPick, League, Metric, Player, Team
 from api.services import metrics
 from api.services.metrics import TeamStat, team_edge
 from api.services.sync import SyncService
@@ -200,8 +200,68 @@ def test_api_portfolio_exposes_computed_metrics(synced_league_id):
 def test_api_overview_and_summary_expose_metrics(synced_league_id):
     ov = client.get(f"/api/leagues/{synced_league_id}/overview").json()
     assert ov["edge_score"] == 82.5 and ov["grade"] == "A" and ov["verdict"] == "advantaged"
+    # Finding 1: overview must expose playoff_odds like the portfolio endpoint.
+    assert "playoff_odds" in ov
+    assert ov["playoff_odds"] is not None and 0.0 <= ov["playoff_odds"] <= 1.0
 
     s = client.get("/api/portfolio/summary").json()
     assert s["scored_count"] == 1
     assert s["advantaged_count"] == 1
     assert s["best_edge_score"] == 82.5 and s["worst_edge_score"] == 82.5
+
+
+# --------------------------------------------------------------------------- #
+# Finding 2: stale projections must not produce freshly-stamped edge scores
+# --------------------------------------------------------------------------- #
+def test_stale_projections_make_drafted_edge_pending_pure():
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0),
+    ]
+    # fresh → computed; not fresh → pending for the projection branch.
+    assert metrics.compute_edge_scores(teams, "drafted", projections_fresh=True)[1] is not None
+    assert metrics.compute_edge_scores(teams, "drafted", projections_fresh=False) == {1: None, 2: None}
+
+
+def test_stale_projections_do_not_block_record_scoring_pure():
+    # in_season with games does not depend on proj_ros → still computed.
+    scores = metrics.compute_edge_scores(_toy_stats(), "in_season", projections_fresh=False)
+    assert scores[1] == 82.5
+
+
+def _make_drafted_league(session) -> League:
+    lg = League(espn_league_id="333", season=2026, is_public=True, lifecycle="drafted",
+                size=4, playoff_team_count=2)
+    session.add(lg)
+    session.flush()
+    teams = []
+    for i in range(1, 5):
+        t = Team(league_id=lg.id, espn_team_id=i, name=f"T{i}", is_me=(i == 1))
+        session.add(t)
+        teams.append(t)
+    session.flush()
+    lg.my_team_id = teams[0].id
+    for pid, proj in [(101, 300.0), (102, 250.0), (103, 200.0), (104, 150.0)]:
+        session.add(Player(espn_player_id=pid, name=f"P{pid}", proj_ros=proj))
+    session.flush()
+    for i, t in enumerate(teams, start=1):
+        session.add(DraftPick(league_id=lg.id, overall=i, team_id=t.id, espn_player_id=100 + i))
+    session.flush()
+    return lg
+
+
+def test_recompute_clears_stale_projection_edge_when_players_not_fresh(db_session):
+    lg = _make_drafted_league(db_session)
+    # Fresh sync computed a projection-based score.
+    metrics.recompute_league(db_session, lg, projections_fresh=True)
+    db_session.commit()
+    assert team_edge(db_session, lg.id, lg.my_team_id).edge_score is not None
+
+    # A later sync where kona_player_info failed must NOT re-publish from stale
+    # proj_ros — it clears the score to pending.
+    metrics.recompute_league(db_session, lg, projections_fresh=False)
+    db_session.commit()
+    assert team_edge(db_session, lg.id, lg.my_team_id).edge_score is None
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(Metric.league_id == lg.id, Metric.key == "edge_score")
+    ) == 0

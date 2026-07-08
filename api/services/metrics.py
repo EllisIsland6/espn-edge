@@ -71,8 +71,16 @@ def _percentile(values: list[float], v: float) -> float:
 # --------------------------------------------------------------------------- #
 # Pure computation
 # --------------------------------------------------------------------------- #
-def compute_edge_scores(teams: list[TeamStat], lifecycle: str) -> dict[int, float | None]:
-    """edge_score (0–100) per team, or None (pending) when inputs are insufficient."""
+def compute_edge_scores(
+    teams: list[TeamStat], lifecycle: str, projections_fresh: bool = True
+) -> dict[int, float | None]:
+    """edge_score (0–100) per team, or None (pending) when inputs are insufficient.
+
+    `projections_fresh` guards the roster-projection branch: if the player pool was
+    not refreshed this sync (kona_player_info failed), projection-based scores are
+    treated as pending rather than recomputed from possibly-stale proj_ros. The
+    record/points branch does not depend on projections and is unaffected.
+    """
     if not teams:
         return {}
     if lifecycle == "pre_draft":
@@ -95,6 +103,9 @@ def compute_edge_scores(teams: list[TeamStat], lifecycle: str) -> dict[int, floa
         return out
 
     # drafted (or in_season with no games yet): roster-projection percentile.
+    if not projections_fresh:
+        # Player pool wasn't refreshed → don't publish scores from stale proj_ros.
+        return {t.team_id: None for t in teams}
     valid = [t.roster_proj for t in teams if t.roster_proj is not None]
     if len(valid) < 2:
         return {t.team_id: None for t in teams}
@@ -124,11 +135,18 @@ def compute_playoff_odds(
 # --------------------------------------------------------------------------- #
 # DB-facing recompute + persistence (SPEC §4: everything traces to a metrics row)
 # --------------------------------------------------------------------------- #
-def recompute_league(session: Session, league: League) -> dict:
+def recompute_league(
+    session: Session, league: League, projections_fresh: bool = True
+) -> dict:
     """Recompute + persist edge_score/playoff_odds for every team in the league.
 
     Idempotent: upserts computed values, deletes rows that are now pending. Called
     at the end of every sync so metrics always reflect current DB state.
+
+    `projections_fresh=False` (kona_player_info failed this sync) forces
+    roster-projection-based edge scores to pending, so a drafted/no-games league
+    can't serve freshly stamped scores derived from stale proj_ros. Record/points
+    scoring and playoff_odds are unaffected.
     """
     teams = list(session.scalars(select(Team).where(Team.league_id == league.id)))
     proj_by_team = _roster_projection_by_team(session, league.id)
@@ -146,7 +164,7 @@ def recompute_league(session: Session, league: League) -> dict:
         )
         for t in teams
     ]
-    edges = compute_edge_scores(stats, league.lifecycle)
+    edges = compute_edge_scores(stats, league.lifecycle, projections_fresh=projections_fresh)
 
     scored = 0
     for stat in stats:
