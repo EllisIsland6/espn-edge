@@ -1,0 +1,95 @@
+{
+  "id": 111,
+  "seasonId": 2026,
+  "status": {
+    "currentMatchupPeriod": 2,
+    "latestScoringPeriod": 1,
+    "finalScoringPeriod": 17,
+    "isActive": true
+  },
+  "settings": {
+    "name": "Test Public League",
+    "size": 4,
+    "scoringSettings": {
+      "scoringType": "H2H_POINTS",
+      "scoringItems": [{ "statId": 53, "points": 1.0 }]
+    },
+    "rosterSettings": {
+      "lineupSlotCounts": {
+        "0": 1, "2": 2, "4": 2, "6": 1, "23": 1, "16": 1, "17": 1, "20": 6
+      }
+    },
+    "draftSettings": { "type": "SNAKE" },
+    "scheduleSettings": { "playoffTeamCount": 2 }
+  },
+  "members": [
+    { "id": "{AAAA-1111}", "displayName": "Me" },
+    { "id": "{BBBB-2222}", "displayName": "Rival" }
+  ],
+  "draftDetail": {
+    "drafted": true,
+    "picks": [
+      { "overallPickNumber": 1, "roundId": 1, "roundPickNumber": 1, "teamId": 1, "playerId": 1001, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 },
+      { "overallPickNumber": 2, "roundId": 1, "roundPickNumber": 2, "teamId": 2, "playerId": 1002, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 },
+      { "overallPickNumber": 3, "roundId": 1, "roundPickNumber": 3, "teamId": 3, "playerId": 1003, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 },
+      { "overallPickNumber": 4, "roundId": 1, "roundPickNumber": 4, "teamId": 4, "playerId": 1004, "keeper": false, "autoDraftTypeId": 1, "bidAmount": 0 },
+      { "overallPickNumber": 5, "roundId": 2, "roundPickNumber": 1, "teamId": 4, "playerId": 1005, "keeper": false, "autoDraftTypeId": 1, "bidAmount": 0 },
+      { "overallPickNumber": 6, "roundId": 2, "roundPickNumber": 2, "teamId": 3, "playerId": 1006, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 },
+      { "overallPickNumber": 7, "roundId": 2, "roundPickNumber": 3, "teamId": 2, "playerId": 1007, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 },
+      { "overallPickNumber": 8, "roundId": 2, "roundPickNumber": 4, "teamId": 1, "playerId": 1008, "keeper": false, "autoDraftTypeId": 0, "bidAmount": 0 }
+    ]
+  },
+  "teams": [
+    { "id": 1, "abbrev": "AAA", "name": "Alpha", "owners": ["{AAAA-1111}"], "logo": "http://x/1.png", "playoffSeed": 1, "record": { "overall": { "wins": 1, "losses": 0, "ties": 0, "pointsFor": 120.5, "pointsAgainst": 100.0 } } },
+    { "id": 2, "abbrev": "BBB", "name": "Beta", "owners": ["{BBBB-2222}"], "logo": "http://x/2.png", "playoffSeed": 3, "record": { "overall": { "wins": 0, "losses": 1, "ties": 0, "pointsFor": 100.0, "pointsAgainst": 120.5 } } },
+    { "id": 3, "abbrev": "CCC", "name": "Gamma", "owners": ["{CCCC-3333}"], "logo": "http://x/3.png", "playoffSeed": 2, "record": { "overall": { "wins": 1, "losses": 0, "ties": 0, "pointsFor": 90.0, "pointsAgainst": 80.0 } } },
+    { "id": 4, "abbrev": "DDD", "name": "Delta", "owners": ["{DDDD-4444}"], "logo": "http://x/4.png", "playoffSeed": 4, "record": { "overall": { "wins": 0, "losses": 1, "ties": 0, "pointsFor": 80.0, "pointsAgainst": 90.0 } } }
+  ],
+  "schedule": [
+    {
+      "matchupPeriodId": 1,
+      "playoffTierType": "NONE",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 120.5,
+        "rosterForCurrentScoringPeriod": {
+          "entries": [
+            { "playerId": 1001, "lineupSlotId": 0, "playerPoolEntry": { "id": 1001, "appliedStatTotal": 25.0 } },
+            { "playerId": 1008, "lineupSlotId": 20, "playerPoolEntry": { "id": 1008, "appliedStatTotal": 10.0 } }
+          ]
+        }
+      },
+      "away": {
+        "teamId": 2,
+        "totalPoints": 100.0,
+        "rosterForCurrentScoringPeriod": {
+          "entries": [
+            { "playerId": 1002, "lineupSlotId": 2, "playerPoolEntry": { "id": 1002, "appliedStatTotal": 18.0 } }
+          ]
+        }
+      }
+    },
+    {
+      "matchupPeriodId": 1,
+      "playoffTierType": "NONE",
+      "home": { "teamId": 3, "totalPoints": 90.0, "rosterForCurrentScoringPeriod": { "entries": [] } },
+      "away": { "teamId": 4, "totalPoints": 80.0, "rosterForCurrentScoringPeriod": { "entries": [] } }
+    },
+    {
+      "matchupPeriodId": 2,
+      "playoffTierType": "NONE",
+      "home": { "teamId": 1, "totalPoints": 0 },
+      "away": { "teamId": 3, "totalPoints": 0 }
+    },
+    {
+      "matchupPeriodId": 2,
+      "playoffTierType": "NONE",
+      "home": { "teamId": 2, "totalPoints": 0 },
+      "away": { "teamId": 4, "totalPoints": 0 }
+    }
+  ],
+  "transactions": [
+    { "type": "WAIVER", "teamId": 2, "scoringPeriodId": 1, "bidAmount": 5, "items": [ { "type": "ADD", "playerId": 2001 }, { "type": "DROP", "playerId": 2002 } ] },
+    { "type": "FREEAGENT", "teamId": 3, "scoringPeriodId": 1, "items": [ { "type": "ADD", "playerId": 2003 } ] }
+  ]
+}

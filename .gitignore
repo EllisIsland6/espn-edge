@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Env / secrets — never commit cookies or keys
+.env
+
+# Data — SQLite DB and raw ESPN JSON cache hold session cookies; never commit
+/data/edge.db
+/data/edge.db-journal
+/data/edge.db-wal
+/data/edge.db-shm
+/data/raw_cache/*
+!/data/raw_cache/.gitkeep
+
+# Node / Vite
+/web/node_modules/
+/web/dist/
+/web/.vite/
+
+# OS
+.DS_Store

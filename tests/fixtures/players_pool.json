@@ -1,0 +1,24 @@
+{
+  "players": [
+    {
+      "player": {
+        "id": 1001,
+        "fullName": "Alpha Quarterback",
+        "defaultPositionId": 1,
+        "proTeamId": 1,
+        "ownership": { "averageDraftPosition": 3.4, "percentOwned": 99.5 },
+        "draftRanksByRankType": { "PPR": { "rank": 2 } }
+      }
+    },
+    {
+      "player": {
+        "id": 1002,
+        "fullName": "Beta Runningback",
+        "defaultPositionId": 2,
+        "proTeamId": 2,
+        "ownership": { "averageDraftPosition": 1.1, "percentOwned": 99.9 },
+        "draftRanksByRankType": { "PPR": { "rank": 1 } }
+      }
+    }
+  ]
+}
