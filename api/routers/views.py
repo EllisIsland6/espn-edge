@@ -22,6 +22,7 @@ from ..schemas import (
     TeamOut,
     TransactionOut,
 )
+from ..services.metrics import team_edge
 from ..services.parse import classify_scoring
 
 router = APIRouter(tags=["views"])
@@ -49,6 +50,8 @@ def _build_portfolio_rows(session: Session) -> list[PortfolioRow]:
     for lg in leagues:
         account = session.get(Account, lg.account_id) if lg.account_id else None
         me = session.scalar(select(Team).where(Team.league_id == lg.id, Team.is_me.is_(True)))
+        # Persisted Phase 3 metrics for my team (null/pending when not computed).
+        edge = team_edge(session, lg.id, me.id if me else None)
         rows.append(
             PortfolioRow(
                 league_id=lg.id,
@@ -67,6 +70,10 @@ def _build_portfolio_rows(session: Session) -> list[PortfolioRow]:
                 points_for=me.points_for if me else None,
                 points_against=me.points_against if me else None,
                 standing=me.standing if me else None,
+                edge_score=edge.edge_score,
+                grade=edge.grade,
+                playoff_odds=edge.playoff_odds,
+                verdict=edge.verdict,
             )
         )
     return rows
@@ -113,11 +120,15 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
         session.scalars(select(Team).where(Team.league_id == league.id)),
         key=_standing_key,
     )
+    edge = team_edge(session, league.id, league.my_team_id)
     return LeagueOverview(
         league=LeagueOut.model_validate(league),
         account_label=account.label if account else None,
         scoring=_scoring_label(league),
         teams=[TeamOut.model_validate(t) for t in teams],
+        edge_score=edge.edge_score,
+        grade=edge.grade,
+        verdict=edge.verdict,
     )
 
 

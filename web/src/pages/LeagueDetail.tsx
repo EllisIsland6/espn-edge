@@ -182,14 +182,32 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
           <h3 className="text-sm font-semibold">Edge breakdown</h3>
           <GradePill grade={ov.grade} />
         </div>
-        <div className="mt-3">
-          <ValueChip primary={ov.edge_score == null ? DASH : num(ov.edge_score, 0)} secondary="Edge Score" muted={ov.edge_score == null} />
+        <div className="mt-3 flex items-center gap-3">
+          <ValueChip
+            primary={ov.edge_score == null ? DASH : num(ov.edge_score, 0)}
+            secondary="Edge Score"
+            muted={ov.edge_score == null}
+          />
+          {ov.verdict && (
+            <span className="mono text-xs uppercase tracking-wide text-secondary">{ov.verdict}</span>
+          )}
         </div>
         <div className="mt-4">
-          <EmptyState
-            title="Edge Index not computed yet"
-            hint="LeagueSoftness + MyEdge components (SPEC 6) populate in Phase 3."
-          />
+          {ov.edge_score == null ? (
+            <EmptyState
+              title={
+                ov.league.lifecycle === "pre_draft"
+                  ? "Edge Score pending — league hasn't drafted"
+                  : "Edge Score pending — not enough data yet"
+              }
+              hint="Within-league v1 score; full LeagueSoftness + MyEdge breakdown (SPEC §6) is future."
+            />
+          ) : (
+            <p className="text-[11px] leading-relaxed text-muted">
+              v1 within-league score from record, points, and roster projections. The full
+              component breakdown (SPEC §6) lands in a later phase.
+            </p>
+          )}
         </div>
       </Panel>
     </div>

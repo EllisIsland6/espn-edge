@@ -48,8 +48,10 @@ def test_portfolio(league_id):
     assert row["my_team_name"] == "Alpha"
     assert row["wins"] == 1 and row["losses"] == 0
     assert row["account_label"] == "Main"
-    # Phase 3 metric fields are null (UI must not compute).
-    assert row["edge_score"] is None and row["grade"] is None and row["playoff_odds"] is None
+    # Phase 3 metrics are computed on sync (in_season fixture); UI only formats them.
+    assert row["edge_score"] == 82.5
+    assert row["grade"] == "A" and row["verdict"] == "advantaged"
+    assert row["playoff_odds"] is not None
 
 
 def test_portfolio_summary(league_id):
@@ -62,10 +64,10 @@ def test_portfolio_summary(league_id):
     assert s["aggregate_wins"] == 1
     assert s["aggregate_losses"] == 0
     assert s["aggregate_ties"] == 0
-    # No metrics until Phase 3.
-    assert s["advantaged_count"] == 0
-    assert s["scored_count"] == 0
-    assert s["best_edge_score"] is None and s["worst_edge_score"] is None
+    # Phase 3: my team (Alpha) is advantaged and scored.
+    assert s["advantaged_count"] == 1
+    assert s["scored_count"] == 1
+    assert s["best_edge_score"] == 82.5 and s["worst_edge_score"] == 82.5
 
 
 def test_portfolio_summary_empty():
@@ -90,7 +92,8 @@ def test_league_overview(league_id):
     assert body["teams"][0]["standing"] == 1
     me = next(t for t in body["teams"] if t["is_me"])
     assert me["name"] == "Alpha"
-    assert body["edge_score"] is None
+    # Phase 3: overview exposes my team's computed edge.
+    assert body["edge_score"] == 82.5 and body["grade"] == "A" and body["verdict"] == "advantaged"
 
 
 def test_league_subresources(league_id):

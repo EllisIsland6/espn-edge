@@ -110,6 +110,16 @@ Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child ro
 cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The
 raw JSON cache in `data/raw_cache/`/`raw_cache` table makes re-syncing cheap.
 
+## Analytics (Edge metrics)
+
+`edge_score`, `grade`, `verdict`, and `playoff_odds` are computed by the deterministic
+Phase 3 v1 engine (`api/services/metrics.py`, tunables in `api/edge_config.py`) and
+persisted in the `metrics` table. They **recompute automatically on every sync**, so to
+refresh them just re-sync a league ("Sync"/"Sync all" in the UI, `POST
+/api/leagues/{id}/sync`, or `make verify`). Pending metrics (e.g. a pre-draft league)
+are represented as absence and surface as `null`. Full contract, formulas, and the
+v1-vs-future split: **[docs/phase-3-analytics.md](docs/phase-3-analytics.md)**.
+
 ## Layout
 
 ```

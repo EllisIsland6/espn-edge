@@ -57,6 +57,7 @@ class League(Base):
     scoring_json: Mapped[dict | None] = mapped_column(JSON)
     lineup_slots_json: Mapped[dict | None] = mapped_column(JSON)
     draft_type: Mapped[str | None] = mapped_column(String)
+    playoff_team_count: Mapped[int | None] = mapped_column(Integer)  # for playoff_odds (SPEC §6)
     # pre_draft | drafted | in_season | complete
     lifecycle: Mapped[str] = mapped_column(String, default="pre_draft")
     my_team_id: Mapped[int | None] = mapped_column(Integer)

@@ -28,7 +28,7 @@ from ..models import (
     Team,
     Transaction,
 )
-from . import parse
+from . import metrics, parse
 from .cache import DBRawCache
 from .espn import EspnAuthError, EspnError, EspnService, cookies_for_account
 
@@ -123,6 +123,7 @@ class SyncService:
         league.scoring_json = settings.scoring_json
         league.lineup_slots_json = settings.lineup_slots
         league.draft_type = settings.draft_type
+        league.playoff_team_count = settings.playoff_team_count
         self.session.flush()
 
         # Clear stale my-team / autodraft state before repopulating so a changed
@@ -207,8 +208,17 @@ class SyncService:
         except EspnError as exc:
             result["errors"].append(f"players_failed: {exc}")
 
-        # ---- Step 6: lifecycle + last_synced_at ---------------------------
+        # ---- Step 6: lifecycle, metrics recompute, last_synced_at ---------
         league.lifecycle = self._lifecycle(drafted, completed_weeks, data)
+        self.session.flush()  # lifecycle drives the analytics branch below
+        # Recompute Edge metrics from the just-synced DB state (Phase 3, SPEC §6).
+        # Deterministic + isolated; recompute-on-sync is the invalidation strategy.
+        try:
+            metrics_result = metrics.recompute_league(self.session, league)
+            result["metrics"] = metrics_result
+        except Exception as exc:  # analytics must never break a sync
+            result["errors"].append(f"metrics_failed: {exc}")
+            log.warning("league %s: metrics recompute failed: %s", league.espn_league_id, exc)
         league.last_synced_at = datetime.now(UTC)
         result["lifecycle"] = league.lifecycle
         self.session.flush()

@@ -321,8 +321,8 @@ function RightRail({
           </Button>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
-          Edge Score, grade, and playoff odds populate once the analytics engine lands
-          (Phase 3). Records, points, and standings are live from ESPN.
+          Edge Score, grade, and playoff odds are a deterministic v1 (within-league); they
+          stay pending until a league drafts or plays. The fuller model (SPEC §6) is future.
         </p>
       </Panel>
     </div>
