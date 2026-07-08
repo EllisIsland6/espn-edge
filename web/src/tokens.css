@@ -1,52 +1,78 @@
-/* Design tokens — canonical, from SPEC Section 9.1. No ad-hoc colors elsewhere. */
-:root {
-  --bg-page: #070b14;
-  --bg-header: #04070d;
-  --bg-panel: #0c1120;
-  --bg-row: #0a0f1b;
-  --bg-row-hover: #111828;
-  --border: #1b2233;
-  --border-dashed: #232c42;
-  --text-primary: #e7ecf4;
-  --text-secondary: #8b93a7;
-  --text-muted: #5b6478;
+@import "tailwindcss";
 
-  --red: #e5484d;
-  --red-hover: #f2555a;
-  --red-outline: rgba(229, 72, 77, 0.35);
-  --green-text: #86efac;
-  --green-chip-bg: #12241a;
-  --green-bar: #26331f;
+/* Design tokens — canonical, from SPEC Section 9.1. Mapped into Tailwind v4's
+   @theme so utilities generate (bg-panel, text-green, border-line, …). No ad-hoc
+   colors anywhere else. */
+@theme {
+  --color-page: #070b14;
+  --color-header: #04070d;
+  --color-panel: #0c1120;
+  --color-row: #0a0f1b;
+  --color-rowhover: #111828;
 
-  --tier-gold: #d9a62e;
-  --grade-a: #4ade80;
-  --grade-b: #38bdf8;
-  --grade-c: #fbbf24;
-  --grade-df: #f87171;
+  --color-line: #1b2233;
+  --color-linedash: #232c42;
 
-  --pos-qb: #f472b6;
-  --pos-rb: #2dd4bf;
-  --pos-wr: #60a5fa;
-  --pos-te: #fbbf24;
-  --pos-dst: #a78bfa;
-  --pos-k: #94a3b8;
+  --color-primary: #e7ecf4;
+  --color-secondary: #8b93a7;
+  --color-muted: #5b6478;
+
+  --color-red: #e5484d;
+  --color-redhover: #f2555a;
+
+  --color-green: #86efac;
+  --color-greenchip: #12241a;
+  --color-greenbar: #26331f;
+
+  --color-gold: #d9a62e;
+
+  --color-grade-a: #4ade80;
+  --color-grade-b: #38bdf8;
+  --color-grade-c: #fbbf24;
+  --color-grade-df: #f87171;
+
+  --color-qb: #f472b6;
+  --color-rb: #2dd4bf;
+  --color-wr: #60a5fa;
+  --color-te: #fbbf24;
+  --color-dst: #a78bfa;
+  --color-k: #94a3b8;
 
   --font-ui: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  /* Numbers are the product — tabular figures so columns align (SPEC 9.1). */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", monospace;
 }
 
-* {
-  box-sizing: border-box;
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--bg-page);
-  color: var(--text-primary);
+  background: var(--color-page);
+  color: var(--color-primary);
   font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
 
+/* Every number in a table/chip/stat uses tabular figures. */
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring uses the red outline token (SPEC 9.2 quality floor). */
+:focus-visible {
+  outline: 2px solid var(--color-red);
+  outline-offset: 2px;
+}
+
+/* Respect reduced-motion; no animation beyond 150ms hover/opacity otherwise. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

@@ -109,13 +109,62 @@ export interface TransactionOut {
   executed_at: string | null;
 }
 
+export interface AccountOut {
+  id: number;
+  label: string;
+  status: string;
+  created_at: string;
+}
+
+export interface DiscoveredLeague {
+  espn_league_id: string;
+  name: string | null;
+  season: number | null;
+  team_id: number | null;
+}
+
+export interface SyncSummary {
+  league_id: string;
+  season: number;
+  name: string | null;
+  lifecycle: string | null;
+  teams: number | null;
+  draft_picks: number | null;
+  matchups: number | null;
+  transactions: number | null;
+  needs_reauth: boolean | null;
+  errors: string[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`${path} ${res.status}`);
+  if (!res.ok) throw new Error(await errorText(res, path));
   return res.json() as Promise<T>;
 }
 
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(await errorText(res, path));
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+async function errorText(res: Response, path: string): Promise<string> {
+  try {
+    const j = await res.json();
+    if (j?.detail) return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+  } catch {
+    /* fall through */
+  }
+  return `${path} ${res.status}`;
+}
+
+// Reads (view endpoints — every number comes from the DB; no ESPN, no math here).
 export const getPortfolio = () => get<PortfolioRow[]>("/api/portfolio");
+export const getLeagues = () => get<LeagueOut[]>("/api/leagues");
 export const getLeagueOverview = (id: number) =>
   get<LeagueOverview>(`/api/leagues/${id}/overview`);
 export const getLeagueTeams = (id: number) => get<TeamOut[]>(`/api/leagues/${id}/teams`);
@@ -124,3 +173,18 @@ export const getLeagueMatchups = (id: number) =>
   get<MatchupOut[]>(`/api/leagues/${id}/matchups`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
+
+// Accounts + leagues management.
+export const getAccounts = () => get<AccountOut[]>("/api/accounts");
+export const addAccount = (label: string, swid: string, espn_s2: string) =>
+  send<AccountOut>("POST", "/api/accounts", { label, swid, espn_s2 });
+export const deleteAccount = (id: number) => send<void>("DELETE", `/api/accounts/${id}`);
+export const discoverLeagues = (accountId: number) =>
+  get<DiscoveredLeague[]>(`/api/leagues/discover/${accountId}`);
+export const addLeague = (leagueRef: string, accountId: number | null, season?: number) =>
+  send<LeagueOut>("POST", "/api/leagues", {
+    league_ref: leagueRef,
+    account_id: accountId,
+    season: season ?? null,
+  });
+export const syncLeague = (id: number) => send<SyncSummary>("POST", `/api/leagues/${id}/sync`);
