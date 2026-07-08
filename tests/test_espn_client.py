@@ -22,6 +22,20 @@ def test_cache_key_is_order_independent():
     assert "sp=3" in EspnService._cache_key(1, 2026, ["mBoxscore"], 3)
 
 
+def test_cache_key_scoped_by_account_and_filter():
+    base = EspnService._cache_key(1, 2026, ["mTeam"], None)
+    a = EspnService._cache_key(1, 2026, ["mTeam"], None, Cookies(swid="{A}", espn_s2="x"))
+    b = EspnService._cache_key(1, 2026, ["mTeam"], None, Cookies(swid="{B}", espn_s2="x"))
+    # public vs each account vs cross-account are all distinct keys.
+    assert base != a != b and a != b
+    # raw SWID never appears in the key.
+    assert "{A}" not in a and "{B}" not in b
+    # different X-Fantasy-Filter → different key.
+    f1 = EspnService._cache_key(1, 2026, ["kona_player_info"], None, None, {"limit": 100})
+    f2 = EspnService._cache_key(1, 2026, ["kona_player_info"], None, None, {"limit": 200})
+    assert f1 != f2
+
+
 def _client_returning(status_by_cookie: dict[str, int], body: dict):
     def handler(request: httpx.Request) -> httpx.Response:
         cookie = request.headers.get("Cookie", "")

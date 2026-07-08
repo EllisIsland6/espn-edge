@@ -44,3 +44,26 @@ def test_manual_add_league_parses_url():
     )
     assert r.status_code == 201
     assert r.json()["espn_league_id"] == "778899"
+
+
+def test_delete_unlinked_account_ok():
+    aid = client.post(
+        "/api/accounts", json={"label": "Disposable", "swid": "{X-1}", "espn_s2": "s2"}
+    ).json()["id"]
+    assert client.delete(f"/api/accounts/{aid}").status_code == 204
+    labels = [a["label"] for a in client.get("/api/accounts").json()]
+    assert "Disposable" not in labels
+
+
+def test_delete_account_blocked_when_leagues_linked():
+    aid = client.post(
+        "/api/accounts", json={"label": "Linked", "swid": "{X-2}", "espn_s2": "s2"}
+    ).json()["id"]
+    add = client.post("/api/leagues", json={"league_ref": "445566", "account_id": aid})
+    assert add.status_code == 201
+
+    r = client.delete(f"/api/accounts/{aid}")
+    assert r.status_code == 409
+    assert "linked league" in r.json()["detail"]
+    # account still present (not deleted)
+    assert aid in [a["id"] for a in client.get("/api/accounts").json()]

@@ -16,6 +16,8 @@ raw JSON directly so tests replay recorded fixtures offline (SPEC 12).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -34,6 +36,11 @@ _BASE_HEADERS = {
     ),
     "Accept": "application/json",
 }
+
+
+def _short_hash(value: str) -> str:
+    """Stable 8-char hash for cache-key scoping (never reveals the input)."""
+    return hashlib.sha1(value.encode()).hexdigest()[:8]
 
 
 class EspnError(RuntimeError):
@@ -164,7 +171,9 @@ class EspnService:
         espn_s2 we retry once with the decoded value and, if it works, write the
         working value back onto `cookies.espn_s2` so the caller can persist it.
         """
-        cache_key = self._cache_key(league_id, season, views, scoring_period)
+        cache_key = self._cache_key(
+            league_id, season, views, scoring_period, cookies, x_fantasy_filter
+        )
         if self.cache is not None and not bust_cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
@@ -176,8 +185,6 @@ class EspnService:
 
         headers = dict(_BASE_HEADERS)
         if x_fantasy_filter is not None:
-            import json
-
             headers["X-Fantasy-Filter"] = json.dumps(x_fantasy_filter)
 
         data = self._get_authed(
@@ -231,8 +238,6 @@ class EspnService:
                 "sortDraftRanks": {"sortPriority": 100, "sortAsc": True, "value": "STANDARD"},
             }
         }
-        import json
-
         headers = dict(_BASE_HEADERS)
         headers["X-Fantasy-Filter"] = json.dumps(x_filter)
         return self._get_authed(
@@ -288,10 +293,24 @@ class EspnService:
 
     @staticmethod
     def _cache_key(
-        league_id: str | int, season: int, views: list[str], scoring_period: int | None
+        league_id: str | int,
+        season: int,
+        views: list[str],
+        scoring_period: int | None,
+        cookies: Cookies | None = None,
+        x_fantasy_filter: dict | None = None,
     ) -> str:
+        """Cache key scoped by account + filter so identical view-sets under a
+        different account (cross-account leagues) or a different X-Fantasy-Filter
+        never collide (SPEC 2.10). The SWID is hashed, never stored raw.
+        """
         vs = "+".join(sorted(views))
-        return f"{league_id}:{season}:{vs}:sp={scoring_period}"
+        # Account identity: short hash of the SWID (or "public"). Never the raw SWID.
+        ident = _short_hash(cookies.swid) if cookies else "public"
+        filt = "-"
+        if x_fantasy_filter:
+            filt = _short_hash(json.dumps(x_fantasy_filter, sort_keys=True))
+        return f"{league_id}:{season}:{vs}:sp={scoring_period}:acct={ident}:filt={filt}"
 
     def close(self) -> None:
         if self._owns_client:

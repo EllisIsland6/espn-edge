@@ -89,7 +89,7 @@
     }
   ],
   "transactions": [
-    { "type": "WAIVER", "teamId": 2, "scoringPeriodId": 1, "bidAmount": 5, "items": [ { "type": "ADD", "playerId": 2001 }, { "type": "DROP", "playerId": 2002 } ] },
-    { "type": "FREEAGENT", "teamId": 3, "scoringPeriodId": 1, "items": [ { "type": "ADD", "playerId": 2003 } ] }
+    { "type": "WAIVER", "teamId": 2, "scoringPeriodId": 1, "bidAmount": 5, "processDate": 1725500000000, "items": [ { "type": "ADD", "playerId": 2001 }, { "type": "DROP", "playerId": 2002 } ] },
+    { "type": "FREEAGENT", "teamId": 3, "scoringPeriodId": 1, "proposedDate": 1725600000000, "items": [ { "type": "ADD", "playerId": 2003 } ] }
   ]
 }

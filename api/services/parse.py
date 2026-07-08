@@ -8,10 +8,12 @@ crashing when ESPN's shape changes (SPEC 12 "schema drift alarm").
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from .espn_constants import (
     STAT_ID_RECEPTIONS,
+    STAT_SOURCE_PROJECTED,
     is_starter_slot,
     position_name,
     slot_name,
@@ -302,6 +304,17 @@ class ParsedTransaction:
     player_in: int | None
     player_out: int | None
     bid: int | None
+    executed_at: datetime | None = None
+
+
+def _epoch_ms_to_dt(ms: int | float | None) -> datetime | None:
+    """ESPN dates are epoch milliseconds (UTC). Return None on missing/garbage."""
+    if ms is None:
+        return None
+    try:
+        return datetime.fromtimestamp(float(ms) / 1000.0, tz=UTC)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
 
 
 _TXN_TYPE_MAP = {
@@ -328,6 +341,8 @@ def parse_transactions(data: dict) -> list[ParsedTransaction]:
                 player_in = item.get("playerId")
             elif item.get("type") == "DROP":
                 player_out = item.get("playerId")
+        # Completed transactions carry processDate; pending ones only proposedDate.
+        executed_at = _epoch_ms_to_dt(tx.get("processDate") or tx.get("proposedDate"))
         out.append(
             ParsedTransaction(
                 espn_team_id=tx.get("teamId"),
@@ -336,6 +351,7 @@ def parse_transactions(data: dict) -> list[ParsedTransaction]:
                 player_in=player_in,
                 player_out=player_out,
                 bid=tx.get("bidAmount"),
+                executed_at=executed_at,
             )
         )
     return out
@@ -354,10 +370,31 @@ class ParsedPlayer:
     espn_pct_owned: float | None
     espn_rank_ppr: float | None
     proj_ros: float | None = None
-    _proj_by_period: dict = field(default_factory=dict)
 
 
-# ESPN proTeamId → abbrev (subset; unknown ids fall back to str(id)).
+def _season_projection(player: dict) -> float | None:
+    """Full-season projected points = the season-split projection row (SPEC 2.9).
+
+    ESPN `stats[]` rows carry statSourceId (0=actual, 1=projection) and
+    statSplitTypeId (0=season, 1=single game). The season projection's
+    appliedTotal is our preseason rest-of-season proxy (refined in-season later).
+    """
+    best: float | None = None
+    for st in player.get("stats") or []:
+        if st.get("statSourceId") != STAT_SOURCE_PROJECTED:
+            continue
+        if st.get("statSplitTypeId") not in (0, None):
+            continue
+        applied = st.get("appliedTotal")
+        if applied is None:
+            continue
+        try:
+            best = float(applied)
+        except (TypeError, ValueError):
+            continue
+    return best
+
+
 def parse_player_pool(data: dict) -> list[ParsedPlayer]:
     players = data.get("players")
     if players is None:
@@ -381,6 +418,7 @@ def parse_player_pool(data: dict) -> list[ParsedPlayer]:
                 espn_adp=ownership.get("averageDraftPosition"),
                 espn_pct_owned=ownership.get("percentOwned"),
                 espn_rank_ppr=ppr.get("rank"),
+                proj_ros=_season_projection(p),
             )
         )
     return out

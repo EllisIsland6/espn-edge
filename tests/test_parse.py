@@ -77,8 +77,13 @@ def test_parse_transactions(league_fixture):
     assert len(txns) == 2
     waiver = next(t for t in txns if t.type == "waiver")
     assert waiver.player_in == 2001 and waiver.player_out == 2002 and waiver.bid == 5
+    # processDate (epoch ms) -> tz-aware datetime.
+    assert waiver.executed_at is not None
+    assert waiver.executed_at.tzinfo is not None
     fa = next(t for t in txns if t.type == "fa_add")
     assert fa.player_in == 2003
+    # falls back to proposedDate when processDate absent.
+    assert fa.executed_at is not None
 
 
 def test_parse_player_pool(players_fixture):
@@ -88,3 +93,8 @@ def test_parse_player_pool(players_fixture):
     assert qb.position == "QB"
     assert qb.espn_adp == 3.4
     assert qb.espn_rank_ppr == 2
+    # proj_ros = season-split projection (statSourceId=1, statSplitTypeId=0),
+    # not the single-game (18.5) or the actual (120.0).
+    assert qb.proj_ros == 305.7
+    rb = next(p for p in players if p.espn_player_id == 1002)
+    assert rb.proj_ros == 281.3

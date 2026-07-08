@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..crypto import encrypt
 from ..db import get_session
-from ..models import Account
+from ..models import Account, League
 from ..parse_helpers import normalize_swid_braced
 from ..schemas import AccountCreate, AccountOut
 
@@ -40,8 +40,21 @@ def add_account(payload: AccountCreate, session: Session = Depends(get_session))
 
 @router.delete("/{account_id}", status_code=204)
 def delete_account(account_id: int, session: Session = Depends(get_session)) -> None:
+    """Delete an account. Blocked with 409 while leagues still reference it — the
+    user must first re-point or remove those leagues, so a delete can never orphan
+    a league or silently drop synced data. (SPEC has no cascade for accounts.)
+    """
     account = session.get(Account, account_id)
     if account is None:
         raise HTTPException(404, "account not found")
+    linked = list(
+        session.scalars(select(League.espn_league_id).where(League.account_id == account_id))
+    )
+    if linked:
+        raise HTTPException(
+            409,
+            f"account has {len(linked)} linked league(s): {linked}. "
+            "Re-point or remove them before deleting this account.",
+        )
     session.delete(account)
     session.commit()

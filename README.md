@@ -70,12 +70,19 @@ curl -X POST http://127.0.0.1:8000/api/leagues/1/sync
 Prints league name, size, scoring type, standings, my team, and draft-pick count so you
 can eyeball them against the ESPN UI (SPEC Phase 1 AC):
 
+It tries **public** access first; for a private league it falls back to cookies
+from `ESPN_SWID`/`ESPN_S2` in `.env` (or a hidden prompt) — **never** passed as
+command-line args. `--cross-check` also loads the league via `espn-api` and diffs
+headline numbers.
+
 ```bash
-make verify LEAGUE=123456                 # public league
-make verify LEAGUE=123456 ACCOUNT=1       # private league (account must exist)
+make verify LEAGUE=123456                          # public, or private via .env cookies
+make verify LEAGUE=123456 SEASON=2025 CROSSCHECK=1 # diff against espn-api
 # or directly:
-python -m api.verify --league 123456 --season 2026 --account 1
+python -m api.verify --league 123456 --season 2026 --cross-check --label main
 ```
+
+`--label` names the account the cookies are stored under (default `main`).
 
 ## Tests
 
@@ -86,6 +93,22 @@ All parsing/sync/metric tests run **offline** against recorded fixtures in
 make test    # pytest
 make lint    # ruff
 ```
+
+## Schema changes & reset
+
+This is a local, single-user, fully re-syncable app, so there is **no migration
+tool** (no Alembic). The SQLite schema — including the uniqueness constraints and
+foreign keys in `api/models.py` — is created by `create_all` on startup. When the
+schema changes, drop and rebuild rather than migrate:
+
+```bash
+make db-reset     # deletes data/edge.db (+ WAL/SHM)
+# then re-add accounts/leagues and re-sync — all source data lives on ESPN.
+```
+
+Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child rows
+cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The
+raw JSON cache in `data/raw_cache/`/`raw_cache` table makes re-syncing cheap.
 
 ## Layout
 

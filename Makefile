@@ -12,7 +12,7 @@ help:
 	@echo "make test         - run pytest (offline, fixtures)"
 	@echo "make lint         - ruff check"
 	@echo "make fmt          - ruff format"
-	@echo "make verify LEAGUE=<id> [SEASON=2026] [ACCOUNT=<id>]  - live smoke test"
+	@echo "make verify LEAGUE=<id> [SEASON=2026] [LABEL=main] [CROSSCHECK=1]  - live smoke test"
 
 install:
 	python3 -m venv .venv
@@ -45,8 +45,11 @@ lint:
 fmt:
 	$(PY) -m ruff format api tests
 
+# Cookies for private leagues come from ESPN_SWID/ESPN_S2 in .env (or a hidden
+# prompt) — never passed as args. LABEL names the stored account; CROSSCHECK=1
+# also diffs against espn-api.
 verify:
-	$(PY) -m api.verify --league $(LEAGUE) $(if $(SEASON),--season $(SEASON),) $(if $(ACCOUNT),--account $(ACCOUNT),)
+	$(PY) -m api.verify --league $(LEAGUE) $(if $(SEASON),--season $(SEASON),) $(if $(LABEL),--label $(LABEL),) $(if $(CROSSCHECK),--cross-check,)
 
 db-reset:
 	rm -f data/edge.db data/edge.db-* && echo "dropped data/edge.db"

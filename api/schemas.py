@@ -76,3 +76,98 @@ class SyncSummary(BaseModel):
     completed_weeks: list[int] | None = None
     needs_reauth: bool | None = None
     errors: list[str] = []
+
+
+# ---- Phase 2 read-only views ----------------------------------------------
+# Metric fields (edge_score/grade/playoff_odds/verdict) are intentionally null
+# until Phase 3 computes them — the UI must render null/empty, not compute (SPEC 4).
+class TeamOut(BaseModel):
+    id: int
+    espn_team_id: int
+    name: str | None
+    abbrev: str | None
+    is_me: bool
+    autodrafted: bool
+    wins: int
+    losses: int
+    ties: int
+    points_for: float
+    points_against: float
+    standing: int | None
+    logo_url: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DraftPickOut(BaseModel):
+    overall: int | None
+    round: int | None
+    round_pick: int | None
+    team_id: int | None
+    espn_player_id: int | None
+    keeper: bool
+    autodraft: bool
+    bid_amount: int | None
+    adp_at_draft: float | None
+    value_delta: float | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MatchupOut(BaseModel):
+    week: int
+    home_team_id: int | None
+    away_team_id: int | None
+    home_points: float | None
+    away_points: float | None
+    is_playoff: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionOut(BaseModel):
+    team_id: int | None
+    type: str | None
+    week: int | None
+    player_in: int | None
+    player_out: int | None
+    bid: int | None
+    executed_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LeagueOverview(BaseModel):
+    league: LeagueOut
+    account_label: str | None
+    scoring: str | None
+    teams: list[TeamOut]  # ordered by standing
+    # Phase 3 placeholders (null until analytics land):
+    edge_score: float | None = None
+    grade: str | None = None
+    verdict: str | None = None
+
+
+class PortfolioRow(BaseModel):
+    league_id: int
+    espn_league_id: str
+    season: int
+    league_name: str | None
+    size: int | None
+    account_label: str | None
+    lifecycle: str
+    last_synced_at: datetime | None
+    # my team (null if not detected / public):
+    my_team_id: int | None
+    my_team_name: str | None
+    wins: int | None
+    losses: int | None
+    ties: int | None
+    points_for: float | None
+    points_against: float | None
+    standing: int | None
+    # Phase 3 placeholders (null until analytics land):
+    edge_score: float | None = None
+    grade: str | None = None
+    playoff_odds: float | None = None
+    verdict: str | None = None

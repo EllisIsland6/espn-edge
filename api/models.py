@@ -67,9 +67,14 @@ class League(Base):
 
 class Team(Base):
     __tablename__ = "teams"
+    __table_args__ = (
+        UniqueConstraint("league_id", "espn_team_id", name="uq_team_league_espn"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
     espn_team_id: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str | None] = mapped_column(String)
     abbrev: Mapped[str | None] = mapped_column(String)
@@ -89,13 +94,18 @@ class Team(Base):
 
 class DraftPick(Base):
     __tablename__ = "draft_picks"
+    __table_args__ = (
+        UniqueConstraint("league_id", "overall", name="uq_pick_league_overall"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
     overall: Mapped[int | None] = mapped_column(Integer)
     round: Mapped[int | None] = mapped_column(Integer)
     round_pick: Mapped[int | None] = mapped_column(Integer)
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     espn_player_id: Mapped[int | None] = mapped_column(Integer)
     keeper: Mapped[bool] = mapped_column(Boolean, default=False)
     autodraft: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -106,12 +116,19 @@ class DraftPick(Base):
 
 class Matchup(Base):
     __tablename__ = "matchups"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id", "week", "home_team_id", "away_team_id", name="uq_matchup"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
     week: Mapped[int] = mapped_column(Integer, nullable=False)
-    home_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
-    away_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    home_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
+    away_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     home_points: Mapped[float | None] = mapped_column(Float)
     away_points: Mapped[float | None] = mapped_column(Float)
     is_playoff: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -119,10 +136,19 @@ class Matchup(Base):
 
 class LineupSlot(Base):
     __tablename__ = "lineup_slots"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id", "week", "team_id", "espn_player_id", "slot", name="uq_lineup"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
-    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
     week: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[str | None] = mapped_column(String)
     espn_player_id: Mapped[int | None] = mapped_column(Integer)
@@ -134,8 +160,10 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     type: Mapped[str | None] = mapped_column(String)  # waiver|fa_add|drop|trade|...
     week: Mapped[int | None] = mapped_column(Integer)
     player_in: Mapped[int | None] = mapped_column(Integer)
@@ -173,10 +201,15 @@ class AdpSnapshot(Base):
 
 class Metric(Base):
     __tablename__ = "metrics"
+    __table_args__ = (
+        UniqueConstraint("league_id", "team_id", "key", "week", name="uq_metric"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int] = mapped_column(ForeignKey("leagues.id"), nullable=False)
-    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     key: Mapped[str] = mapped_column(String, nullable=False)
     week: Mapped[int | None] = mapped_column(Integer)
     value_float: Mapped[float | None] = mapped_column(Float)
@@ -187,7 +220,7 @@ class AiReport(Base):
     __tablename__ = "ai_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    league_id: Mapped[int | None] = mapped_column(ForeignKey("leagues.id"))
+    league_id: Mapped[int | None] = mapped_column(ForeignKey("leagues.id", ondelete="CASCADE"))
     scope: Mapped[str] = mapped_column(String)  # league | team | portfolio
     kind: Mapped[str] = mapped_column(String)
     input_hash: Mapped[str | None] = mapped_column(String)

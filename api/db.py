@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -24,6 +25,19 @@ engine = create_engine(
     future=True,
     connect_args={"check_same_thread": False},
 )
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_fks(dbapi_connection, _connection_record) -> None:
+    """SQLite does not enforce foreign keys unless asked, per-connection (SPEC 4).
+
+    Registered on the base Engine class so every connection (app, CLI, tests,
+    APScheduler) turns it on. Guards against corrupt writes like an FK pointing at
+    a non-existent team.
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 

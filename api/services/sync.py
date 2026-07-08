@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -108,6 +108,10 @@ class SyncService:
         league.draft_type = settings.draft_type
         self.session.flush()
 
+        # Clear stale my-team / autodraft state before repopulating so a changed
+        # (or removed) account, or a team that dropped out of the league, can't
+        # leave a stale is_me/my_team_id/autodrafted flag behind (SPEC 2.7).
+        self._reset_team_flags(league)
         id_map = self._upsert_teams(league, teams, my_espn_team)
         result["name"] = league.name
         result["size"] = league.size
@@ -194,6 +198,16 @@ class SyncService:
         return result
 
     # ---- upsert helpers ----------------------------------------------------
+    def _reset_team_flags(self, league: League) -> None:
+        """Zero out my-team/autodraft flags before a fresh sync repopulates them."""
+        self.session.execute(
+            update(Team)
+            .where(Team.league_id == league.id)
+            .values(is_me=False, autodrafted=False)
+        )
+        league.my_team_id = None
+        self.session.flush()
+
     def _upsert_teams(
         self, league: League, teams: list[parse.ParsedTeam], my_espn_team: int | None
     ) -> dict[int, int]:
@@ -291,10 +305,20 @@ class SyncService:
         id_map: dict[int, int],
     ) -> None:
         for e in entries:
+            team_id = id_map.get(e.espn_team_id)
+            if team_id is None:
+                # Unknown team → don't write a lineup row pointing at a phantom
+                # team (would be an FK violation with enforcement on). SPEC 12.
+                log.warning(
+                    "lineup week %s: unknown espn_team_id %s, skipping entry",
+                    week,
+                    e.espn_team_id,
+                )
+                continue
             self.session.add(
                 LineupSlot(
                     league_id=league.id,
-                    team_id=id_map.get(e.espn_team_id, 0) or 0,
+                    team_id=team_id,
                     week=week,
                     slot=e.slot,
                     espn_player_id=e.espn_player_id,
@@ -318,6 +342,7 @@ class SyncService:
                     player_in=t.player_in,
                     player_out=t.player_out,
                     bid=t.bid,
+                    executed_at=t.executed_at,
                 )
             )
         self.session.flush()
@@ -334,6 +359,8 @@ class SyncService:
             row.espn_adp = p.espn_adp
             row.espn_pct_owned = p.espn_pct_owned
             row.espn_rank_ppr = p.espn_rank_ppr
+            if p.proj_ros is not None:
+                row.proj_ros = p.proj_ros
             row.updated_at = datetime.now(UTC)
         self.session.flush()
 

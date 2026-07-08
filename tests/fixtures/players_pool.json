@@ -7,7 +7,12 @@
         "defaultPositionId": 1,
         "proTeamId": 1,
         "ownership": { "averageDraftPosition": 3.4, "percentOwned": 99.5 },
-        "draftRanksByRankType": { "PPR": { "rank": 2 } }
+        "draftRanksByRankType": { "PPR": { "rank": 2 } },
+        "stats": [
+          { "statSourceId": 0, "statSplitTypeId": 0, "appliedTotal": 120.0 },
+          { "statSourceId": 1, "statSplitTypeId": 1, "appliedTotal": 18.5 },
+          { "statSourceId": 1, "statSplitTypeId": 0, "appliedTotal": 305.7 }
+        ]
       }
     },
     {
@@ -17,7 +22,10 @@
         "defaultPositionId": 2,
         "proTeamId": 2,
         "ownership": { "averageDraftPosition": 1.1, "percentOwned": 99.9 },
-        "draftRanksByRankType": { "PPR": { "rank": 1 } }
+        "draftRanksByRankType": { "PPR": { "rank": 1 } },
+        "stats": [
+          { "statSourceId": 1, "statSplitTypeId": 0, "appliedTotal": 281.3 }
+        ]
       }
     }
   ]
