@@ -115,7 +115,7 @@ The read endpoints return the persisted/derived values; `null` means pending:
 - `GET /api/portfolio/summary` — `advantaged_count` (verdict == advantaged),
   `scored_count` (edge_score not null), `best/worst_edge_score`, aggregated in the
   view layer from the same rows.
-- `GET /api/leagues/{id}/overview` — `edge_score, grade, verdict` for my team.
+- `GET /api/leagues/{id}/overview` — `edge_score, grade, verdict, playoff_odds` for my team.
 
 React only formats these; it never computes them.
 
