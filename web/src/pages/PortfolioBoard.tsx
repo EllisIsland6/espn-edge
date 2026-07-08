@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   getPortfolio,
   getPortfolioSummary,
@@ -58,7 +58,6 @@ export default function PortfolioBoard() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState(false);
-  const navigate = useNavigate();
 
   async function load() {
     setError(null);
@@ -151,7 +150,7 @@ export default function PortfolioBoard() {
                     <AccountDivider label={g.label} count={g.rows.length} />
                   )}
                   {g.rows.map((r) => (
-                    <BoardRow key={r.league_id} row={r} onClick={() => navigate(`/league/${r.league_id}`)} />
+                    <BoardRow key={r.league_id} row={r} />
                   ))}
                 </div>
               ))
@@ -207,15 +206,15 @@ function ControlBar({
   );
 }
 
-function BoardRow({ row, onClick }: { row: PortfolioRow; onClick: () => void }) {
+function BoardRow({ row }: { row: PortfolioRow }) {
   const verdict = verdictOf(row.verdict);
+  // Semantic navigation: a real <Link> (anchor) — keyboard-activatable via Enter,
+  // focusable, and gets the global red :focus-visible ring. The row has no nested
+  // interactive children, so wrapping the whole row is safe (no nested controls).
   return (
-    <div
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => (e.key === "Enter" ? onClick() : undefined)}
-      className="relative flex h-16 cursor-pointer items-center gap-4 border-t border-line pl-5 pr-4 first:border-t-0 hover:bg-rowhover"
+    <Link
+      to={`/league/${row.league_id}`}
+      className="relative flex h-16 items-center gap-4 border-t border-line pl-5 pr-4 no-underline first:border-t-0 hover:bg-rowhover focus-visible:bg-rowhover"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${VERDICT_ACCENT[verdict]}`} />
       {/* League + account */}
@@ -248,7 +247,7 @@ function BoardRow({ row, onClick }: { row: PortfolioRow; onClick: () => void }) 
         <GradePill grade={row.grade} />
       </div>
       <div className="mono w-16 shrink-0 text-right text-[11px] text-muted">{relTime(row.last_synced_at)}</div>
-    </div>
+    </Link>
   );
 }
 
