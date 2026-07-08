@@ -171,3 +171,17 @@ class PortfolioRow(BaseModel):
     grade: str | None = None
     playoff_odds: float | None = None
     verdict: str | None = None
+
+
+class PortfolioSummary(BaseModel):
+    """Aggregate portfolio numbers, computed in the view layer (never in React)."""
+
+    total_leagues: int
+    advantaged_count: int
+    scored_count: int
+    aggregate_wins: int
+    aggregate_losses: int
+    aggregate_ties: int
+    # Phase 3 placeholders (null until any league has an edge score):
+    best_edge_score: float | None = None
+    worst_edge_score: float | None = None

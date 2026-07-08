@@ -116,6 +116,17 @@ export interface AccountOut {
   created_at: string;
 }
 
+export interface PortfolioSummary {
+  total_leagues: number;
+  advantaged_count: number;
+  scored_count: number;
+  aggregate_wins: number;
+  aggregate_losses: number;
+  aggregate_ties: number;
+  best_edge_score: number | null;
+  worst_edge_score: number | null;
+}
+
 export interface DiscoveredLeague {
   espn_league_id: string;
   name: string | null;
@@ -164,6 +175,7 @@ async function errorText(res: Response, path: string): Promise<string> {
 
 // Reads (view endpoints — every number comes from the DB; no ESPN, no math here).
 export const getPortfolio = () => get<PortfolioRow[]>("/api/portfolio");
+export const getPortfolioSummary = () => get<PortfolioSummary>("/api/portfolio/summary");
 export const getLeagues = () => get<LeagueOut[]>("/api/leagues");
 export const getLeagueOverview = (id: number) =>
   get<LeagueOverview>(`/api/leagues/${id}/overview`);

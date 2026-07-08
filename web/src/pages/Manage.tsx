@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
+import { syncSummaryMessage } from "../lib/sync";
 
 export default function Manage() {
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
@@ -229,7 +230,8 @@ function LeagueList({
               setSyncingId(l.id);
               try {
                 const s = await syncLeague(l.id);
-                if (s.needs_reauth) onError(`League ${l.espn_league_id}: account needs re-auth.`);
+                const msg = syncSummaryMessage(s); // covers needs_reauth AND errors
+                if (msg) onError(msg);
                 onChange();
               } catch (e) {
                 onError(String(e));

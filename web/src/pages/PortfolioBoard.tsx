@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   getPortfolio,
+  getPortfolioSummary,
   getLeagues,
   syncLeague,
   type PortfolioRow,
+  type PortfolioSummary,
 } from "../api";
 import {
   DASH,
@@ -16,6 +18,7 @@ import {
   verdictOf,
   type Verdict,
 } from "../lib/format";
+import { syncSummaryMessage } from "../lib/sync";
 import {
   Button,
   EmptyState,
@@ -27,6 +30,7 @@ import {
   Spinner,
   TierDivider,
   ValueChip,
+  WarningNote,
 } from "../components/ui";
 
 type Filter = "all" | "advantaged" | "neutral" | "disadvantaged" | "by_account";
@@ -48,7 +52,9 @@ const VERDICT_ACCENT: Record<Verdict, string> = {
 
 export default function PortfolioBoard() {
   const [rows, setRows] = useState<PortfolioRow[] | null>(null);
+  const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -57,7 +63,9 @@ export default function PortfolioBoard() {
   async function load() {
     setError(null);
     try {
-      setRows(await getPortfolio());
+      const [r, s] = await Promise.all([getPortfolio(), getPortfolioSummary()]);
+      setRows(r);
+      setSummary(s);
     } catch (e) {
       setError(String(e));
     }
@@ -84,17 +92,23 @@ export default function PortfolioBoard() {
 
   async function syncAll() {
     setSyncing(true);
+    setWarnings([]);
+    const msgs: string[] = [];
     try {
       const leagues = await getLeagues();
       for (const lg of leagues) {
+        // Keep going on failure, but record which leagues failed/partially failed.
         try {
-          await syncLeague(lg.id);
-        } catch {
-          /* keep going; per-league errors surface on next load */
+          const s = await syncLeague(lg.id);
+          const m = syncSummaryMessage(s);
+          if (m) msgs.push(m);
+        } catch (e) {
+          msgs.push(`${lg.name ?? `League ${lg.espn_league_id}`}: sync request failed — ${e}`);
         }
       }
       await load();
     } finally {
+      setWarnings(msgs);
       setSyncing(false);
     }
   }
@@ -104,6 +118,15 @@ export default function PortfolioBoard() {
       <div className="min-w-0 flex-1">
         <ControlBar filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} />
         {error && <div className="mt-4"><ErrorNote message={error} /></div>}
+        {warnings.length > 0 && (
+          <div className="mt-4">
+            <WarningNote
+              title={`Sync finished with ${warnings.length} issue${warnings.length > 1 ? "s" : ""}`}
+              messages={warnings}
+              onDismiss={() => setWarnings([])}
+            />
+          </div>
+        )}
         {!rows && !error && <Spinner label="Loading portfolio…" />}
         {rows && rows.length === 0 && (
           <div className="mt-4">
@@ -136,7 +159,7 @@ export default function PortfolioBoard() {
           </Panel>
         )}
       </div>
-      <RightRail rows={rows ?? []} syncing={syncing} onSyncAll={syncAll} />
+      <RightRail summary={summary} syncing={syncing} onSyncAll={syncAll} />
     </div>
   );
 }
@@ -248,26 +271,23 @@ function AccountDivider({ label, count }: { label: string; count: number }) {
   );
 }
 
+// Renders the backend-computed summary — React only formats, never aggregates.
 function RightRail({
-  rows,
+  summary,
   syncing,
   onSyncAll,
 }: {
-  rows: PortfolioRow[];
+  summary: PortfolioSummary | null;
   syncing: boolean;
   onSyncAll: () => void;
 }) {
-  const total = rows.length;
-  const advantaged = rows.filter((r) => verdictOf(r.verdict) === "advantaged").length;
-  const scored = rows.filter((r) => r.edge_score != null);
-  const agg = rows.reduce(
-    (a, r) => ({
-      w: a.w + (r.wins ?? 0),
-      l: a.l + (r.losses ?? 0),
-      t: a.t + (r.ties ?? 0),
-    }),
-    { w: 0, l: 0, t: 0 },
-  );
+  const total = summary?.total_leagues ?? 0;
+  const advantaged = summary?.advantaged_count ?? 0;
+  const scored = summary?.scored_count ?? 0;
+  const bestWorst =
+    summary && summary.best_edge_score != null && summary.worst_edge_score != null
+      ? `${num(summary.best_edge_score, 0)} / ${num(summary.worst_edge_score, 0)}`
+      : DASH;
   return (
     <div className="hidden w-[320px] shrink-0 lg:block">
       <Panel className="sticky top-[4.75rem] p-4">
@@ -280,13 +300,20 @@ function RightRail({
 
         <dl className="mt-4 space-y-3">
           <RailStat label="Leagues tracked" value={String(total)} />
-          <RailStat label="Aggregate record" value={record(agg.w, agg.l, agg.t)} />
+          <RailStat
+            label="Aggregate record"
+            value={
+              summary
+                ? record(summary.aggregate_wins, summary.aggregate_losses, summary.aggregate_ties)
+                : DASH
+            }
+          />
           <RailStat
             label="Edge Index"
-            value={scored.length ? `${scored.length} scored` : "pending — Phase 3"}
-            muted={!scored.length}
+            value={scored ? `${scored} scored` : "pending — Phase 3"}
+            muted={!scored}
           />
-          <RailStat label="Best / worst edge" value={DASH} muted />
+          <RailStat label="Best / worst edge" value={bestWorst} muted={bestWorst === DASH} />
         </dl>
 
         <div className="mt-5">

@@ -174,3 +174,36 @@ export function ErrorNote({ message }: { message: string }) {
     </div>
   );
 }
+
+// Non-fatal sync warnings (needs_reauth / partial errors). Gold, dismissible.
+export function WarningNote({
+  title,
+  messages,
+  onDismiss,
+}: {
+  title: string;
+  messages: string[];
+  onDismiss?: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-gold/40 bg-gold/5 px-3 py-2 text-sm text-gold">
+      <div className="flex items-center gap-2">
+        <span className="font-medium">{title}</span>
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="ml-auto text-xs text-gold/80 hover:text-gold"
+          >
+            Dismiss
+          </button>
+        )}
+      </div>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-gold/90">
+        {messages.map((m, i) => (
+          <li key={i}>{m}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}

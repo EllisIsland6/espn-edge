@@ -52,6 +52,33 @@ def test_portfolio(league_id):
     assert row["edge_score"] is None and row["grade"] is None and row["playoff_odds"] is None
 
 
+def test_portfolio_summary(league_id):
+    assert league_id  # ensures the one-league fixture is populated
+    r = client.get("/api/portfolio/summary")
+    assert r.status_code == 200
+    s = r.json()
+    assert s["total_leagues"] == 1
+    # my team Alpha is 1-0-0 in the fixture -> aggregates come from the DB, not React.
+    assert s["aggregate_wins"] == 1
+    assert s["aggregate_losses"] == 0
+    assert s["aggregate_ties"] == 0
+    # No metrics until Phase 3.
+    assert s["advantaged_count"] == 0
+    assert s["scored_count"] == 0
+    assert s["best_edge_score"] is None and s["worst_edge_score"] is None
+
+
+def test_portfolio_summary_empty():
+    # Clean DB (no fixture) → zeroed summary, still 200.
+    from api.db import Base, engine
+
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    s = client.get("/api/portfolio/summary").json()
+    assert s["total_leagues"] == 0
+    assert s["aggregate_wins"] == 0 and s["advantaged_count"] == 0
+
+
 def test_league_overview(league_id):
     r = client.get(f"/api/leagues/{league_id}/overview")
     assert r.status_code == 200

@@ -24,8 +24,10 @@ import {
   SizePill,
   Spinner,
   ValueChip,
+  WarningNote,
 } from "../components/ui";
 import { DASH, LIFECYCLE_LABEL, num, ordinal, record, relTime } from "../lib/format";
+import { syncSummaryMessage } from "../lib/sync";
 
 type Tab = "overview" | "draft" | "teams" | "matchups" | "activity" | "ai";
 const TABS: { key: Tab; label: string }[] = [
@@ -44,6 +46,7 @@ export default function LeagueDetail() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [syncing, setSyncing] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -60,8 +63,10 @@ export default function LeagueDetail() {
 
   async function sync() {
     setSyncing(true);
+    setWarning(null);
     try {
-      await syncLeague(leagueId);
+      const summary = await syncLeague(leagueId);
+      setWarning(syncSummaryMessage(summary)); // null when clean
       setReloadKey((k) => k + 1);
     } catch (e) {
       setError(String(e));
@@ -99,6 +104,12 @@ export default function LeagueDetail() {
           </Button>
         </div>
       </div>
+
+      {warning && (
+        <div className="mt-4">
+          <WarningNote title="Last sync had an issue" messages={[warning]} onDismiss={() => setWarning(null)} />
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-1 border-b border-line">
         {TABS.map((t) => (

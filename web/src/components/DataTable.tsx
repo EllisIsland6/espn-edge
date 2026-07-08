@@ -38,16 +38,32 @@ export function DataTable<T>({
             <tr key={hg.id} className="border-b border-line">
               {hg.headers.map((h) => {
                 const sort = h.column.getIsSorted();
+                const canSort = h.column.getCanSort();
+                const label = flexRender(h.column.columnDef.header, h.getContext());
+                const indicator = sort === "asc" ? " ▲" : sort === "desc" ? " ▼" : "";
                 return (
                   <th
                     key={h.id}
-                    onClick={h.column.getToggleSortingHandler()}
-                    className={`select-none px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted ${
-                      h.column.getCanSort() ? "cursor-pointer hover:text-secondary" : ""
-                    }`}
+                    scope="col"
+                    aria-sort={
+                      !canSort ? undefined : sort === "asc" ? "ascending" : sort === "desc" ? "descending" : "none"
+                    }
+                    className="select-none px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted"
                   >
-                    {flexRender(h.column.columnDef.header, h.getContext())}
-                    {sort === "asc" ? " ▲" : sort === "desc" ? " ▼" : ""}
+                    {canSort ? (
+                      // Real <button> so headers are focusable + toggle on Enter/Space
+                      // (keyboard a11y); focus ring comes from the global :focus-visible.
+                      <button
+                        type="button"
+                        onClick={h.column.getToggleSortingHandler()}
+                        className="-mx-1 flex items-center gap-1 rounded px-1 uppercase tracking-wide hover:text-secondary"
+                      >
+                        {label}
+                        {indicator}
+                      </button>
+                    ) : (
+                      label
+                    )}
                   </th>
                 );
               })}
