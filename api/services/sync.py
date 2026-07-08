@@ -61,7 +61,14 @@ class SyncService:
             season=league.season,
             errors=[],
         )
+        # Resolve the account by FK if the relationship wasn't populated — guards
+        # against a caller that set league.account_id without the relationship,
+        # which would otherwise silently fall back to a cookie-less public request.
         account = league.account
+        if account is None and league.account_id is not None:
+            from ..models import Account
+
+            account = self.session.get(Account, league.account_id)
         cookies = cookies_for_account(account) if account else None
 
         # ---- Step 1: settings + teams (+ draft in one stacked request) -----

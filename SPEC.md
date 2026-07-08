@@ -85,6 +85,10 @@ Legacy note: `fantasy.espn.com/apis/v3/...` may still redirect but is deprecated
 
 Also available: `GET {league}/communication/?view=kona_league_communication` style topics feed — this is what espn-api's `recent_activity()` uses for the human-readable activity log. Prefer `mTransactions2` for structured data and fall back to the communication feed if a transaction type isn't covered. **Verify exact field names against a live response before modeling** (e.g., draft picks are expected to carry `overallPickNumber`, `roundId`, `roundPickNumber`, `teamId`, `playerId`, `keeper`, `autoDraftTypeId`, `bidAmount` — confirm on first pull and adjust).
 
+> **VERIFIED (2026-07-07, league 17739342):** all draft-pick field names above are correct as-is. Additional gotcha: a **pre-draft** league still returns a full `draftDetail.picks` array of empty SLOTS (rounds × teams, e.g. 128 for 8×16) with `playerId: -1` and `draftDetail.drafted: false`. Filter picks to `playerId > 0` so undrafted leagues report 0 picks (matches ESPN/espn-api). Boxscore path `home/away.rosterForCurrentScoringPeriod.entries[]` and `mMatchupScore` shape also confirmed.
+>
+> **OPEN (transactions):** `view=mTransactions2` returned **no `transactions` key at all** for league 17739342 in 2025/2026 (plain and with an `X-Fantasy-Filter`), and `/communication/?view=kona_league_communication` 404'd on the filter shape tried. Our parser handles the absence gracefully (0 transactions, no crash). Whether this league genuinely had zero waiver activity or the history needs the activity/communication feed is **unconfirmed** (ESPN rate-limited further probing). Deferred to Phase 3, where the §6.1 opponent-inactivity metric requires the activity feed — resolve the correct endpoint/filter there.
+
 ### 2.5 The X-Fantasy-Filter header
 
 Player-pool endpoints cap results (~50) unless you pass a JSON filter in the `X-Fantasy-Filter` **header**. Known-good example for a full draftable pool sorted by ownership:

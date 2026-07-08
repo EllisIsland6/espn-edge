@@ -186,6 +186,14 @@ def parse_draft(data: dict) -> tuple[bool, list[ParsedPick]]:
     picks_raw = detail.get("picks") or []
     picks: list[ParsedPick] = []
     for p in picks_raw:
+        # Pre-draft leagues pre-populate every draft SLOT (rounds × teams) with
+        # the empty-slot sentinel playerId == -1 (verified live 2026-07-07). Skip
+        # only that sentinel — NOT all negatives: D/ST picks use large negative
+        # ids (e.g. -16033, lineupSlotId 16), which are real picks ESPN/espn-api
+        # count (SPEC §5: skip if undrafted; §2.4 verified note).
+        pid = p.get("playerId")
+        if pid is None or pid == -1:
+            continue
         picks.append(
             ParsedPick(
                 overall=p.get("overallPickNumber"),

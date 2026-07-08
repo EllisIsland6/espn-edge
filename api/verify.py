@@ -122,8 +122,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 3
             swid, espn_s2 = creds
             account = _upsert_account(session, args.label, swid, espn_s2)
-            league.account_id = account.id
+            # Assign the relationship object (not just the FK) so sync_league's
+            # `league.account` lookup resolves — setting account_id alone leaves the
+            # already-loaded relationship stale at None and sync falls back to public.
+            league.account = account
             league.is_public = False
+            session.flush()
             result = SyncService(session).sync_league(league)
             if result.get("needs_reauth"):
                 print(

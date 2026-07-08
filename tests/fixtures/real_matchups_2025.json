@@ -1,0 +1,772 @@
+{
+ "schedule": [
+  {
+   "matchupPeriodId": 1,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 216.88
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 168.92
+   }
+  },
+  {
+   "matchupPeriodId": 1,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 147.46
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 189.42
+   }
+  },
+  {
+   "matchupPeriodId": 1,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 207.12
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 203.28
+   }
+  },
+  {
+   "matchupPeriodId": 1,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 186.66
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 182.82
+   }
+  },
+  {
+   "matchupPeriodId": 2,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 168.44
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 266.58
+   }
+  },
+  {
+   "matchupPeriodId": 2,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 234.64
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 171.2
+   }
+  },
+  {
+   "matchupPeriodId": 2,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 159.24
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 197.22
+   }
+  },
+  {
+   "matchupPeriodId": 2,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 192.2
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 169.4
+   }
+  },
+  {
+   "matchupPeriodId": 3,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 195.64
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 219.44
+   }
+  },
+  {
+   "matchupPeriodId": 3,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 188.16
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 194.62
+   }
+  },
+  {
+   "matchupPeriodId": 3,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 171.72
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 237.22
+   }
+  },
+  {
+   "matchupPeriodId": 3,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 184.92
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 203.82
+   }
+  },
+  {
+   "matchupPeriodId": 4,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 204.96
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 226.78
+   }
+  },
+  {
+   "matchupPeriodId": 4,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 172.18
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 202.8
+   }
+  },
+  {
+   "matchupPeriodId": 4,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 240.92
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 220.8
+   }
+  },
+  {
+   "matchupPeriodId": 4,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 190.26
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 226.76
+   }
+  },
+  {
+   "matchupPeriodId": 5,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 210.46
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 233.38
+   }
+  },
+  {
+   "matchupPeriodId": 5,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 167.5
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 215.54
+   }
+  },
+  {
+   "matchupPeriodId": 5,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 167.22
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 207.42
+   }
+  },
+  {
+   "matchupPeriodId": 5,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 219.52
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 170.86
+   }
+  },
+  {
+   "matchupPeriodId": 6,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 204.04
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 138.36
+   }
+  },
+  {
+   "matchupPeriodId": 6,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 195.8
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 157.14
+   }
+  },
+  {
+   "matchupPeriodId": 6,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 174.84
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 228.08
+   }
+  },
+  {
+   "matchupPeriodId": 6,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 206.08
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 166.02
+   }
+  },
+  {
+   "matchupPeriodId": 7,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 151.74
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 223.36
+   }
+  },
+  {
+   "matchupPeriodId": 7,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 171.64
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 195.82
+   }
+  },
+  {
+   "matchupPeriodId": 7,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 195.18
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 280.34
+   }
+  },
+  {
+   "matchupPeriodId": 7,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 183.08
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 148.24
+   }
+  },
+  {
+   "matchupPeriodId": 8,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 170.62
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 160.18
+   }
+  },
+  {
+   "matchupPeriodId": 8,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 258.16
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 138.02
+   }
+  },
+  {
+   "matchupPeriodId": 8,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 212.36
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 209.48
+   }
+  },
+  {
+   "matchupPeriodId": 8,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 227.88
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 174.08
+   }
+  },
+  {
+   "matchupPeriodId": 9,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 146.7
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 200.2
+   }
+  },
+  {
+   "matchupPeriodId": 9,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 219.82
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 146.26
+   }
+  },
+  {
+   "matchupPeriodId": 9,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 233.82
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 176.38
+   }
+  },
+  {
+   "matchupPeriodId": 9,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 216.36
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 189.64
+   }
+  },
+  {
+   "matchupPeriodId": 10,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 184.1
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 163.92
+   }
+  },
+  {
+   "matchupPeriodId": 10,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 157.4
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 238.8
+   }
+  },
+  {
+   "matchupPeriodId": 10,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 180.24
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 227.1
+   }
+  },
+  {
+   "matchupPeriodId": 10,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 244.0
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 144.94
+   }
+  },
+  {
+   "matchupPeriodId": 11,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 170.7
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 186.92
+   }
+  },
+  {
+   "matchupPeriodId": 11,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 139.9
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 186.62
+   }
+  },
+  {
+   "matchupPeriodId": 11,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 167.64
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 195.14
+   }
+  },
+  {
+   "matchupPeriodId": 11,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 181.32
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 268.18
+   }
+  },
+  {
+   "matchupPeriodId": 12,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 193.06
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 249.22
+   }
+  },
+  {
+   "matchupPeriodId": 12,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 201.96
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 148.08
+   }
+  },
+  {
+   "matchupPeriodId": 12,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 188.92
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 185.26
+   }
+  },
+  {
+   "matchupPeriodId": 12,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 185.94
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 124.68
+   }
+  },
+  {
+   "matchupPeriodId": 13,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 192.68
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 190.9
+   }
+  },
+  {
+   "matchupPeriodId": 13,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 8,
+    "totalPoints": 159.74
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 152.02
+   }
+  },
+  {
+   "matchupPeriodId": 13,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 169.6
+   },
+   "away": {
+    "teamId": 2,
+    "totalPoints": 205.94
+   }
+  },
+  {
+   "matchupPeriodId": 13,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 124.3
+   },
+   "away": {
+    "teamId": 7,
+    "totalPoints": 202.84
+   }
+  },
+  {
+   "matchupPeriodId": 14,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 6,
+    "totalPoints": 172.64
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 217.34
+   }
+  },
+  {
+   "matchupPeriodId": 14,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 171.28
+   },
+   "away": {
+    "teamId": 3,
+    "totalPoints": 182.52
+   }
+  },
+  {
+   "matchupPeriodId": 14,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 145.3
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 216.86
+   }
+  },
+  {
+   "matchupPeriodId": 14,
+   "playoffTierType": "NONE",
+   "home": {
+    "teamId": 5,
+    "totalPoints": 156.5
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 140.62
+   }
+  },
+  {
+   "matchupPeriodId": 15,
+   "playoffTierType": "WINNERS_BRACKET",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 467.1
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 368.76
+   }
+  },
+  {
+   "matchupPeriodId": 15,
+   "playoffTierType": "WINNERS_BRACKET",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 386.16
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 421.82
+   }
+  },
+  {
+   "matchupPeriodId": 15,
+   "playoffTierType": "LOSERS_CONSOLATION_LADDER",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 385.16
+   },
+   "away": {
+    "teamId": 1,
+    "totalPoints": 353.32
+   }
+  },
+  {
+   "matchupPeriodId": 15,
+   "playoffTierType": "LOSERS_CONSOLATION_LADDER",
+   "home": {
+    "teamId": 4,
+    "totalPoints": 368.42
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 399.6
+   }
+  },
+  {
+   "matchupPeriodId": 16,
+   "playoffTierType": "WINNERS_BRACKET",
+   "home": {
+    "teamId": 3,
+    "totalPoints": 188.14
+   },
+   "away": {
+    "teamId": 6,
+    "totalPoints": 181.68
+   }
+  },
+  {
+   "matchupPeriodId": 16,
+   "playoffTierType": "WINNERS_CONSOLATION_LADDER",
+   "home": {
+    "teamId": 7,
+    "totalPoints": 228.02
+   },
+   "away": {
+    "teamId": 8,
+    "totalPoints": 181.48
+   }
+  },
+  {
+   "matchupPeriodId": 16,
+   "playoffTierType": "LOSERS_CONSOLATION_LADDER",
+   "home": {
+    "teamId": 2,
+    "totalPoints": 197.28
+   },
+   "away": {
+    "teamId": 5,
+    "totalPoints": 161.0
+   }
+  },
+  {
+   "matchupPeriodId": 16,
+   "playoffTierType": "LOSERS_CONSOLATION_LADDER",
+   "home": {
+    "teamId": 1,
+    "totalPoints": 148.28
+   },
+   "away": {
+    "teamId": 4,
+    "totalPoints": 123.0
+   }
+  }
+ ]
+}

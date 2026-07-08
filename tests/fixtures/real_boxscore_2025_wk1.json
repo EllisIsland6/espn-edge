@@ -1,0 +1,358 @@
+{
+ "schedule": [
+  {
+   "matchupPeriodId": 1,
+   "playoffTierType": null,
+   "home": {
+    "teamId": 2,
+    "rosterForCurrentScoringPeriod": {
+     "entries": [
+      {
+       "playerId": 3929630,
+       "lineupSlotId": 2,
+       "playerPoolEntry": {
+        "id": 3929630,
+        "appliedStatTotal": 18.4
+       }
+      },
+      {
+       "playerId": 4426502,
+       "lineupSlotId": 4,
+       "playerPoolEntry": {
+        "id": 4426502,
+        "appliedStatTotal": 13.5
+       }
+      },
+      {
+       "playerId": 4361307,
+       "lineupSlotId": 6,
+       "playerPoolEntry": {
+        "id": 4361307,
+        "appliedStatTotal": 12.100000000000001
+       }
+      },
+      {
+       "playerId": 4596448,
+       "lineupSlotId": 2,
+       "playerPoolEntry": {
+        "id": 4596448,
+        "appliedStatTotal": 14.5
+       }
+      },
+      {
+       "playerId": 3121422,
+       "lineupSlotId": 4,
+       "playerPoolEntry": {
+        "id": 3121422,
+        "appliedStatTotal": 4.7
+       }
+      },
+      {
+       "playerId": 3040151,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 3040151,
+        "appliedStatTotal": 12.5
+       }
+      },
+      {
+       "playerId": 3052587,
+       "lineupSlotId": 0,
+       "playerPoolEntry": {
+        "id": 3052587,
+        "appliedStatTotal": 22.58
+       }
+      },
+      {
+       "playerId": 4241478,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4241478,
+        "appliedStatTotal": 4.6
+       }
+      },
+      {
+       "playerId": 3126486,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 3126486,
+        "appliedStatTotal": 22.6
+       }
+      },
+      {
+       "playerId": 3042519,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 3042519,
+        "appliedStatTotal": 15.700000000000001
+       }
+      },
+      {
+       "playerId": 15818,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 15818,
+        "appliedStatTotal": 19.8
+       }
+      },
+      {
+       "playerId": 4426338,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4426338,
+        "appliedStatTotal": 6.84
+       }
+      },
+      {
+       "playerId": 4372019,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4372019,
+        "appliedStatTotal": 1.5
+       }
+      },
+      {
+       "playerId": 4635008,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4635008,
+        "appliedStatTotal": 25.200000000000003
+       }
+      },
+      {
+       "playerId": -16007,
+       "lineupSlotId": 16,
+       "playerPoolEntry": {
+        "id": -16007,
+        "appliedStatTotal": 16.0
+       }
+      },
+      {
+       "playerId": 4689936,
+       "lineupSlotId": 17,
+       "playerPoolEntry": {
+        "id": 4689936,
+        "appliedStatTotal": 7.0
+       }
+      },
+      {
+       "playerId": 4241372,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4241372,
+        "appliedStatTotal": 19.9
+       }
+      },
+      {
+       "playerId": 4569587,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4569587,
+        "appliedStatTotal": 11.5
+       }
+      },
+      {
+       "playerId": 4361432,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4361432,
+        "appliedStatTotal": 8.8
+       }
+      },
+      {
+       "playerId": 4429025,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4429025,
+        "appliedStatTotal": 24.9
+       }
+      },
+      {
+       "playerId": 4241474,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4241474,
+        "appliedStatTotal": 4.700000000000001
+       }
+      }
+     ]
+    }
+   },
+   "away": {
+    "teamId": 6,
+    "rosterForCurrentScoringPeriod": {
+     "entries": [
+      {
+       "playerId": 3117251,
+       "lineupSlotId": 2,
+       "playerPoolEntry": {
+        "id": 3117251,
+        "appliedStatTotal": 23.200000000000003
+       }
+      },
+      {
+       "playerId": 4047646,
+       "lineupSlotId": 4,
+       "playerPoolEntry": {
+        "id": 4047646,
+        "appliedStatTotal": 1.8
+       }
+      },
+      {
+       "playerId": 3116406,
+       "lineupSlotId": 4,
+       "playerPoolEntry": {
+        "id": 3116406,
+        "appliedStatTotal": 8.0
+       }
+      },
+      {
+       "playerId": 4430737,
+       "lineupSlotId": 2,
+       "playerPoolEntry": {
+        "id": 4430737,
+        "appliedStatTotal": 13.900000000000002
+       }
+      },
+      {
+       "playerId": 4567048,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4567048,
+        "appliedStatTotal": 5.4
+       }
+      },
+      {
+       "playerId": 4047650,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4047650,
+        "appliedStatTotal": 12.3
+       }
+      },
+      {
+       "playerId": 3925357,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 3925357,
+        "appliedStatTotal": 6.7
+       }
+      },
+      {
+       "playerId": 4426388,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4426388,
+        "appliedStatTotal": 6.6
+       }
+      },
+      {
+       "playerId": 4361370,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4361370,
+        "appliedStatTotal": 12.4
+       }
+      },
+      {
+       "playerId": 4035687,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4035687,
+        "appliedStatTotal": 20.0
+       }
+      },
+      {
+       "playerId": 3123076,
+       "lineupSlotId": 6,
+       "playerPoolEntry": {
+        "id": 3123076,
+        "appliedStatTotal": 6.7
+       }
+      },
+      {
+       "playerId": 3068267,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 3068267,
+        "appliedStatTotal": 8.7
+       }
+      },
+      {
+       "playerId": 4373678,
+       "lineupSlotId": 23,
+       "playerPoolEntry": {
+        "id": 4373678,
+        "appliedStatTotal": 12.4
+       }
+      },
+      {
+       "playerId": 2577417,
+       "lineupSlotId": 0,
+       "playerPoolEntry": {
+        "id": 2577417,
+        "appliedStatTotal": 7.82
+       }
+      },
+      {
+       "playerId": 4040655,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4040655,
+        "appliedStatTotal": 0.0
+       }
+      },
+      {
+       "playerId": 4241457,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4241457,
+        "appliedStatTotal": 2.0
+       }
+      },
+      {
+       "playerId": 4242355,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 4242355,
+        "appliedStatTotal": 7.300000000000001
+       }
+      },
+      {
+       "playerId": 15795,
+       "lineupSlotId": 20,
+       "playerPoolEntry": {
+        "id": 15795,
+        "appliedStatTotal": 11.5
+       }
+      },
+      {
+       "playerId": 3116385,
+       "lineupSlotId": 21,
+       "playerPoolEntry": {
+        "id": 3116385,
+        "appliedStatTotal": 0.0
+       }
+      },
+      {
+       "playerId": 17372,
+       "lineupSlotId": 17,
+       "playerPoolEntry": {
+        "id": 17372,
+        "appliedStatTotal": 15.0
+       }
+      },
+      {
+       "playerId": -16028,
+       "lineupSlotId": 16,
+       "playerPoolEntry": {
+        "id": -16028,
+        "appliedStatTotal": 8.0
+       }
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

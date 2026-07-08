@@ -1,0 +1,140 @@
+{
+ "players": [
+  {
+   "player": {
+    "id": 4429795,
+    "fullName": "Jahmyr Gibbs",
+    "defaultPositionId": 2,
+    "proTeamId": 8,
+    "ownership": {
+     "averageDraftPosition": 1.84,
+     "percentOwned": 99.79
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 2
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4430807,
+    "fullName": "Bijan Robinson",
+    "defaultPositionId": 2,
+    "proTeamId": 1,
+    "ownership": {
+     "averageDraftPosition": 2.21,
+     "percentOwned": 99.77
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 1
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4426515,
+    "fullName": "Puka Nacua",
+    "defaultPositionId": 3,
+    "proTeamId": 14,
+    "ownership": {
+     "averageDraftPosition": 3.62,
+     "percentOwned": 99.77
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 3
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 3117251,
+    "fullName": "Christian McCaffrey",
+    "defaultPositionId": 2,
+    "proTeamId": 25,
+    "ownership": {
+     "averageDraftPosition": 5.28,
+     "percentOwned": 99.77
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 5
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4374302,
+    "fullName": "Amon-Ra St. Brown",
+    "defaultPositionId": 3,
+    "proTeamId": 8,
+    "ownership": {
+     "averageDraftPosition": 7.68,
+     "percentOwned": 99.77
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 7
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4362628,
+    "fullName": "Ja'Marr Chase",
+    "defaultPositionId": 3,
+    "proTeamId": 4,
+    "ownership": {
+     "averageDraftPosition": 4.63,
+     "percentOwned": 99.76
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 4
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4430878,
+    "fullName": "Jaxon Smith-Njigba",
+    "defaultPositionId": 3,
+    "proTeamId": 26,
+    "ownership": {
+     "averageDraftPosition": 6.31,
+     "percentOwned": 99.75
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 6
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4241389,
+    "fullName": "CeeDee Lamb",
+    "defaultPositionId": 3,
+    "proTeamId": 6,
+    "ownership": {
+     "averageDraftPosition": 11.27,
+     "percentOwned": 99.75
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 10
+     }
+    }
+   }
+  }
+ ]
+}

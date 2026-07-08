@@ -1,0 +1,140 @@
+{
+ "players": [
+  {
+   "player": {
+    "id": 4362628,
+    "fullName": "Ja'Marr Chase",
+    "defaultPositionId": 3,
+    "proTeamId": 4,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.95
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 1
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4430807,
+    "fullName": "Bijan Robinson",
+    "defaultPositionId": 2,
+    "proTeamId": 1,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.95
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 2
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4429795,
+    "fullName": "Jahmyr Gibbs",
+    "defaultPositionId": 2,
+    "proTeamId": 8,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.95
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 5
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 3117251,
+    "fullName": "Christian McCaffrey",
+    "defaultPositionId": 2,
+    "proTeamId": 25,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.95
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 6
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4426515,
+    "fullName": "Puka Nacua",
+    "defaultPositionId": 3,
+    "proTeamId": 14,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.95
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 9
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4361307,
+    "fullName": "Trey McBride",
+    "defaultPositionId": 4,
+    "proTeamId": 22,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.94
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 21
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4241389,
+    "fullName": "CeeDee Lamb",
+    "defaultPositionId": 3,
+    "proTeamId": 6,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.93
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 7
+     }
+    }
+   }
+  },
+  {
+   "player": {
+    "id": 4374302,
+    "fullName": "Amon-Ra St. Brown",
+    "defaultPositionId": 3,
+    "proTeamId": 8,
+    "ownership": {
+     "averageDraftPosition": 170.0,
+     "percentOwned": 99.93
+    },
+    "draftRanksByRankType": {
+     "PPR": {
+      "rank": 11
+     }
+    }
+   }
+  }
+ ]
+}
