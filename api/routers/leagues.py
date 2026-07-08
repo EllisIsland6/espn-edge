@@ -83,6 +83,7 @@ def sync_league(league_id: int, session: Session = Depends(get_session)) -> Sync
     league = session.get(League, league_id)
     if league is None:
         raise HTTPException(404, "league not found")
-    result = SyncService(session).sync_league(league)
+    with SyncService(session) as svc:
+        result = svc.sync_league(league)
     session.commit()
     return SyncSummary(**result)

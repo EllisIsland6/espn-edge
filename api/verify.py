@@ -107,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
 
         # ---- Attempt 1: PUBLIC (no cookies) --------------------------------
         print(f"[{league_id} / {season}] attempting public access…")
-        result = SyncService(session).sync_league(league)
+        with SyncService(session) as svc:
+            result = svc.sync_league(league)
         used_cookies_plain: tuple[str, str] | None = None
 
         # ---- Attempt 2: cookies, on auth failure ---------------------------
@@ -128,7 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             league.account = account
             league.is_public = False
             session.flush()
-            result = SyncService(session).sync_league(league)
+            with SyncService(session) as svc:
+                result = svc.sync_league(league)
             if result.get("needs_reauth"):
                 print(
                     "NO ACCESS: cookies were sent but ESPN still returned 401/403. "

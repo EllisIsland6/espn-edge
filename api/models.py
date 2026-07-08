@@ -14,9 +14,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -201,8 +203,35 @@ class AdpSnapshot(Base):
 
 class Metric(Base):
     __tablename__ = "metrics"
+    # A plain UniqueConstraint over nullable columns does NOT enforce identity in
+    # SQLite (NULLs compare distinct), so a league-scope metric (team_id/week NULL)
+    # could be inserted many times. Use four *partial* unique indexes so identity
+    # holds for every NULL/non-NULL combination of (team_id, week).
     __table_args__ = (
-        UniqueConstraint("league_id", "team_id", "key", "week", name="uq_metric"),
+        Index(
+            "uq_metric_league",  # league metric, no week
+            "league_id", "key",
+            unique=True,
+            sqlite_where=text("team_id IS NULL AND week IS NULL"),
+        ),
+        Index(
+            "uq_metric_league_week",  # league weekly metric
+            "league_id", "key", "week",
+            unique=True,
+            sqlite_where=text("team_id IS NULL AND week IS NOT NULL"),
+        ),
+        Index(
+            "uq_metric_team",  # team metric, no week
+            "league_id", "team_id", "key",
+            unique=True,
+            sqlite_where=text("team_id IS NOT NULL AND week IS NULL"),
+        ),
+        Index(
+            "uq_metric_team_week",  # team weekly metric
+            "league_id", "team_id", "key", "week",
+            unique=True,
+            sqlite_where=text("team_id IS NOT NULL AND week IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

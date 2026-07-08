@@ -52,7 +52,24 @@ class SyncResult(dict):
 class SyncService:
     def __init__(self, session: Session, espn: EspnService | None = None):
         self.session = session
+        # Only close a service we created ourselves — an injected one (e.g. a test
+        # FakeEspn, or a shared app-level client) is owned by the caller.
+        self._owns_espn = espn is None
         self.espn = espn or EspnService(cache=DBRawCache(session))
+
+    def close(self) -> None:
+        """Close the owned EspnService (its httpx.Client) so request-path syncs and
+        scheduler jobs don't leak connections. No-op for injected services."""
+        if self._owns_espn:
+            close = getattr(self.espn, "close", None)
+            if callable(close):
+                close()
+
+    def __enter__(self) -> SyncService:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     # ---- public ------------------------------------------------------------
     def sync_league(self, league: League) -> SyncResult:
@@ -359,8 +376,9 @@ class SyncService:
             row.espn_adp = p.espn_adp
             row.espn_pct_owned = p.espn_pct_owned
             row.espn_rank_ppr = p.espn_rank_ppr
-            if p.proj_ros is not None:
-                row.proj_ros = p.proj_ros
+            # Always overwrite (even with None): if ESPN drops projection data we
+            # must not keep a stale value that would pollute Phase 3 roster strength.
+            row.proj_ros = p.proj_ros
             row.updated_at = datetime.now(UTC)
         self.session.flush()
 
