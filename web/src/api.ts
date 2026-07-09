@@ -148,6 +148,55 @@ export interface SyncSummary {
   errors: string[];
 }
 
+// --- AI layer (Phase 4) ----------------------------------------------------
+export interface AiStatus {
+  enabled: boolean;
+  standard_model: string;
+  bulk_model: string;
+}
+
+// Report content dicts are loosely typed (backend validates against pydantic).
+export interface DraftRecapContent {
+  espn_team_id: number;
+  team_name: string | null;
+  strategy_label: string;
+  secondary_label: string | null;
+  grade: string;
+  confidence: string;
+  summary: string;
+  key_values: string[];
+  key_reaches: string[];
+}
+
+export interface LeagueBriefContent {
+  difficulty_tier: string;
+  narrative: string;
+  exploit_plan: string[];
+}
+
+export interface AdvantageVerdictContent {
+  verdict_label: string;
+  paragraph: string;
+  highest_leverage_move: string;
+}
+
+export interface AiReportEnvelope<T = Record<string, unknown>> {
+  enabled: boolean;
+  kind: string;
+  model: string | null;
+  created_at: string | null;
+  stale: boolean;
+  content: T | null;
+  error: string | null;
+}
+
+export interface AiReportList<T = Record<string, unknown>> {
+  enabled: boolean;
+  kind: string;
+  reports: T[];
+  error: string | null;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(await errorText(res, path));
@@ -201,3 +250,21 @@ export const addLeague = (leagueRef: string, accountId: number | null, season?: 
     season: season ?? null,
   });
 export const syncLeague = (id: number) => send<SyncSummary>("POST", `/api/leagues/${id}/sync`);
+
+// AI reads + generate (POST triggers a model call unless cached; ?force=true regenerates).
+export const getAiStatus = () => get<AiStatus>("/api/ai/status");
+export const getDraftRecaps = (id: number) =>
+  get<AiReportList<DraftRecapContent>>(`/api/leagues/${id}/ai/draft-recaps`);
+export const generateDraftRecaps = (id: number, force = false) =>
+  send<AiReportList<DraftRecapContent>>("POST", `/api/leagues/${id}/ai/draft-recaps?force=${force}`);
+export const getLeagueBrief = (id: number) =>
+  get<AiReportEnvelope<LeagueBriefContent>>(`/api/leagues/${id}/ai/league-brief`);
+export const generateLeagueBrief = (id: number, force = false) =>
+  send<AiReportEnvelope<LeagueBriefContent>>("POST", `/api/leagues/${id}/ai/league-brief?force=${force}`);
+export const getAdvantageVerdict = (id: number) =>
+  get<AiReportEnvelope<AdvantageVerdictContent>>(`/api/leagues/${id}/ai/advantage-verdict`);
+export const generateAdvantageVerdict = (id: number, force = false) =>
+  send<AiReportEnvelope<AdvantageVerdictContent>>(
+    "POST",
+    `/api/leagues/${id}/ai/advantage-verdict?force=${force}`,
+  );

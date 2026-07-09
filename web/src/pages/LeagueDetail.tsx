@@ -1,13 +1,25 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
+  generateAdvantageVerdict,
+  generateDraftRecaps,
+  generateLeagueBrief,
+  getAdvantageVerdict,
+  getAiStatus,
+  getDraftRecaps,
   getLeagueActivity,
+  getLeagueBrief,
   getLeagueDraft,
   getLeagueMatchups,
   getLeagueOverview,
   syncLeague,
+  type AdvantageVerdictContent,
+  type AiReportEnvelope,
+  type AiStatus,
   type DraftPickOut,
+  type DraftRecapContent,
+  type LeagueBriefContent,
   type LeagueOverview,
   type MatchupOut,
   type TeamOut,
@@ -133,7 +145,7 @@ export default function LeagueDetail() {
         {tab === "teams" && <TeamsTab teams={ov.teams} />}
         {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} />}
         {tab === "activity" && <ActivityTab leagueId={leagueId} teamName={teamName} />}
-        {tab === "ai" && <AiTab />}
+        {tab === "ai" && <AiTab leagueId={leagueId} />}
       </div>
     </div>
   );
@@ -249,16 +261,86 @@ function DraftTab({
     { id: "value", header: "Δ vs ADP", accessorFn: (p) => p.value_delta ?? 0, cell: (c) => <span className="mono text-muted">{c.row.original.value_delta == null ? DASH : num(c.row.original.value_delta)}</span> },
   ];
   return (
-    <Panel className="overflow-hidden p-1">
-      <DataTable
-        data={picks}
-        columns={cols}
-        initialSort={[{ id: "overall", desc: false }]}
-        rowClassName={(p) => (myTeamId != null && p.team_id === myTeamId ? "bg-greenchip/40" : "")}
-      />
-      <p className="px-3 py-2 text-[11px] text-muted">
-        Player names + ADP value deltas resolve once player mapping/analytics land (Phase 3).
-      </p>
+    <div className="space-y-5">
+      <DraftRecaps leagueId={leagueId} />
+      <Panel className="overflow-hidden p-1">
+        <DataTable
+          data={picks}
+          columns={cols}
+          initialSort={[{ id: "overall", desc: false }]}
+          rowClassName={(p) => (myTeamId != null && p.team_id === myTeamId ? "bg-greenchip/40" : "")}
+        />
+        <p className="px-3 py-2 text-[11px] text-muted">
+          Player names + ADP value deltas resolve once player mapping lands.
+        </p>
+      </Panel>
+    </div>
+  );
+}
+
+// --- AI draft recaps (per team) --------------------------------------------
+function DraftRecaps({ leagueId }: { leagueId: number }) {
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [reports, setReports] = useState<DraftRecapContent[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAiStatus().then(setStatus).catch(() => setStatus({ enabled: false, standard_model: "", bulk_model: "" }));
+    getDraftRecaps(leagueId).then((r) => setReports(r.reports)).catch(() => setReports([]));
+  }, [leagueId]);
+
+  async function generate() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await generateDraftRecaps(leagueId, (reports?.length ?? 0) > 0);
+      if (r.error) setErr(r.error);
+      setReports(r.reports);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">AI draft recaps</h3>
+        {status.enabled && (
+          <Button variant={reports && reports.length ? "secondary" : "primary"} onClick={generate} disabled={busy}>
+            {busy ? "Generating…" : reports && reports.length ? "Regenerate all" : "Generate all"}
+          </Button>
+        )}
+      </div>
+      {!status.enabled ? (
+        <div className="mt-3"><AiKeyOff /></div>
+      ) : err ? (
+        <div className="mt-3"><ErrorNote message={err} /></div>
+      ) : !reports || reports.length === 0 ? (
+        <p className="mt-3 text-sm text-muted">No recaps yet — click Generate all.</p>
+      ) : (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {reports.map((r) => (
+            <div key={r.espn_team_id} className="rounded-lg border border-line bg-row p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-primary">{r.team_name ?? `Team ${r.espn_team_id}`}</span>
+                <GradePill grade={r.grade} />
+              </div>
+              <div className="mono mt-1 flex flex-wrap items-center gap-1 text-[11px] text-secondary">
+                <span className="rounded bg-rowhover px-1.5 py-0.5">{r.strategy_label}</span>
+                {r.secondary_label && (
+                  <span className="rounded bg-rowhover px-1.5 py-0.5 text-muted">{r.secondary_label}</span>
+                )}
+                <span className="text-muted">· {r.confidence} confidence</span>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-secondary">{r.summary}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -343,11 +425,130 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
 }
 
 // --- AI Brief ---------------------------------------------------------------
-function AiTab() {
+function AiKeyOff() {
   return (
     <EmptyState
-      title="AI analysis — Phase 4"
-      hint="League difficulty brief, exploit plan, and advantage verdict generate here once the Anthropic layer is wired."
+      title="AI analysis is off"
+      hint={
+        <>
+          Set <code className="mono">ANTHROPIC_API_KEY</code> in <code className="mono">.env</code> and
+          restart the API to enable draft recaps, league briefs, and advantage verdicts.
+        </>
+      }
     />
+  );
+}
+
+function AiTab({ leagueId }: { leagueId: number }) {
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [brief, setBrief] = useState<AiReportEnvelope<LeagueBriefContent> | null>(null);
+  const [verdict, setVerdict] = useState<AiReportEnvelope<AdvantageVerdictContent> | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAiStatus().then(setStatus).catch((e) => setErr(String(e)));
+    getLeagueBrief(leagueId).then(setBrief).catch(() => {});
+    getAdvantageVerdict(leagueId).then(setVerdict).catch(() => {});
+  }, [leagueId]);
+
+  if (err) return <ErrorNote message={err} />;
+  if (!status) return <Spinner />;
+  if (!status.enabled) return <AiKeyOff />;
+
+  async function generate(which: "brief" | "verdict") {
+    setBusy(which);
+    setErr(null);
+    try {
+      if (which === "brief") setBrief(await generateLeagueBrief(leagueId, !!brief?.content));
+      else setVerdict(await generateAdvantageVerdict(leagueId, !!verdict?.content));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <AiCard
+        title="League difficulty brief"
+        env={brief}
+        busy={busy === "brief"}
+        onGenerate={() => generate("brief")}
+      >
+        {brief?.content && (
+          <div>
+            <span className="mono rounded bg-rowhover px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-gold">
+              {brief.content.difficulty_tier}
+            </span>
+            <p className="mt-2 text-sm leading-relaxed text-secondary">{brief.content.narrative}</p>
+            <div className="mt-2 text-xs uppercase tracking-wide text-muted">Exploit plan</div>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">
+              {brief.content.exploit_plan.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </AiCard>
+
+      <AiCard
+        title="My advantage verdict"
+        env={verdict}
+        busy={busy === "verdict"}
+        onGenerate={() => generate("verdict")}
+      >
+        {verdict?.content && (
+          <div>
+            <span className="mono rounded bg-rowhover px-2 py-0.5 text-[11px] uppercase tracking-wide text-primary">
+              {verdict.content.verdict_label}
+            </span>
+            <p className="mt-2 text-sm leading-relaxed text-secondary">{verdict.content.paragraph}</p>
+            <div className="mt-2 text-xs uppercase tracking-wide text-muted">Highest-leverage move</div>
+            <p className="mt-1 text-sm text-green">{verdict.content.highest_leverage_move}</p>
+          </div>
+        )}
+      </AiCard>
+    </div>
+  );
+}
+
+function AiCard({
+  title,
+  env,
+  busy,
+  onGenerate,
+  children,
+}: {
+  title: string;
+  env: AiReportEnvelope<unknown> | null;
+  busy: boolean;
+  onGenerate: () => void;
+  children?: ReactNode;
+}) {
+  const has = !!env?.content;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <div className="flex items-center gap-2">
+          {has && env?.stale && (
+            <span className="mono text-[10px] uppercase tracking-wide text-gold">inputs changed</span>
+          )}
+          <Button variant={has ? "secondary" : "primary"} onClick={onGenerate} disabled={busy}>
+            {busy ? "Generating…" : has ? "Regenerate" : "Generate"}
+          </Button>
+        </div>
+      </div>
+      {env?.error && <div className="mt-2"><ErrorNote message={env.error} /></div>}
+      <div className="mt-3">{has ? children : <p className="text-sm text-muted">Not generated yet.</p>}</div>
+      {has && env?.model && (
+        <div className="mono mt-3 text-[10px] text-muted">
+          {env.model}
+          {env.created_at ? ` · ${relTime(env.created_at)}` : ""}
+        </div>
+      )}
+    </Panel>
   );
 }

@@ -120,6 +120,17 @@ refresh them just re-sync a league ("Sync"/"Sync all" in the UI, `POST
 are represented as absence and surface as `null`. Full contract, formulas, and the
 v1-vs-future split: **[docs/phase-3-analytics.md](docs/phase-3-analytics.md)**.
 
+## AI analysis (optional)
+
+The AI layer (draft recaps, league difficulty brief, advantage verdict, weekly recap,
+trade finder) is **backend-only and additive** — the app is fully functional without it.
+Set `ANTHROPIC_API_KEY` in `.env` to enable it; with no key, AI panels show a "connect a
+key" empty state and the endpoints return `enabled:false` (never an error). Reports are
+grounded on DB facts only, validated against pydantic schemas, and cached by input hash
+(with a Regenerate action). Models are configured in `api/ai_config.py` (standard =
+`claude-sonnet-5`, bulk = `claude-haiku-4-5`). Full contract:
+**[docs/phase-4-ai.md](docs/phase-4-ai.md)**.
+
 ## Layout
 
 ```

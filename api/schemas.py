@@ -174,6 +174,33 @@ class PortfolioRow(BaseModel):
     verdict: str | None = None
 
 
+class AiStatus(BaseModel):
+    enabled: bool
+    standard_model: str
+    bulk_model: str
+
+
+class AiReportEnvelope(BaseModel):
+    """A single league/team-scoped AI report (null content = not generated)."""
+
+    enabled: bool
+    kind: str
+    model: str | None = None
+    created_at: datetime | None = None
+    stale: bool = False  # stored inputs differ from current DB facts
+    content: dict | None = None
+    error: str | None = None
+
+
+class AiReportList(BaseModel):
+    """Multiple reports of one kind (e.g. per-team draft recaps)."""
+
+    enabled: bool
+    kind: str
+    reports: list[dict] = []
+    error: str | None = None
+
+
 class PortfolioSummary(BaseModel):
     """Aggregate portfolio numbers, computed in the view layer (never in React)."""
 

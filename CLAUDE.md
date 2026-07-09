@@ -12,7 +12,15 @@
 
 ## Build status
 - Phase 0 (scaffold), Phase 1 (ESPN client, accounts, sync), Phase 1.5 (hardening),
-  Phase 2 (Portfolio Board + League detail UI) implemented.
+  Phase 2 (Portfolio Board + League detail UI), Phase 3 (deterministic Edge analytics),
+  Phase 4 v1 (AI analysis layer) implemented.
+- Phase 3: api/services/metrics.py + api/edge_config.py; edge_score/grade/verdict/
+  playoff_odds recompute on sync, persisted in metrics. Contract: docs/phase-3-analytics.md.
+- Phase 4: backend-only Anthropic layer (api/services/ai.py, ai_inputs.py, ai_schemas.py,
+  ai_config.py, routers/ai.py). Works with NO ANTHROPIC_API_KEY (endpoints return
+  enabled:false, never 500). Structured output validated with pydantic, cached by
+  input_hash in ai_reports, grounded on DB facts only. Models: standard=claude-sonnet-5,
+  bulk=claude-haiku-4-5 (ai_config.py). Contract: docs/phase-4-ai.md. Never log/return the key.
 - Web stack: React+Vite+TS, Tailwind v4 (tokens in src/tokens.css @theme), TanStack
   Table (src/components/DataTable.tsx), react-router. Pages: PortfolioBoard, LeagueDetail
   (tabs), Manage. All data from the read-only /api view endpoints; no math in components.
