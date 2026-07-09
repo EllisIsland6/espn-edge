@@ -53,6 +53,8 @@ class AnthropicLlmClient:
     ) -> dict:
         import anthropic
 
+        # Logs and error messages never include the key, prompts, cookies, SWID,
+        # espn_s2, or raw model output — only the exception class.
         try:
             resp = self._client.messages.parse(
                 model=model,
@@ -61,11 +63,25 @@ class AnthropicLlmClient:
                 messages=[{"role": "user", "content": user}],
                 output_format=schema,
             )
-        except anthropic.APIError as exc:  # never leak key/cookies; log only the class
+        except anthropic.APIError as exc:
             log.warning("anthropic API error: %s", type(exc).__name__)
             raise AiError(f"model call failed ({type(exc).__name__})") from exc
-        parsed = resp.parsed_output
-        return parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else dict(parsed)
+        except ValidationError as exc:  # parse() validated the output and it didn't fit
+            log.warning("anthropic parse validation failed")
+            raise AiError("model output could not be parsed") from exc
+        except Exception as exc:  # any other SDK/parse failure — stay user-safe, no 500
+            log.warning("anthropic parse failed: %s", type(exc).__name__)
+            raise AiError("model output could not be parsed") from exc
+
+        parsed = getattr(resp, "parsed_output", None)
+        if parsed is None:
+            log.warning("anthropic returned no parsed output")
+            raise AiError("model returned no parsed output")
+        try:
+            return parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else dict(parsed)
+        except Exception as exc:
+            log.warning("could not serialize parsed output: %s", type(exc).__name__)
+            raise AiError("model output could not be parsed") from exc
 
 
 _SYSTEM = (

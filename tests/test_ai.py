@@ -27,12 +27,15 @@ class FakeLlmClient:
 
     calls = 0
     invalid = False  # when True, return a schema-invalid dict to exercise validation
+    raise_ai_error = False  # when True, simulate what AnthropicLlmClient raises on failure
 
     def __init__(self, api_key=None):
         pass
 
     def complete_json(self, *, model, system, user, schema, max_tokens):
         FakeLlmClient.calls += 1
+        if FakeLlmClient.raise_ai_error:
+            raise AiError("model output could not be parsed")
         if FakeLlmClient.invalid:
             return {"nonsense": True}
         canned = {
@@ -211,3 +214,84 @@ def test_api_league_brief_and_verdict_generate(synced_league_id, monkeypatch):
     # GET brief returns stored content, not stale (inputs unchanged).
     got = client.get(f"/api/leagues/{synced_league_id}/ai/league-brief").json()
     assert got["content"]["difficulty_tier"] == "Average" and got["stale"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Finding 1: parse/validation failures become AiError, not a 500
+# --------------------------------------------------------------------------- #
+def _anthropic_client_with(behavior):
+    """AnthropicLlmClient with its SDK swapped for a fake whose parse() runs `behavior`."""
+    from api.services.ai import AnthropicLlmClient
+
+    class _Messages:
+        def parse(self, **kwargs):
+            return behavior()
+
+    class _Sdk:
+        messages = _Messages()
+
+    c = AnthropicLlmClient(api_key="x")  # no network at construction
+    c._client = _Sdk()
+    return c
+
+
+class _Resp:
+    def __init__(self, parsed):
+        self.parsed_output = parsed
+
+
+def _call(c):
+    return c.complete_json(
+        model="m", system="s", user="u", schema=ai_schemas.LeagueBrief, max_tokens=64
+    )
+
+
+def test_anthropic_client_generic_exception_becomes_ai_error():
+    def boom():
+        raise RuntimeError("kaboom")
+
+    with pytest.raises(AiError) as ei:
+        _call(_anthropic_client_with(boom))
+    # message is user-safe (no key/prompt/raw output)
+    assert "could not be parsed" in str(ei.value)
+
+
+def test_anthropic_client_validation_error_becomes_ai_error():
+    from pydantic import ValidationError
+
+    def bad_validate():
+        ai_schemas.LeagueBrief.model_validate({})  # raises ValidationError (missing fields)
+
+    with pytest.raises((AiError,)):
+        _call(_anthropic_client_with(bad_validate))
+    # sanity: the trigger really is a ValidationError
+    with pytest.raises(ValidationError):
+        ai_schemas.LeagueBrief.model_validate({})
+
+
+def test_anthropic_client_missing_parsed_output_becomes_ai_error():
+    with pytest.raises(AiError) as ei:
+        _call(_anthropic_client_with(lambda: _Resp(None)))
+    assert "no parsed output" in str(ei.value)
+
+
+def test_anthropic_client_success_returns_dict():
+    valid = ai_schemas.LeagueBrief(difficulty_tier="Average", narrative="n", exploit_plan=["a"])
+    out = _call(_anthropic_client_with(lambda: _Resp(valid)))
+    assert out["difficulty_tier"] == "Average" and out["exploit_plan"] == ["a"]
+
+
+def test_api_returns_error_envelope_not_500_on_model_failure(synced_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    FakeLlmClient.raise_ai_error = True
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test-key")
+    monkeypatch.setattr("api.services.ai.AnthropicLlmClient", FakeLlmClient)
+    try:
+        r = client.post(f"/api/leagues/{synced_league_id}/ai/league-brief")
+        assert r.status_code == 200  # not a raw 500
+        body = r.json()
+        assert body["enabled"] is True and body["content"] is None
+        assert body["error"] and "parsed" in body["error"]
+    finally:
+        FakeLlmClient.raise_ai_error = False

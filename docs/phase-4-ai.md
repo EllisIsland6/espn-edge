@@ -71,7 +71,7 @@ inside `content_json` (`espn_team_id`), keyed by the team-specific `input_hash`.
 - `POST /api/leagues/{id}/ai/draft-recaps?force=…` → generate/refresh all teams; caches.
 - `GET|POST /api/leagues/{id}/ai/league-brief`
 - `GET|POST /api/leagues/{id}/ai/advantage-verdict`
-- `GET|POST /api/leagues/{id}/ai/weekly-recap?week=N`
+- `POST /api/leagues/{id}/ai/weekly-recap?week=N` (POST-only for now; GET added when the UI lands)
 - `POST /api/leagues/{id}/ai/trade-finder?opponent_team_id=…`
 
 When disabled, GET returns `{enabled:false, reports:…}` empties and POST returns
