@@ -218,8 +218,13 @@ class SyncService:
         # Recompute Edge metrics from the just-synced DB state (Phase 3, SPEC §6).
         # Deterministic + isolated; recompute-on-sync is the invalidation strategy.
         try:
+            # Pass completed weeks so the playoff sim treats current-week partial
+            # scores as remaining games, not completed samples (Phase 5 review).
             metrics_result = metrics.recompute_league(
-                self.session, league, projections_fresh=projections_fresh
+                self.session,
+                league,
+                projections_fresh=projections_fresh,
+                completed_weeks=set(completed_weeks),
             )
             result["metrics"] = metrics_result
         except Exception as exc:  # analytics must never break a sync

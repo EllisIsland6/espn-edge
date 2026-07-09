@@ -98,8 +98,11 @@ leagues) must not be recomputed from possibly-stale `players.proj_ros`. If
 as **pending and clears them** — so a drafted league can't serve a freshly-stamped
 score derived from old projections. The record/points branch (in_season / complete
 with ≥1 game) does **not** depend on projections and still computes normally in this
-case. `playoff_odds` depends only on standings/size/`playoff_team_count`, so it is
-unaffected. The `players_failed` warning still surfaces in the sync result/UI.
+case. `playoff_odds` does not depend on projections, so it is unaffected. (Its own
+inputs are ESPN standings/`playoff_team_count` **plus completed-week matchup scores and
+the remaining regular-season schedule** — that heuristic history is Phase 3; the real
+model is the Phase 5 Monte Carlo, see phase-5 doc.) The `players_failed` warning still
+surfaces in the sync result/UI.
 
 ## 6. Missing / incomplete data
 

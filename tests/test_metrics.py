@@ -223,6 +223,70 @@ def test_playoff_odds_pending_without_schedule(db_session):
     assert team_edge(db_session, lg.id, lg.my_team_id).playoff_odds is None
 
 
+def test_current_week_partial_scores_stay_remaining():
+    # Finding 1: mid-week partial scores must not become completed samples.
+    from types import SimpleNamespace
+
+    def game(week, h, a, hp, ap):
+        return SimpleNamespace(week=week, home_team_id=h, away_team_id=a,
+                               home_points=hp, away_points=ap, is_playoff=False)
+
+    ids = {1, 2, 3, 4}
+    matchups = [
+        game(1, 1, 2, 120.0, 100.0),
+        game(1, 3, 4, 90.0, 80.0),
+        game(2, 1, 3, 50.0, 30.0),  # current week (2) in progress — partial score
+        game(2, 2, 4, 0, 0),  # current week not started
+    ]
+    # current_week = 2 → only week 1 is completed
+    played, remaining = metrics._split_matchups(matchups, ids, completed_weeks={1})
+    assert played[1] == [120.0] and played[3] == [90.0]  # week-2 partials excluded
+    assert 50.0 not in played[1] and 30.0 not in played[3]
+    assert len(remaining) == 2  # both week-2 games remain to be simulated
+
+    # Documents the bug the fix closes: the legacy points>0 fallback WOULD have
+    # (wrongly) counted the partial score and dropped that game from remaining.
+    played_fb, remaining_fb = metrics._split_matchups(matchups, ids, completed_weeks=None)
+    assert 50.0 in played_fb[1] and len(remaining_fb) == 1
+
+
+def test_no_remaining_games_uses_espn_standing(db_session):
+    # Finding 2: in_season with all regular-season games played → deterministic by
+    # ESPN standing (which may encode tiebreakers we don't model), not a sim.
+    lg = League(espn_league_id="224", season=2026, is_public=True, lifecycle="in_season",
+                size=4, playoff_team_count=2)
+    db_session.add(lg)
+    db_session.flush()
+    for i in range(1, 5):
+        db_session.add(Team(league_id=lg.id, espn_team_id=i, name=f"T{i}", wins=1, losses=0,
+                            ties=0, points_for=100.0, standing=i))
+    db_session.flush()
+    ids = {
+        espn: pk
+        for pk, espn in db_session.execute(
+            select(Team.id, Team.espn_team_id).where(Team.league_id == lg.id)
+        )
+    }
+    lg.my_team_id = ids[1]
+    # Two fully-played weeks, no remaining regular-season games.
+    db_session.add_all([
+        Matchup(league_id=lg.id, week=1, home_team_id=ids[1], away_team_id=ids[2],
+                home_points=110.0, away_points=100.0),
+        Matchup(league_id=lg.id, week=1, home_team_id=ids[3], away_team_id=ids[4],
+                home_points=95.0, away_points=90.0),
+        Matchup(league_id=lg.id, week=2, home_team_id=ids[1], away_team_id=ids[3],
+                home_points=105.0, away_points=99.0),
+        Matchup(league_id=lg.id, week=2, home_team_id=ids[2], away_team_id=ids[4],
+                home_points=101.0, away_points=88.0),
+    ])
+    db_session.flush()
+    metrics.recompute_league(db_session, lg, completed_weeks={1, 2})
+    db_session.commit()
+    for espn in (1, 2, 3, 4):  # this fixture sets standing == espn_team_id
+        odds = team_edge(db_session, lg.id, ids[espn]).playoff_odds
+        assert odds == (1.0 if espn <= 2 else 0.0)
+
+
 def test_recompute_is_idempotent(db_session):
     lg = _make_inseason_league(db_session)
     metrics.recompute_league(db_session, lg)

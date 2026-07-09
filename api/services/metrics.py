@@ -108,28 +108,24 @@ def compute_edge_scores(
     return out2
 
 
-def compute_playoff_odds_for_league(
-    session: Session, league: League, teams: list[Team]
-) -> dict[int, float | None]:
-    """Playoff odds per team (Phase 5). complete → deterministic 1/0 from final
-    standings; in_season → seeded Monte Carlo over the remaining schedule; otherwise
-    pending. Never fabricates a schedule/settings (docs/phase-5-playoff-exports.md)."""
-    spots = league.playoff_team_count
-    if league.lifecycle == "complete":
-        if not spots:
-            return {t.id: None for t in teams}
-        return {
-            t.id: (1.0 if (t.standing is not None and t.standing <= spots) else 0.0)
-            for t in teams
-        }
-    if league.lifecycle != "in_season" or not spots:
-        return {t.id: None for t in teams}
+def _split_matchups(
+    matchups, ids: set[int], completed_weeks: set[int] | None
+) -> tuple[dict[int, list[float]], list[SimGame]]:
+    """Partition matchups into per-team completed-game scores and remaining games.
 
-    ids = {t.id for t in teams}
-    played_scores: dict[int, list[float]] = {t.id: [] for t in teams}
+    A game counts as *played* (a scoring sample) only if its week is in
+    `completed_weeks`. This keeps a **current-week partial score** — which ESPN can
+    expose mid-week — out of the samples and in the remaining schedule. When
+    `completed_weeks is None` (manual/test recompute with no schedule context), fall
+    back to the legacy "either side scored > 0" heuristic.
+    """
+    played_scores: dict[int, list[float]] = {tid: [] for tid in ids}
     remaining: list[SimGame] = []
-    for m in session.scalars(select(Matchup).where(Matchup.league_id == league.id)):
-        is_played = (m.home_points or 0) > 0 or (m.away_points or 0) > 0
+    for m in matchups:
+        if completed_weeks is not None:
+            is_played = m.week in completed_weeks
+        else:
+            is_played = (m.home_points or 0) > 0 or (m.away_points or 0) > 0
         if is_played:
             if m.home_team_id in ids and m.home_points is not None:
                 played_scores[m.home_team_id].append(m.home_points)
@@ -137,8 +133,52 @@ def compute_playoff_odds_for_league(
                 played_scores[m.away_team_id].append(m.away_points)
         elif not m.is_playoff and m.home_team_id in ids and m.away_team_id in ids:
             remaining.append(SimGame(m.home_team_id, m.away_team_id))
+    return played_scores, remaining
 
-    # Can't model a team with no results → pending for the whole league.
+
+def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
+    """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
+    don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
+    if all(t.standing is not None for t in teams):
+        return {t.id: (1.0 if t.standing <= spots else 0.0) for t in teams}
+    ranked = sorted(teams, key=lambda t: (t.wins + 0.5 * t.ties, t.points_for), reverse=True)
+    made = {t.id: 0.0 for t in teams}
+    for t in ranked[:spots]:
+        made[t.id] = 1.0
+    return made
+
+
+def compute_playoff_odds_for_league(
+    session: Session,
+    league: League,
+    teams: list[Team],
+    completed_weeks: set[int] | None = None,
+) -> dict[int, float | None]:
+    """Playoff odds per team (Phase 5). complete → deterministic 1/0 from final
+    standings; in_season with a remaining schedule → seeded Monte Carlo; in_season with
+    no remaining regular-season games → deterministic by ESPN standing; otherwise
+    pending. Never fabricates a schedule/settings (docs/phase-5-playoff-exports.md)."""
+    spots = league.playoff_team_count
+    if league.lifecycle == "complete":
+        if not spots:
+            return {t.id: None for t in teams}
+        return _standings_odds(teams, spots)
+    if league.lifecycle != "in_season" or not spots:
+        return {t.id: None for t in teams}
+
+    ids = {t.id for t in teams}
+    matchups = session.scalars(select(Matchup).where(Matchup.league_id == league.id))
+    played_scores, remaining = _split_matchups(matchups, ids, completed_weeks)
+
+    if not remaining:
+        # No games left to simulate. If we saw any completed games, the regular season
+        # is effectively decided → rank by ESPN standing. If there's no schedule at all
+        # (nothing played, nothing remaining), we can't say anything → pending.
+        if any(played_scores[t.id] for t in teams):
+            return _standings_odds(teams, spots)
+        return {t.id: None for t in teams}
+
+    # Can't model a team with no completed-game scores → pending for the whole league.
     if any(not played_scores[t.id] for t in teams):
         return {t.id: None for t in teams}
 
@@ -159,7 +199,10 @@ def compute_playoff_odds_for_league(
 # DB-facing recompute + persistence (SPEC §4: everything traces to a metrics row)
 # --------------------------------------------------------------------------- #
 def recompute_league(
-    session: Session, league: League, projections_fresh: bool = True
+    session: Session,
+    league: League,
+    projections_fresh: bool = True,
+    completed_weeks: set[int] | None = None,
 ) -> dict:
     """Recompute + persist edge_score/playoff_odds for every team in the league.
 
@@ -168,8 +211,11 @@ def recompute_league(
 
     `projections_fresh=False` (kona_player_info failed this sync) forces
     roster-projection-based edge scores to pending, so a drafted/no-games league
-    can't serve freshly stamped scores derived from stale proj_ros. Record/points
-    scoring and playoff_odds are unaffected.
+    can't serve freshly stamped scores derived from stale proj_ros.
+
+    `completed_weeks` (from the sync) scopes which weeks count as played for the
+    playoff simulation so current-week partial scores aren't treated as completed
+    games; None falls back to a points-based heuristic (see `_split_matchups`).
     """
     teams = list(session.scalars(select(Team).where(Team.league_id == league.id)))
     proj_by_team = _roster_projection_by_team(session, league.id)
@@ -188,7 +234,7 @@ def recompute_league(
         for t in teams
     ]
     edges = compute_edge_scores(stats, league.lifecycle, projections_fresh=projections_fresh)
-    odds_map = compute_playoff_odds_for_league(session, league, teams)
+    odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
 
     scored = 0
     for stat in stats:

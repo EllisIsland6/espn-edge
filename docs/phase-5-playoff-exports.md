@@ -17,9 +17,14 @@ sync, idempotent.
 - `leagues.playoff_team_count` (playoff spots), `leagues.lifecycle`.
 - `teams`: `wins, losses, ties, points_for, standing`.
 - `matchups`: `week, home_team_id, away_team_id, home_points, away_points, is_playoff`.
-  A matchup is **played** if either side scored > 0. **Remaining** games = not played,
-  not `is_playoff`, both teams present. Each team's per-week scores (from played games)
-  seed its scoring distribution.
+  A matchup counts as **played** (a scoring sample) only if its `week` is a **completed
+  week** — the sync passes `completed_weeks` (weeks before `current_week`) into
+  `recompute_league`, so a **current-week partial score** (ESPN can expose scores
+  mid-week) is *not* treated as a completed game and stays in the remaining schedule.
+  **Remaining** games = not in a completed week, not `is_playoff`, both teams present.
+  Each team's completed-week scores seed its scoring distribution. (For manual/test
+  recompute with no `completed_weeks`, a legacy "either side scored > 0" fallback is used
+  — see `metrics._split_matchups`.)
 
 ### Computation (`api/services/playoff_sim.py`, knobs in `api/edge_config.py`)
 Per-team score model: `μ` = mean of that team's played scores; `σ` = population stdev of
@@ -33,11 +38,14 @@ current record, ranks all teams by `(wins desc, points_for desc)`, and marks the
 ### Case behavior
 - **complete** → deterministic: `1.0` if `standing ≤ playoff_team_count`, else `0.0`
   (final standings are ground truth — no simulation).
-- **in_season** with a known `playoff_team_count` and ≥1 played game →
-  Monte Carlo as above. If there are no remaining games, every sim is identical and the
-  result is a deterministic 1.0/0.0 by current standings.
-- **in_season but inputs missing** (`playoff_team_count` unknown, or no played games to
-  estimate `μ`) → **pending** (`None`) — never fabricated.
+- **in_season** with a known `playoff_team_count`, a remaining schedule, and ≥1 completed
+  game per team → Monte Carlo as above.
+- **in_season with no remaining regular-season games** (all played, but not yet marked
+  `complete`) → deterministic `1.0`/`0.0` by **ESPN `standing`** (authoritative — it
+  encodes league tiebreakers we don't model), *not* the sim's own ranking. Falls back to
+  `(wins, points_for)` ranking only if a `standing` is missing.
+- **in_season but inputs missing** (`playoff_team_count` unknown, or a team with no
+  completed-game scores, or no schedule at all) → **pending** (`None`) — never fabricated.
 - **pre_draft / drafted** (no meaningful results) → **pending** (`None`).
 
 ### Persistence / exposure
