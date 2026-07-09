@@ -23,5 +23,11 @@ __pycache__/
 /web/.vite/
 *.tsbuildinfo
 
+# Playwright
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+/web/.playwright/
+
 # OS
 .DS_Store

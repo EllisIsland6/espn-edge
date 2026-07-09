@@ -88,15 +88,26 @@ python -m api.verify --league 123456 --season 2026 --cross-check --label main
 
 `--label` names the account the cookies are stored under (default `main`).
 
-## Tests
+## Tests & quality gates
 
-All parsing/sync/metric tests run **offline** against recorded fixtures in
-`tests/fixtures/` (no network, no cookies):
+All backend tests run **offline** against recorded fixtures in `tests/fixtures/` (no
+network, no cookies). The frontend has a small **Playwright** smoke suite that mocks the
+`/api/*` layer (no backend, no ESPN). The full gate set (enforced by CI on every push/PR
+— `.github/workflows/ci.yml`):
 
 ```bash
-make test    # pytest
-make lint    # ruff
+# backend
+make test    # pytest (or: .venv/bin/python -m pytest -p no:cacheprovider)
+make lint    # ruff check api tests
+# frontend (from web/)
+npm run lint          # tsc
+npm run build         # vite build
+npm run e2e:install   # one-time: fetch the Playwright Chromium browser
+npm run e2e           # Playwright smoke suite
 ```
+
+Beta-hardening scope (CI + smoke tests + robustness audit):
+**[docs/phase-6-beta-hardening.md](docs/phase-6-beta-hardening.md)**.
 
 ## Schema changes & reset
 

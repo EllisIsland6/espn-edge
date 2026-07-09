@@ -5,6 +5,7 @@
 - Read-only against ESPN. No login automation. No HTML scraping.
 - Every UI number comes from the DB (`metrics` or raw tables). No math in components.
 - Tests run offline on fixtures in tests/fixtures/. Run `make test` before declaring a phase done.
+- Quality gates (also enforced by CI, .github/workflows/ci.yml): backend `pytest` + `ruff check api tests`; frontend `npm run lint` + `npm run build` + `npm run e2e` (Playwright smoke, mocks /api — no ESPN). Browser: `npm run e2e:install` once.
 - Design tokens in Section 9 are canonical — no ad-hoc colors.
 - SPEC §2.8 amended 2026-07-07: raw httpx client is the workhorse (own parser); espn-api stays installed as a `--cross-check` diff in the verify CLI, not the primary read path.
 - `SyncService` owns the `EspnService`/httpx.Client it creates: always use `with SyncService(session) as svc:` (or call `svc.close()`) in scheduler jobs, routes, and CLI so clients don't leak. Injected services (test fakes / shared clients) are never closed by it.
@@ -13,7 +14,8 @@
 ## Build status
 - Phase 0 (scaffold), Phase 1 (ESPN client, accounts, sync), Phase 1.5 (hardening),
   Phase 2 (Portfolio Board + League detail UI), Phase 3 (deterministic Edge analytics),
-  Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports) implemented.
+  Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports),
+  Phase 6 v1 (beta hardening: CI + Playwright smoke suite) implemented.
 - Phase 5: playoff_odds is now a seeded Monte Carlo sim (api/services/playoff_sim.py;
   knobs in edge_config.py) replacing the Phase 3 heuristic — complete=1/0, in_season=sim,
   else pending. Exports: api/services/exports.py + routers/exports.py (CSV/JSON/XLSX,
