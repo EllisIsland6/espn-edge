@@ -5,27 +5,31 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phase 0 (scaffold)** and **Phase 1 (ESPN client, accounts, sync)** complete.
-> The Portfolio Board UI (Phase 2), analytics/Edge Index (Phase 3), AI layer (Phase 4),
-> and playoff odds/exports (Phase 5) are not built yet.
+> Status: **Phases 0–4 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
+> League detail UI, deterministic Edge analytics, and the optional backend-only AI
+> layer. **Phase 5 (Monte Carlo playoff odds + exports) is in progress.**
 
 ## Quick start
 
+Fresh clone to running in **two commands** (`setup` installs api + web deps and writes
+`.env` with a generated `FERNET_KEY`):
+
 ```bash
-make install         # venv + Python deps
-make install-web     # npm install in /web
-cp .env.example .env  # then set FERNET_KEY (see below)
-make dev             # api on :8000, web on :5173, both hot-reload
+make setup   # venv + Python deps, npm install, bootstrap .env (once)
+make dev     # api on :8000, web on :5173, both hot-reload
 ```
 
-Generate the cookie-encryption key and paste it into `.env` as `FERNET_KEY`:
+Prefer the explicit steps? `make install` + `make install-web`, then
+`cp .env.example .env` and set `FERNET_KEY` (the cookie-encryption key):
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 `GET http://127.0.0.1:8000/api/health` returns the season + DB path. The web app at
-`http://127.0.0.1:5173` shows backend health (Phase 0 placeholder for the board).
+`http://127.0.0.1:5173` is the **Portfolio Board** (your teams tiered by Edge Index,
+with a portfolio summary rail) and per-league **detail pages** (Overview, Draft Board,
+Teams, Matchups, Activity, AI Brief). Add accounts/leagues on the **Manage** tab.
 
 Docker parity is available (`docker compose up`) but not required — `make dev` runs the
 same two services natively.
@@ -131,12 +135,30 @@ grounded on DB facts only, validated against pydantic schemas, and cached by inp
 `claude-sonnet-5`, bulk = `claude-haiku-4-5`). Full contract:
 **[docs/phase-4-ai.md](docs/phase-4-ai.md)**.
 
+## Exports
+
+One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or
+directly:
+
+```bash
+curl -OJ http://127.0.0.1:8000/api/exports/portfolio.csv    # one row per league
+curl -OJ http://127.0.0.1:8000/api/exports/portfolio.json   # summary + rows + per-league detail
+curl -OJ http://127.0.0.1:8000/api/exports/portfolio.xlsx   # Portfolio sheet + one sheet per league
+```
+
+Exports reflect DB/API data exactly (no frontend recomputation) and feed a downstream
+Excel/CSV/JSON pipeline. Playoff odds in the exports come from the Phase 5 Monte Carlo
+simulation. Contract: **[docs/phase-5-playoff-exports.md](docs/phase-5-playoff-exports.md)**.
+
 ## Layout
 
 ```
-/api    FastAPI: config, db, models, crypto, routers/, services/ (espn, sync, discovery, cache, parse), verify.py
-/web    Vite + React + TS: src/ (App, api, tokens.css)
+/api    FastAPI: config, db, models, crypto, edge_config, ai_config, ai_schemas,
+        routers/, services/ (espn, sync, metrics, ai, exports, …), verify.py
+/web    Vite + React + TS + Tailwind: src/pages (PortfolioBoard, LeagueDetail, Manage),
+        src/components, src/api.ts, src/tokens.css
 /data   edge.db + raw_cache/   (gitignored — holds session cookies)
+/docs   phase-3-analytics, phase-4-ai, phase-5-playoff-exports (contracts)
 /tests  fixtures/ + offline unit tests
 ```
 

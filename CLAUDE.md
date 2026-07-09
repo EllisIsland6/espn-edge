@@ -13,7 +13,12 @@
 ## Build status
 - Phase 0 (scaffold), Phase 1 (ESPN client, accounts, sync), Phase 1.5 (hardening),
   Phase 2 (Portfolio Board + League detail UI), Phase 3 (deterministic Edge analytics),
-  Phase 4 v1 (AI analysis layer) implemented.
+  Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports) implemented.
+- Phase 5: playoff_odds is now a seeded Monte Carlo sim (api/services/playoff_sim.py;
+  knobs in edge_config.py) replacing the Phase 3 heuristic — complete=1/0, in_season=sim,
+  else pending. Exports: api/services/exports.py + routers/exports.py (CSV/JSON/XLSX,
+  built from services/portfolio.py so board/summary/exports never drift). Contract:
+  docs/phase-5-playoff-exports.md.
 - Phase 3: api/services/metrics.py + api/edge_config.py; edge_score/grade/verdict/
   playoff_odds recompute on sync, persisted in metrics. Contract: docs/phase-3-analytics.md.
 - Phase 4: backend-only Anthropic layer (api/services/ai.py, ai_inputs.py, ai_schemas.py,

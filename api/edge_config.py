@@ -28,9 +28,15 @@ GRADE_BANDS: tuple[tuple[float, str], ...] = (
     (0.0, "F"),
 )
 
-# playoff_odds heuristic clamp (never assert 0/100% mid-season).
-PLAYOFF_ODDS_FLOOR = 0.02
-PLAYOFF_ODDS_CEIL = 0.98
+# --- Phase 5: Monte Carlo playoff-odds simulation (docs/phase-5-playoff-exports.md) ---
+# Number of simulated remaining-season runs. Higher = smoother odds, slower recompute.
+SIM_COUNT = 10000
+# Stable seed so simulations are reproducible and tests deterministic.
+SIM_SEED = 20260101
+# When a team has <2 played games, estimate weekly stdev as this fraction of its mean.
+SIM_SIGMA_FALLBACK_FRAC = 0.16
+# Floor on weekly stdev so a team never gets a degenerate (zero-variance) distribution.
+SIM_SIGMA_FLOOR = 5.0
 
 
 def grade_for(score: float | None) -> str | None:

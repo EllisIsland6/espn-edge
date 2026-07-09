@@ -21,8 +21,11 @@ All weights and thresholds live in one file: **`api/edge_config.py`** (SPEC §6)
 - **grade** (`A`/`B`/`C`/`D`/`F`): a human-readable band of `edge_score`.
 - **verdict** (`advantaged` / `neutral` / `disadvantaged` / *pending*): the portfolio
   bucket, from `edge_score` thresholds. *pending* when inputs are insufficient.
-- **playoff_odds** (`0.0–1.0`, nullable): a **v1 heuristic** estimate of making the
-  playoffs. Explicitly **not** a simulation (Monte Carlo is Phase 5).
+- **playoff_odds** (`0.0–1.0`, nullable): estimate of making the playoffs.
+  > **Superseded in Phase 5:** this was a coarse standings/record heuristic in Phase 3
+  > and has been **replaced by a real seeded Monte Carlo simulation** — see
+  > [phase-5-playoff-exports.md](phase-5-playoff-exports.md). The Phase-3 description
+  > below is retained for history; the API/persistence contract is unchanged.
 
 ## 2. Exact input data (all from the local DB, never live ESPN)
 
@@ -55,14 +58,13 @@ else F`. `None → None`.
 **verdict** — `edge_config.verdict_for(score)`: `advantaged ≥ 65`, `neutral ≥ 45`,
 else `disadvantaged`. `None → None` (rendered as *pending*). Thresholds are SPEC §6.
 
-**playoff_odds** — `metrics.compute_playoff_odds(...)`, needs `standing`, `size`,
-`playoff_team_count`:
-- `complete` → `1.0` if `standing ≤ playoff_team_count` else `0.0` (season is over —
-  deterministic fact).
-- `in_season` with ≥1 game → `clamp(0.5·win_pct + 0.5·seed, 0.02, 0.98)` where
-  `seed = (size − standing) / (size − 1)` (1.0 for 1st, 0 for last).
-- otherwise → **pending** (`None`).
-This is a coarse heuristic; it does not simulate the remaining schedule.
+**playoff_odds** — *(Phase 3 heuristic, now superseded — kept for history)* needed
+`standing`, `size`, `playoff_team_count`; `complete` → `1.0`/`0.0` by final standing,
+`in_season` → `clamp(0.5·win_pct + 0.5·seed, 0.02, 0.98)`, else pending. **Phase 5
+replaces the in-season case with a seeded Monte Carlo of the remaining schedule**
+(`metrics.compute_playoff_odds_for_league` → `services/playoff_sim.py`); `complete` stays
+deterministic 1.0/0.0 and missing schedule/settings stay pending. See
+[phase-5-playoff-exports.md](phase-5-playoff-exports.md).
 
 ## 4. Persistence
 
@@ -122,14 +124,15 @@ React only formats these; it never computes them.
 ## 8. v1 vs future (intentional placeholders)
 
 **Deterministic v1 (this phase):** within-league percentile edge_score from
-record/points/roster-projection, grade/verdict bands, heuristic playoff_odds.
+record/points/roster-projection, grade/verdict bands. (playoff_odds was a heuristic
+here; **Phase 5 upgraded it to a Monte Carlo simulation** — see phase-5 doc.)
 
 **Future (SPEC §6, not built):** cross-league population normalization + p5/p95
 winsorization; LeagueSoftness components (opponent lineup inefficiency, inactivity,
 abandoned-team detection, draft indiscipline, exploitable-weakness share); MyEdge
 components (draft surplus value curve, lineup efficiency, waiver capture,
-luck-adjusted record); Monte Carlo playoff odds; per-component breakdown bars. The UI
-must not present more certainty than these v1 numbers justify.
+luck-adjusted record); per-component breakdown bars. The UI must not present more
+certainty than these v1 numbers justify.
 
 ---
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  downloadExport,
   getPortfolio,
   getPortfolioSummary,
   getLeagues,
@@ -198,9 +199,30 @@ function ControlBar({
           placeholder="Search leagues / accounts"
           className="w-56 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-primary placeholder:text-muted focus:border-red/60"
         />
-        <Button variant="secondary" disabled title="CSV export — Phase 5">
-          CSV
-        </Button>
+        <div className="flex items-center overflow-hidden rounded-md border border-line">
+          <span className="mono px-2 text-[10px] uppercase tracking-wide text-muted">Export</span>
+          <button
+            onClick={() => downloadExport("csv")}
+            title="Download portfolio as CSV"
+            className="border-l border-line px-2.5 py-1.5 text-xs text-secondary transition-colors duration-150 hover:bg-rowhover hover:text-primary"
+          >
+            CSV
+          </button>
+          <button
+            onClick={() => downloadExport("json")}
+            title="Download master portfolio JSON"
+            className="border-l border-line px-2.5 py-1.5 text-xs text-secondary transition-colors duration-150 hover:bg-rowhover hover:text-primary"
+          >
+            JSON
+          </button>
+          <button
+            onClick={() => downloadExport("xlsx")}
+            title="Download Excel workbook (summary + per-league sheets)"
+            className="border-l border-line px-2.5 py-1.5 text-xs text-secondary transition-colors duration-150 hover:bg-rowhover hover:text-primary"
+          >
+            XLSX
+          </button>
+        </div>
       </div>
     </div>
   );

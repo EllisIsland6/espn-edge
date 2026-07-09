@@ -14,14 +14,9 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..edge_config import (
-    INSEASON_WEIGHTS,
-    PLAYOFF_ODDS_CEIL,
-    PLAYOFF_ODDS_FLOOR,
-    grade_for,
-    verdict_for,
-)
-from ..models import DraftPick, League, Metric, Player, Team
+from ..edge_config import INSEASON_WEIGHTS, grade_for, verdict_for
+from ..models import DraftPick, League, Matchup, Metric, Player, Team
+from .playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 
 EDGE_SCORE = "edge_score"
 PLAYOFF_ODDS = "playoff_odds"
@@ -51,10 +46,6 @@ def games_played(t: TeamStat) -> int:
 def win_pct(t: TeamStat) -> float:
     g = games_played(t)
     return (t.wins + 0.5 * t.ties) / g if g else 0.0
-
-
-def _clamp(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
 
 
 def _percentile(values: list[float], v: float) -> float:
@@ -117,19 +108,51 @@ def compute_edge_scores(
     return out2
 
 
-def compute_playoff_odds(
-    t: TeamStat, lifecycle: str, size: int | None, playoff_spots: int | None
-) -> float | None:
-    """v1 heuristic playoff probability (NOT a simulation). None when pending."""
-    if t.standing is None or not size or not playoff_spots:
-        return None
-    if lifecycle == "complete":
-        return 1.0 if t.standing <= playoff_spots else 0.0
-    if lifecycle == "in_season" and games_played(t) > 0:
-        seed = _clamp((size - t.standing) / (size - 1), 0.0, 1.0) if size > 1 else 0.5
-        odds = 0.5 * win_pct(t) + 0.5 * seed
-        return round(_clamp(odds, PLAYOFF_ODDS_FLOOR, PLAYOFF_ODDS_CEIL), 3)
-    return None
+def compute_playoff_odds_for_league(
+    session: Session, league: League, teams: list[Team]
+) -> dict[int, float | None]:
+    """Playoff odds per team (Phase 5). complete → deterministic 1/0 from final
+    standings; in_season → seeded Monte Carlo over the remaining schedule; otherwise
+    pending. Never fabricates a schedule/settings (docs/phase-5-playoff-exports.md)."""
+    spots = league.playoff_team_count
+    if league.lifecycle == "complete":
+        if not spots:
+            return {t.id: None for t in teams}
+        return {
+            t.id: (1.0 if (t.standing is not None and t.standing <= spots) else 0.0)
+            for t in teams
+        }
+    if league.lifecycle != "in_season" or not spots:
+        return {t.id: None for t in teams}
+
+    ids = {t.id for t in teams}
+    played_scores: dict[int, list[float]] = {t.id: [] for t in teams}
+    remaining: list[SimGame] = []
+    for m in session.scalars(select(Matchup).where(Matchup.league_id == league.id)):
+        is_played = (m.home_points or 0) > 0 or (m.away_points or 0) > 0
+        if is_played:
+            if m.home_team_id in ids and m.home_points is not None:
+                played_scores[m.home_team_id].append(m.home_points)
+            if m.away_team_id in ids and m.away_points is not None:
+                played_scores[m.away_team_id].append(m.away_points)
+        elif not m.is_playoff and m.home_team_id in ids and m.away_team_id in ids:
+            remaining.append(SimGame(m.home_team_id, m.away_team_id))
+
+    # Can't model a team with no results → pending for the whole league.
+    if any(not played_scores[t.id] for t in teams):
+        return {t.id: None for t in teams}
+
+    sim_teams = [
+        SimTeam(
+            team_id=t.id, wins=t.wins, losses=t.losses, ties=t.ties,
+            points_for=t.points_for, played_scores=played_scores[t.id],
+        )
+        for t in teams
+    ]
+    odds = simulate_playoff_odds(sim_teams, remaining, spots)
+    if not odds:
+        return {t.id: None for t in teams}
+    return {t.id: odds.get(t.id) for t in teams}
 
 
 # --------------------------------------------------------------------------- #
@@ -165,6 +188,7 @@ def recompute_league(
         for t in teams
     ]
     edges = compute_edge_scores(stats, league.lifecycle, projections_fresh=projections_fresh)
+    odds_map = compute_playoff_odds_for_league(session, league, teams)
 
     scored = 0
     for stat in stats:
@@ -172,8 +196,7 @@ def recompute_league(
         if score is not None:
             scored += 1
         _upsert_or_clear(session, league.id, stat.team_id, EDGE_SCORE, score)
-        odds = compute_playoff_odds(stat, league.lifecycle, league.size, league.playoff_team_count)
-        _upsert_or_clear(session, league.id, stat.team_id, PLAYOFF_ODDS, odds)
+        _upsert_or_clear(session, league.id, stat.team_id, PLAYOFF_ODDS, odds_map.get(stat.team_id))
     session.flush()
     return {"teams": len(stats), "scored": scored}
 

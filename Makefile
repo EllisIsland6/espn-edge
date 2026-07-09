@@ -1,9 +1,10 @@
-.PHONY: help dev api web install install-web test lint fmt verify db-reset
+.PHONY: help setup dev api web install install-web test lint fmt verify db-reset
 
 PY := .venv/bin/python
 PIP := .venv/bin/pip
 
 help:
+	@echo "make setup        - one-shot: install api+web deps and bootstrap .env"
 	@echo "make install      - create venv + install api deps (dev extras)"
 	@echo "make install-web  - npm install in /web"
 	@echo "make dev          - run api (uvicorn) + web (vite) with hot reload"
@@ -13,6 +14,16 @@ help:
 	@echo "make lint         - ruff check"
 	@echo "make fmt          - ruff format"
 	@echo "make verify LEAGUE=<id> [SEASON=2026] [LABEL=main] [CROSSCHECK=1]  - live smoke test"
+
+# Fresh-clone-to-running: `make setup` then `make dev`.
+setup: install install-web
+	@if [ ! -f .env ]; then \
+	  cp .env.example .env; \
+	  KEY=$$($(PY) -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"); \
+	  $(PY) -c "import pathlib,re,sys; p=pathlib.Path('.env'); p.write_text(re.sub(r'^FERNET_KEY=.*', 'FERNET_KEY='+sys.argv[1], p.read_text(), flags=re.M))" "$$KEY"; \
+	  echo "Wrote .env with a generated FERNET_KEY."; \
+	else echo ".env already exists — leaving it untouched."; fi
+	@echo "Setup complete. Run 'make dev' to start."
 
 install:
 	python3 -m venv .venv

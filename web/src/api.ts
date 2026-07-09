@@ -251,6 +251,24 @@ export const addLeague = (leagueRef: string, accountId: number | null, season?: 
   });
 export const syncLeague = (id: number) => send<SyncSummary>("POST", `/api/leagues/${id}/sync`);
 
+// Exports (Phase 5) — file downloads; the backend sets the filename via
+// Content-Disposition and the response reflects DB data exactly (no frontend recompute).
+export const EXPORT_ENDPOINTS = {
+  csv: "/api/exports/portfolio.csv",
+  json: "/api/exports/portfolio.json",
+  xlsx: "/api/exports/portfolio.xlsx",
+} as const;
+export type ExportKind = keyof typeof EXPORT_ENDPOINTS;
+
+export function downloadExport(kind: ExportKind): void {
+  const a = document.createElement("a");
+  a.href = `${BASE}${EXPORT_ENDPOINTS[kind]}`;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // AI reads + generate (POST triggers a model call unless cached; ?force=true regenerates).
 export const getAiStatus = () => get<AiStatus>("/api/ai/status");
 export const getDraftRecaps = (id: number) =>
