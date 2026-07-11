@@ -21,6 +21,9 @@ export default function Layout() {
             <NavLink to="/manage" className={navClass}>
               Manage
             </NavLink>
+            <NavLink to="/status" className={navClass}>
+              Status
+            </NavLink>
           </nav>
         </div>
       </header>

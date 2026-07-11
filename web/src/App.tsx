@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import PortfolioBoard from "./pages/PortfolioBoard";
 import LeagueDetail from "./pages/LeagueDetail";
 import Manage from "./pages/Manage";
+import Status from "./pages/Status";
 
 const router = createBrowserRouter([
   {
@@ -12,6 +13,7 @@ const router = createBrowserRouter([
       { index: true, element: <PortfolioBoard /> },
       { path: "league/:id", element: <LeagueDetail /> },
       { path: "manage", element: <Manage /> },
+      { path: "status", element: <Status /> },
     ],
   },
 ]);

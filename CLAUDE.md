@@ -16,7 +16,13 @@
   Phase 2 (Portfolio Board + League detail UI), Phase 3 (deterministic Edge analytics),
   Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports),
   Phase 6 v1 (beta hardening: CI + Playwright smoke suite),
-  Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics) implemented.
+  Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics),
+  Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook) implemented.
+- Phase 8: read-only `/status` page (web/src/pages/Status.tsx, nav in Layout.tsx) composes
+  existing endpoints (health, ai/status, accounts, portfolio) into a health view — no ESPN
+  calls, no math, no secrets, no new backend endpoint or schema change. Fresh-start empty
+  states on Portfolio/Manage guide add-account → add-league → sync. Live-smoke checklist:
+  docs/live-smoke.md (referenced from README). Contract: docs/phase-8-beta-readiness.md.
 - Phase 7: `POST /api/accounts/{id}/reauth` (body {swid, espn_s2}) normalizes SWID + re-encrypts
   espn_s2 + sets status=active; returns AccountOut, never echoes/logs the cookies (404 missing,
   400 empty SWID). `League.last_sync_ok`/`last_sync_error` (nullable) persist the last-sync

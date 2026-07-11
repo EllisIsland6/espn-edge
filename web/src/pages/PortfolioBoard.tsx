@@ -132,7 +132,13 @@ export default function PortfolioBoard() {
           <div className="mt-4">
             <EmptyState
               title="No leagues yet"
-              hint={<>Add an account and a league on the <b>Manage</b> tab, then Sync.</>}
+              hint={
+                <>
+                  Get started on the <Link to="/manage" className="text-red hover:underline">Manage</Link> tab:
+                  add an ESPN account (label + SWID + espn_s2 cookies), add a league by ID or
+                  URL, then Sync. Your teams appear here tiered by Edge.
+                </>
+              }
             />
           </div>
         )}

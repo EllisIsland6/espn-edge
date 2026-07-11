@@ -111,7 +111,20 @@ function AccountList({
   onError: (e: string) => void;
 }) {
   if (accounts.length === 0)
-    return <div className="mt-3"><EmptyState title="No accounts yet" /></div>;
+    return (
+      <div className="mt-3">
+        <EmptyState
+          title="No accounts yet"
+          hint={
+            <>
+              Add one above using the <b>SWID</b> and <b>espn_s2</b> cookies from a
+              logged-in fantasy.espn.com session (DevTools → Application → Cookies).
+              Public leagues need no account.
+            </>
+          }
+        />
+      </div>
+    );
   return (
     <div className="mt-3 space-y-2">
       {accounts.map((a) => (
@@ -295,7 +308,14 @@ function LeagueList({
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const acctLabel = (id: number | null) => accounts.find((a) => a.id === id)?.label ?? "public";
   if (leagues.length === 0)
-    return <div className="mt-3"><EmptyState title="No leagues yet" /></div>;
+    return (
+      <div className="mt-3">
+        <EmptyState
+          title="No leagues yet"
+          hint={<>Add a league above by its ID or URL, pick the owning account (or Public), then Sync.</>}
+        />
+      </div>
+    );
   return (
     <div className="mt-3 space-y-2">
       {leagues.map((l) => (

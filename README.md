@@ -5,10 +5,11 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0–7 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
+> Status: **Phases 0–8 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
 > League detail UI, deterministic Edge analytics, the optional backend-only AI layer,
-> Monte Carlo playoff odds + exports, CI + Playwright smoke suite, and **Phase 7
-> private-beta reliability (account re-auth + persistent per-league sync diagnostics).**
+> Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
+> reliability (re-auth + sync diagnostics), and **Phase 8 beta-readiness polish (read-only
+> System Status page + a [live-smoke runbook](docs/live-smoke.md)).**
 
 ## Quick start
 
@@ -30,7 +31,9 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 `GET http://127.0.0.1:8000/api/health` returns the season + DB path. The web app at
 `http://127.0.0.1:5173` is the **Portfolio Board** (your teams tiered by Edge Index,
 with a portfolio summary rail) and per-league **detail pages** (Overview, Draft Board,
-Teams, Matchups, Activity, AI Brief). Add accounts/leagues on the **Manage** tab.
+Teams, Matchups, Activity, AI Brief). Add accounts/leagues on the **Manage** tab. The
+**Status** tab is a read-only health check (API/AI status, account + league counts,
+re-auth / failed-sync counts, export links) — no ESPN calls, no secrets shown.
 
 Docker parity is available (`docker compose up`) but not required — `make dev` runs the
 same two services natively.
@@ -109,6 +112,10 @@ python -m api.verify --league 123456 --season 2026 --cross-check --label main
 
 `--label` names the account the cookies are stored under (default `main`).
 
+For a full end-to-end beta walkthrough (add account → sync → diff vs ESPN → re-auth →
+exports), follow the **[live-smoke runbook](docs/live-smoke.md)**. It includes the hard
+rule: never paste real cookies into logs, commits, screenshots, or bug reports.
+
 ## Tests & quality gates
 
 All backend tests run **offline** against recorded fixtures in `tests/fixtures/` (no
@@ -130,7 +137,9 @@ npm run e2e           # Playwright smoke suite
 Beta-hardening scope (CI + smoke tests + robustness audit):
 **[docs/phase-6-beta-hardening.md](docs/phase-6-beta-hardening.md)**. Private-beta
 reliability (re-auth + sync diagnostics):
-**[docs/phase-7-beta-reliability.md](docs/phase-7-beta-reliability.md)**.
+**[docs/phase-7-beta-reliability.md](docs/phase-7-beta-reliability.md)**. Beta-readiness
+polish (Status page + live-smoke runbook):
+**[docs/phase-8-beta-readiness.md](docs/phase-8-beta-readiness.md)**.
 
 ## Schema changes & reset
 

@@ -132,6 +132,42 @@ test("AI-disabled state renders the connect-a-key panel without crashing", async
   await expect(page.getByText("AI analysis is off")).toBeVisible();
 });
 
+test("status page renders health/AI/account/league counts without leaking secrets", async ({ page }) => {
+  const FAKE_SWID = "{FAKE-SWID-DO-NOT-RENDER}";
+  const FAKE_S2 = "fake-espn-s2-should-never-render";
+  await page.route("**/api/health", (r) => json(r, { status: "ok", season: 2026, db_path: "/data/edge.db" }));
+  // Accounts include (as if a buggy API leaked them) cookie fields the UI must never show.
+  await page.route("**/api/accounts", (r) =>
+    json(r, [
+      { id: 1, label: "Main", status: "active", created_at: NOW, swid: FAKE_SWID, espn_s2: FAKE_S2 },
+      { id: 2, label: "Work", status: "needs_reauth", created_at: NOW, swid: FAKE_SWID, espn_s2: FAKE_S2 },
+    ]));
+  // Two leagues, one with a failed last sync.
+  await page.route("**/api/portfolio", (r) =>
+    json(r, [
+      { ...PORTFOLIO[0], last_sync_ok: true },
+      { ...PORTFOLIO[1], last_sync_ok: false, last_sync_error: "auth_failed" },
+    ]));
+
+  await page.goto("/");
+  await page.getByRole("link", { name: "Status" }).click();
+
+  await expect(page.getByRole("heading", { name: "System status" })).toBeVisible();
+  // Health + season + DB path.
+  await expect(page.getByText("/data/edge.db")).toBeVisible();
+  await expect(page.getByText("2026")).toBeVisible();
+  // AI model names from the mocked ai/status (enabled:false).
+  await expect(page.getByText("claude-sonnet-5")).toBeVisible();
+  await expect(page.getByText("claude-haiku-4-5")).toBeVisible();
+  // Counts: 2 accounts, 1 needs re-auth, 2 leagues, 1 failed sync (exact to hit the <dt> labels).
+  await expect(page.getByText("Need re-auth", { exact: true })).toBeVisible();
+  await expect(page.getByText("Last sync failed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Tracked", { exact: true })).toBeVisible();
+  // No cookie/secret ever reaches the DOM.
+  await expect(page.locator("body")).not.toContainText(FAKE_SWID);
+  await expect(page.locator("body")).not.toContainText(FAKE_S2);
+});
+
 test("re-auth form posts new cookies and clears the needs_reauth badge", async ({ page }) => {
   let reauthed = false;
   let posted: unknown = null;
