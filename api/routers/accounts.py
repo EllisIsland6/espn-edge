@@ -10,7 +10,7 @@ from ..crypto import encrypt
 from ..db import get_session
 from ..models import Account, League
 from ..parse_helpers import normalize_swid_braced
-from ..schemas import AccountCreate, AccountOut
+from ..schemas import AccountCreate, AccountOut, AccountReauth
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -33,6 +33,26 @@ def add_account(payload: AccountCreate, session: Session = Depends(get_session))
         status="active",
     )
     session.add(account)
+    session.commit()
+    session.refresh(account)
+    return account
+
+
+@router.post("/{account_id}/reauth", response_model=AccountOut)
+def reauth_account(
+    account_id: int, payload: AccountReauth, session: Session = Depends(get_session)
+) -> Account:
+    """Replace an account's cookies after its ESPN session expired and clear the
+    needs_reauth status (Phase 7). Never logs or returns swid/espn_s2."""
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(404, "account not found")
+    swid = normalize_swid_braced(payload.swid)
+    if not swid:
+        raise HTTPException(400, "SWID looks empty after normalization")
+    account.swid = swid
+    account.espn_s2_encrypted = encrypt(payload.espn_s2.strip())
+    account.status = "active"
     session.commit()
     session.refresh(account)
     return account

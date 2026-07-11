@@ -15,7 +15,15 @@
 - Phase 0 (scaffold), Phase 1 (ESPN client, accounts, sync), Phase 1.5 (hardening),
   Phase 2 (Portfolio Board + League detail UI), Phase 3 (deterministic Edge analytics),
   Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports),
-  Phase 6 v1 (beta hardening: CI + Playwright smoke suite) implemented.
+  Phase 6 v1 (beta hardening: CI + Playwright smoke suite),
+  Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics) implemented.
+- Phase 7: `POST /api/accounts/{id}/reauth` (body {swid, espn_s2}) normalizes SWID + re-encrypts
+  espn_s2 + sets status=active; returns AccountOut, never echoes/logs the cookies (404 missing,
+  400 empty SWID). `League.last_sync_ok`/`last_sync_error` (nullable) persist the last-sync
+  outcome, written on every sync_league exit path (auth_failed / fetch_failed / partial / clean)
+  via SyncService._record_diagnostics; SyncService._safe_error sanitizes+truncates so a
+  diagnostic never carries cookies. Exposed in LeagueOut/PortfolioRow/LeagueOverview + TS types.
+  The two new leagues columns need `make db-reset`. Contract: docs/phase-7-beta-reliability.md.
 - Phase 5: playoff_odds is now a seeded Monte Carlo sim (api/services/playoff_sim.py;
   knobs in edge_config.py) replacing the Phase 3 heuristic — complete=1/0, in_season=sim,
   else pending. Exports: api/services/exports.py + routers/exports.py (CSV/JSON/XLSX,

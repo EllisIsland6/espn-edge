@@ -5,9 +5,10 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0–4 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
-> League detail UI, deterministic Edge analytics, and the optional backend-only AI
-> layer. **Phase 5 (Monte Carlo playoff odds + exports) is in progress.**
+> Status: **Phases 0–7 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
+> League detail UI, deterministic Edge analytics, the optional backend-only AI layer,
+> Monte Carlo playoff odds + exports, CI + Playwright smoke suite, and **Phase 7
+> private-beta reliability (account re-auth + persistent per-league sync diagnostics).**
 
 ## Quick start
 
@@ -53,6 +54,26 @@ curl -X POST http://127.0.0.1:8000/api/accounts \
 `espn_s2` is Fernet-encrypted at rest; `SWID`/`espn_s2` are never logged or returned by
 the API. On a bad/expired cookie the owning account flips to `needs_reauth` rather than
 crashing. Public leagues need no account.
+
+### Re-authenticating an expired account (Phase 7)
+
+When cookies expire, the account shows `needs_reauth`. Paste fresh cookies to resume
+syncing — no need to delete and re-add the account (which is blocked while leagues are
+linked). In the UI, the Manage tab auto-opens a **Re-auth** form on any `needs_reauth`
+account. From the API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/accounts/{id}/reauth \
+  -H 'Content-Type: application/json' \
+  -d '{"swid":"{...}","espn_s2":"..."}'
+```
+
+The SWID is normalized, `espn_s2` re-encrypted, and the account returns to `active`. The
+response is a plain `AccountOut` — it never echoes the cookies back.
+
+Each league also stores its **last sync outcome** (`last_sync_ok` / a redacted
+`last_sync_error`), so a failed sync stays visible in Manage and on the League detail page
+after the transient toast fades. Diagnostics are sanitized and never contain cookies.
 
 ## Adding & syncing a league
 
@@ -107,7 +128,9 @@ npm run e2e           # Playwright smoke suite
 ```
 
 Beta-hardening scope (CI + smoke tests + robustness audit):
-**[docs/phase-6-beta-hardening.md](docs/phase-6-beta-hardening.md)**.
+**[docs/phase-6-beta-hardening.md](docs/phase-6-beta-hardening.md)**. Private-beta
+reliability (re-auth + sync diagnostics):
+**[docs/phase-7-beta-reliability.md](docs/phase-7-beta-reliability.md)**.
 
 ## Schema changes & reset
 
@@ -120,6 +143,9 @@ schema changes, drop and rebuild rather than migrate:
 make db-reset     # deletes data/edge.db (+ WAL/SHM)
 # then re-add accounts/leagues and re-sync — all source data lives on ESPN.
 ```
+
+> Phase 7 added two nullable `leagues` columns (`last_sync_ok`, `last_sync_error`).
+> Upgrading an existing DB requires a `make db-reset` before the first run.
 
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child rows
 cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The

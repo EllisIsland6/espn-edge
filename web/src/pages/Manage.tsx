@@ -6,6 +6,7 @@ import {
   deleteAccount,
   getAccounts,
   getLeagues,
+  reauthAccount,
   syncLeague,
   type AccountOut,
   type LeagueOut,
@@ -114,32 +115,114 @@ function AccountList({
   return (
     <div className="mt-3 space-y-2">
       {accounts.map((a) => (
-        <Panel key={a.id} className="flex items-center gap-3 px-4 py-2">
-          <span className="font-medium">{a.label}</span>
-          <span
-            className={`rounded px-1.5 py-0.5 text-[11px] ${
-              a.status === "active" ? "bg-greenchip text-green" : "bg-red/15 text-red"
-            }`}
-          >
-            {a.status}
-          </span>
-          <span className="mono ml-auto text-[11px] text-muted">added {relTime(a.created_at)}</span>
-          <Button
-            variant="danger"
-            onClick={async () => {
-              try {
-                await deleteAccount(a.id);
-                onChange();
-              } catch (e) {
-                onError(String(e));
-              }
-            }}
-          >
-            Delete
-          </Button>
-        </Panel>
+        <AccountRow key={a.id} account={a} onChange={onChange} onError={onError} />
       ))}
     </div>
+  );
+}
+
+function AccountRow({
+  account: a,
+  onChange,
+  onError,
+}: {
+  account: AccountOut;
+  onChange: () => void;
+  onError: (e: string) => void;
+}) {
+  const needsReauth = a.status === "needs_reauth";
+  // Auto-expand the re-auth form when the account's session expired.
+  const [showReauth, setShowReauth] = useState(needsReauth);
+  return (
+    <Panel className={`px-4 py-2 ${needsReauth ? "border-red/50" : ""}`}>
+      <div className="flex items-center gap-3">
+        <span className="font-medium">{a.label}</span>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[11px] ${
+            a.status === "active" ? "bg-greenchip text-green" : "bg-red/15 text-red"
+          }`}
+          data-testid={`account-status-${a.id}`}
+        >
+          {a.status}
+        </span>
+        <span className="mono ml-auto text-[11px] text-muted">added {relTime(a.created_at)}</span>
+        <Button onClick={() => setShowReauth((v) => !v)}>
+          {showReauth ? "Cancel" : "Re-auth"}
+        </Button>
+        <Button
+          variant="danger"
+          onClick={async () => {
+            try {
+              await deleteAccount(a.id);
+              onChange();
+            } catch (e) {
+              onError(String(e));
+            }
+          }}
+        >
+          Delete
+        </Button>
+      </div>
+      {needsReauth && (
+        <p className="mt-2 text-xs text-red">
+          This account’s ESPN session expired. Paste fresh cookies below to resume syncing.
+        </p>
+      )}
+      {showReauth && (
+        <ReauthForm
+          accountId={a.id}
+          onDone={() => {
+            setShowReauth(false);
+            onChange();
+          }}
+          onError={onError}
+        />
+      )}
+    </Panel>
+  );
+}
+
+function ReauthForm({
+  accountId,
+  onDone,
+  onError,
+}: {
+  accountId: number;
+  onDone: () => void;
+  onError: (e: string) => void;
+}) {
+  const [swid, setSwid] = useState("");
+  const [s2, setS2] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await reauthAccount(accountId, swid, s2);
+      // Clear the secrets from state (and the DOM) as soon as they're accepted.
+      setSwid("");
+      setS2("");
+      onDone();
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+      data-testid={`reauth-form-${accountId}`}
+    >
+      <Field value={swid} onChange={setSwid} placeholder="SWID {…}" />
+      <Field value={s2} onChange={setS2} placeholder="espn_s2" type="password" />
+      <Button type="submit" variant="primary" disabled={busy || !swid || !s2}>
+        {busy ? "Saving…" : "Save cookies"}
+      </Button>
+    </form>
   );
 }
 
@@ -225,6 +308,15 @@ function LeagueList({
             {acctLabel(l.account_id)} · {l.season}
           </span>
           <span className="mono ml-auto text-[11px] text-muted">synced {relTime(l.last_synced_at)}</span>
+          {l.last_sync_ok === false && (
+            <span
+              className="rounded bg-red/15 px-1.5 py-0.5 text-[11px] text-red"
+              title={l.last_sync_error ?? undefined}
+              data-testid={`league-sync-failed-${l.id}`}
+            >
+              last sync failed
+            </span>
+          )}
           <Button
             onClick={async () => {
               setSyncingId(l.id);

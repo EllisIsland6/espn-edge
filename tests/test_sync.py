@@ -149,8 +149,55 @@ def test_bad_cookie_flips_account_to_needs_reauth(db_session, league_fixture, pl
 
     assert result.get("needs_reauth") is True
     assert acct.status == "needs_reauth"
+    # Persistent diagnostics: auth failure is recorded, redacted, on the league.
+    assert lg.last_sync_ok is False
+    assert lg.last_sync_error == "auth_failed"
     # No crash, no partial team rows written.
     assert (
         db_session.scalar(select(func.count()).select_from(Team).where(Team.league_id == lg.id))
         == 0
     )
+
+
+def test_successful_sync_records_ok_and_clears_prior_diagnostics(
+    db_session, league_fixture, players_fixture
+):
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    # Simulate a prior failed sync still recorded on the league.
+    lg.last_sync_ok = False
+    lg.last_sync_error = "auth_failed"
+    db_session.flush()
+
+    SyncService(db_session, espn=FakeEspn(league_fixture, players_fixture)).sync_league(lg)
+    db_session.commit()
+
+    assert lg.last_sync_ok is True
+    assert lg.last_sync_error is None
+
+
+def test_partial_failure_records_safe_diagnostic(db_session, league_fixture, players_fixture):
+    from api.services.espn import EspnError
+
+    class PartialFailEspn(FakeEspn):
+        # Settings/teams/draft succeed; the players pull blows up mid-sync.
+        def fetch_views(self, league_id, season, views, **kw):
+            if "kona_player_info" in views:
+                raise EspnError("players endpoint 500")
+            return super().fetch_views(league_id, season, views, **kw)
+
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+
+    result = SyncService(
+        db_session, espn=PartialFailEspn(league_fixture, players_fixture)
+    ).sync_league(lg)
+    db_session.commit()
+
+    # Sync completed (teams written) but a step failed → ok=False + safe summary.
+    assert result["errors"]
+    assert lg.last_sync_ok is False
+    assert lg.last_sync_error and "players_failed" in lg.last_sync_error
+    # The diagnostic never carries the account's secrets.
+    assert "some-espn-s2-value" not in lg.last_sync_error
+    assert acct.swid not in lg.last_sync_error

@@ -20,6 +20,13 @@ class AccountCreate(BaseModel):
     espn_s2: str = Field(..., min_length=1)
 
 
+class AccountReauth(BaseModel):
+    """New cookies for an account whose session expired (Phase 7)."""
+
+    swid: str = Field(..., min_length=1)
+    espn_s2: str = Field(..., min_length=1)
+
+
 class AccountOut(BaseModel):
     id: int
     label: str
@@ -49,6 +56,8 @@ class LeagueOut(BaseModel):
     my_team_id: int | None
     is_public: bool
     last_synced_at: datetime | None
+    last_sync_ok: bool | None = None
+    last_sync_error: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,6 +167,8 @@ class PortfolioRow(BaseModel):
     account_label: str | None
     lifecycle: str
     last_synced_at: datetime | None
+    last_sync_ok: bool | None = None
+    last_sync_error: str | None = None
     # my team (null if not detected / public):
     my_team_id: int | None
     my_team_name: str | None

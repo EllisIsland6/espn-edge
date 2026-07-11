@@ -123,6 +123,15 @@ export default function LeagueDetail() {
         </div>
       )}
 
+      {lg.last_sync_ok === false && (
+        <div className="mt-4" data-testid="league-sync-failed-note">
+          <WarningNote
+            title="Last sync failed"
+            messages={[lg.last_sync_error ?? "The most recent sync did not complete."]}
+          />
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-1 border-b border-line">
         {TABS.map((t) => (
           <button

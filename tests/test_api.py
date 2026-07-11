@@ -37,6 +37,52 @@ def test_add_account_never_leaks_cookies():
     assert body["status"] == "active"
 
 
+def test_reauth_updates_cookie_swid_and_status_without_leaking():
+    from api.crypto import decrypt
+    from api.db import SessionLocal
+    from api.models import Account
+
+    aid = client.post(
+        "/api/accounts", json={"label": "Expiring", "swid": "OLD-1", "espn_s2": "old-s2"}
+    ).json()["id"]
+    # Force the account into needs_reauth so we can prove reauth clears it.
+    with SessionLocal() as s:
+        s.get(Account, aid).status = "needs_reauth"
+        s.commit()
+
+    r = client.post(
+        f"/api/accounts/{aid}/reauth",
+        json={"swid": "NEW-2", "espn_s2": "brand-new-secret"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    # Response never echoes the secrets back.
+    assert "swid" not in body and "espn_s2" not in body
+    assert "brand-new-secret" not in r.text and "NEW-2" not in r.text
+    assert body["status"] == "active"
+
+    with SessionLocal() as s:
+        acct = s.get(Account, aid)
+        assert acct.status == "active"
+        assert acct.swid == "{NEW-2}"  # normalized to braced form
+        assert decrypt(acct.espn_s2_encrypted) == "brand-new-secret"
+
+
+def test_reauth_missing_account_404():
+    r = client.post(
+        "/api/accounts/999999/reauth", json={"swid": "X-1", "espn_s2": "s2"}
+    )
+    assert r.status_code == 404
+
+
+def test_reauth_empty_swid_400():
+    aid = client.post(
+        "/api/accounts", json={"label": "T", "swid": "{Y-1}", "espn_s2": "s2"}
+    ).json()["id"]
+    r = client.post(f"/api/accounts/{aid}/reauth", json={"swid": "{}", "espn_s2": "s2"})
+    assert r.status_code == 400
+
+
 def test_manual_add_league_parses_url():
     r = client.post(
         "/api/leagues",

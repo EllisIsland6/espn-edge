@@ -7,6 +7,7 @@ const PORTFOLIO = [
   {
     league_id: 1, espn_league_id: "111", season: 2026, league_name: "Alpha League",
     size: 8, account_label: "Main", lifecycle: "in_season", last_synced_at: NOW,
+    last_sync_ok: true, last_sync_error: null,
     my_team_id: 1, my_team_name: "My Team", wins: 5, losses: 2, ties: 0,
     points_for: 900.5, points_against: 820.1, standing: 2,
     edge_score: 72.0, grade: "B", playoff_odds: 0.81, verdict: "advantaged",
@@ -14,6 +15,7 @@ const PORTFOLIO = [
   {
     league_id: 2, espn_league_id: "222", season: 2026, league_name: "Beta League",
     size: 10, account_label: "Main", lifecycle: "pre_draft", last_synced_at: null,
+    last_sync_ok: null, last_sync_error: null,
     my_team_id: null, my_team_name: null, wins: null, losses: null, ties: null,
     points_for: null, points_against: null, standing: null,
     edge_score: null, grade: null, playoff_odds: null, verdict: null,
@@ -29,7 +31,7 @@ const SUMMARY = {
 const LEAGUE_1 = {
   id: 1, espn_league_id: "111", season: 2026, account_id: 1, name: "Alpha League",
   size: 8, draft_type: "SNAKE", lifecycle: "in_season", my_team_id: 1,
-  is_public: false, last_synced_at: NOW,
+  is_public: false, last_synced_at: NOW, last_sync_ok: true, last_sync_error: null,
 };
 
 const OVERVIEW = {
@@ -128,4 +130,35 @@ test("AI-disabled state renders the connect-a-key panel without crashing", async
   await page.goto("/league/1");
   await page.getByRole("button", { name: "AI Brief" }).click();
   await expect(page.getByText("AI analysis is off")).toBeVisible();
+});
+
+test("re-auth form posts new cookies and clears the needs_reauth badge", async ({ page }) => {
+  let reauthed = false;
+  let posted: unknown = null;
+  // Stateful accounts endpoint: needs_reauth until the reauth POST succeeds.
+  await page.route("**/api/accounts", (r) =>
+    json(r, [{ id: 7, label: "Expired", status: reauthed ? "active" : "needs_reauth", created_at: NOW }]));
+  await page.route("**/api/accounts/7/reauth", (r) => {
+    posted = r.request().postDataJSON();
+    reauthed = true;
+    return json(r, { id: 7, label: "Expired", status: "active", created_at: NOW });
+  });
+
+  await page.goto("/");
+  await page.getByRole("link", { name: "Manage" }).click();
+
+  // needs_reauth is shown and the re-auth form is auto-expanded.
+  await expect(page.getByTestId("account-status-7")).toHaveText("needs_reauth");
+  const form = page.getByTestId("reauth-form-7");
+  await expect(form).toBeVisible();
+  await form.getByPlaceholder("SWID {…}").fill("NEW-9");
+  await form.getByPlaceholder("espn_s2").fill("fresh-cookie-value");
+  await form.getByRole("button", { name: "Save cookies" }).click();
+
+  // The POST fired with exactly the entered cookies (secrets only in the body).
+  await expect.poll(() => posted).toEqual({ swid: "NEW-9", espn_s2: "fresh-cookie-value" });
+  // UI reloaded → badge cleared, form collapsed, no secret left in the DOM.
+  await expect(page.getByTestId("account-status-7")).toHaveText("active");
+  await expect(page.getByTestId("reauth-form-7")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("fresh-cookie-value");
 });

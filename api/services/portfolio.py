@@ -29,6 +29,8 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
                 account_label=account.label if account else None,
                 lifecycle=lg.lifecycle,
                 last_synced_at=lg.last_synced_at,
+                last_sync_ok=lg.last_sync_ok,
+                last_sync_error=lg.last_sync_error,
                 my_team_id=me.id if me else None,
                 my_team_name=me.name if me else None,
                 wins=me.wins if me else None,

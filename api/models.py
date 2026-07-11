@@ -63,6 +63,9 @@ class League(Base):
     my_team_id: Mapped[int | None] = mapped_column(Integer)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Persistent last-sync diagnostics (Phase 7). error is redacted — never secrets.
+    last_sync_ok: Mapped[bool | None] = mapped_column(Boolean)
+    last_sync_error: Mapped[str | None] = mapped_column(String)
 
     account: Mapped[Account | None] = relationship(back_populates="leagues")
     teams: Mapped[list[Team]] = relationship(back_populates="league", cascade="all, delete-orphan")

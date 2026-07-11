@@ -100,13 +100,16 @@ class SyncService:
         except EspnAuthError:
             if account is not None:
                 account.status = "needs_reauth"
-                self.session.flush()
             result["errors"].append("auth_failed")
             result["needs_reauth"] = True
+            self._record_diagnostics(league, ok=False, error="auth_failed")
             log.warning("league %s: auth failed → account needs_reauth", league.espn_league_id)
             return result
         except EspnError as exc:
             result["errors"].append(f"fetch_failed: {exc}")
+            self._record_diagnostics(
+                league, ok=False, error=f"fetch_failed: {self._safe_error(exc)}"
+            )
             return result
 
         # If cookies' espn_s2 was rewritten to the working variant, persist it.
@@ -232,8 +235,36 @@ class SyncService:
             log.warning("league %s: metrics recompute failed: %s", league.espn_league_id, exc)
         league.last_synced_at = datetime.now(UTC)
         result["lifecycle"] = league.lifecycle
+        if result["errors"]:
+            # Sync completed but some steps failed — surface a concise, redacted summary.
+            self._record_diagnostics(
+                league, ok=False, error=self._safe_error("; ".join(result["errors"]))
+            )
+        else:
+            self._record_diagnostics(league, ok=True, error=None)
         self.session.flush()
         return result
+
+    # ---- diagnostics -------------------------------------------------------
+    def _record_diagnostics(self, league: League, *, ok: bool, error: str | None) -> None:
+        """Persist the last-sync outcome on the league (Phase 7). error is always
+        pre-sanitized by _safe_error; this method never receives raw secrets."""
+        league.last_sync_ok = ok
+        league.last_sync_error = error
+        self.session.flush()
+
+    @staticmethod
+    def _safe_error(msg: object, limit: int = 300) -> str:
+        """Collapse whitespace and truncate an error into a stored diagnostic.
+        Defensively redacts anything cookie-shaped so a secret can never leak into
+        last_sync_error, even though our own error labels don't carry credentials."""
+        text = " ".join(str(msg).split())
+        for needle in ("espn_s2", "SWID", "swid"):
+            if needle in text:
+                text = text.replace(needle, "[redacted]")
+        if len(text) > limit:
+            text = text[: limit - 1].rstrip() + "…"
+        return text
 
     # ---- upsert helpers ----------------------------------------------------
     def _reset_team_flags(self, league: League) -> None:

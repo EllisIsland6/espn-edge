@@ -23,6 +23,8 @@ export interface PortfolioRow {
   account_label: string | null;
   lifecycle: string;
   last_synced_at: string | null;
+  last_sync_ok: boolean | null;
+  last_sync_error: string | null;
   my_team_id: number | null;
   my_team_name: string | null;
   wins: number | null;
@@ -65,6 +67,8 @@ export interface LeagueOut {
   my_team_id: number | null;
   is_public: boolean;
   last_synced_at: string | null;
+  last_sync_ok: boolean | null;
+  last_sync_error: string | null;
 }
 
 export interface LeagueOverview {
@@ -241,6 +245,10 @@ export const getAccounts = () => get<AccountOut[]>("/api/accounts");
 export const addAccount = (label: string, swid: string, espn_s2: string) =>
   send<AccountOut>("POST", "/api/accounts", { label, swid, espn_s2 });
 export const deleteAccount = (id: number) => send<void>("DELETE", `/api/accounts/${id}`);
+// Re-auth: replace an account's cookies after they expire (Phase 7). swid/espn_s2
+// go only in the request body; the response (AccountOut) never echoes them back.
+export const reauthAccount = (id: number, swid: string, espn_s2: string) =>
+  send<AccountOut>("POST", `/api/accounts/${id}/reauth`, { swid, espn_s2 });
 export const discoverLeagues = (accountId: number) =>
   get<DiscoveredLeague[]>(`/api/leagues/discover/${accountId}`);
 export const addLeague = (leagueRef: string, accountId: number | null, season?: number) =>
