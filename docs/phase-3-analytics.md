@@ -3,6 +3,11 @@
 This documents the first real analytics layer for the four metrics the UI has been
 showing as placeholders: **edge_score, grade, verdict, playoff_odds**.
 
+> **Phase 9 update:** the within-league percentile components that make up `edge_score`
+> (win_pct / points_for / point_diff, or roster_proj) are now persisted and shown as a
+> breakdown in League detail. `edge_score` is unchanged — it is derived from exactly these
+> components. See **[phase-9-edge-components.md](phase-9-edge-components.md)**.
+
 Design stance: **deterministic and explainable over clever**. v1 uses only data
 already persisted from ESPN syncs and simple, auditable formulas. The richer
 population-normalized model in SPEC §6 (opponent lineup efficiency, all-play, draft

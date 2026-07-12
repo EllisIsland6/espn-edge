@@ -146,6 +146,17 @@ class TransactionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EdgeComponent(BaseModel):
+    """One within-league percentile that feeds my team's edge_score (Phase 9)."""
+
+    key: str
+    label: str
+    weight: float
+    percentile: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LeagueOverview(BaseModel):
     league: LeagueOut
     account_label: str | None
@@ -156,6 +167,8 @@ class LeagueOverview(BaseModel):
     grade: str | None = None
     verdict: str | None = None
     playoff_odds: float | None = None
+    # Phase 9: the weighted components behind edge_score (empty when pending).
+    components: list[EdgeComponent] = []
 
 
 class PortfolioRow(BaseModel):

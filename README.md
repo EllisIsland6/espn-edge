@@ -5,11 +5,12 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0–8 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
+> Status: **Phases 0–9 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
 > League detail UI, deterministic Edge analytics, the optional backend-only AI layer,
 > Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
-> reliability (re-auth + sync diagnostics), and **Phase 8 beta-readiness polish (read-only
-> System Status page + a [live-smoke runbook](docs/live-smoke.md)).**
+> reliability (re-auth + sync diagnostics), Phase 8 beta-readiness polish (read-only
+> System Status page + a [live-smoke runbook](docs/live-smoke.md)), and **Phase 9 Edge
+> Score [component breakdown](docs/phase-9-edge-components.md) in League detail.**
 
 ## Quick start
 
@@ -139,7 +140,8 @@ Beta-hardening scope (CI + smoke tests + robustness audit):
 reliability (re-auth + sync diagnostics):
 **[docs/phase-7-beta-reliability.md](docs/phase-7-beta-reliability.md)**. Beta-readiness
 polish (Status page + live-smoke runbook):
-**[docs/phase-8-beta-readiness.md](docs/phase-8-beta-readiness.md)**.
+**[docs/phase-8-beta-readiness.md](docs/phase-8-beta-readiness.md)**. Edge Score
+component breakdown: **[docs/phase-9-edge-components.md](docs/phase-9-edge-components.md)**.
 
 ## Schema changes & reset
 
@@ -169,6 +171,11 @@ refresh them just re-sync a league ("Sync"/"Sync all" in the UI, `POST
 /api/leagues/{id}/sync`, or `make verify`). Pending metrics (e.g. a pre-draft league)
 are represented as absence and surface as `null`. Full contract, formulas, and the
 v1-vs-future split: **[docs/phase-3-analytics.md](docs/phase-3-analytics.md)**.
+
+League detail → Overview shows the **component breakdown** behind `edge_score` — the
+weighted within-league percentiles (win %, points for, point differential, or roster
+projection) that the score is the mean of, rendered as bars. See
+**[docs/phase-9-edge-components.md](docs/phase-9-edge-components.md)**.
 
 ## AI analysis (optional)
 

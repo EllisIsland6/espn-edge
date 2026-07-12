@@ -71,6 +71,15 @@ export interface LeagueOut {
   last_sync_error: string | null;
 }
 
+// A within-league percentile that feeds edge_score (Phase 9). Rendered as a bar;
+// React only formats these — the backend computes and persists them.
+export interface EdgeComponent {
+  key: string;
+  label: string;
+  weight: number;
+  percentile: number;
+}
+
 export interface LeagueOverview {
   league: LeagueOut;
   account_label: string | null;
@@ -80,6 +89,7 @@ export interface LeagueOverview {
   grade: string | null;
   verdict: string | null;
   playoff_odds: number | null;
+  components: EdgeComponent[];
 }
 
 export interface DraftPickOut {

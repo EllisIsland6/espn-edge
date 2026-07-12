@@ -17,7 +17,17 @@
   Phase 4 v1 (AI analysis layer), Phase 5 v1 (Monte Carlo playoff odds + exports),
   Phase 6 v1 (beta hardening: CI + Playwright smoke suite),
   Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics),
-  Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook) implemented.
+  Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook),
+  Phase 9 v1 (Edge Score component breakdown in League detail) implemented.
+- Phase 9: edge_score is now derived from its within-league percentile components
+  (compute_edge_components in metrics.py): in_season/complete → win_pct/points_for/
+  point_diff (INSEASON_WEIGHTS); drafted/no-games → roster_proj (weight 1.0, fresh
+  projections only). edge_score = round(Σ weight·percentile, 1) — byte-identical to
+  Phase 3. Components persist as metrics rows key=edge_component_<name> (week NULL),
+  upserted/cleared every recompute so no stale key survives a branch/pending change.
+  Exposed as LeagueOverview.components (my team only) + rendered as bars in League
+  detail Overview. No sync/parse/schema change, no db-reset. Contract:
+  docs/phase-9-edge-components.md.
 - Phase 8: read-only `/status` page (web/src/pages/Status.tsx, nav in Layout.tsx) composes
   existing endpoints (health, ai/status, accounts, portfolio) into a health view — no ESPN
   calls, no math, no secrets, no new backend endpoint or schema change. Fresh-start empty

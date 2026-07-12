@@ -51,6 +51,11 @@ const OVERVIEW = {
     },
   ],
   edge_score: 72.0, grade: "B", verdict: "advantaged", playoff_odds: 0.81,
+  components: [
+    { key: "win_pct", label: "Win %", weight: 0.4, percentile: 75.0 },
+    { key: "points_for", label: "Points for", weight: 0.3, percentile: 87.5 },
+    { key: "point_diff", label: "Point differential", weight: 0.3, percentile: 62.5 },
+  ],
 };
 
 const AI_DISABLED = (kind: string) => ({
@@ -124,6 +129,17 @@ test("league detail renders standings from mocked API data", async ({ page }) =>
   await expect(page.getByText("PPR")).toBeVisible();
   await expect(page.getByText("Rival")).toBeVisible();
   await expect(page.getByText("My Team")).toBeVisible();
+});
+
+test("league detail Overview renders edge component breakdown bars", async ({ page }) => {
+  await page.goto("/league/1");
+  // Component labels + bar percentiles from the mocked overview payload (Phase 9).
+  await expect(page.getByText("Components (within-league percentile)")).toBeVisible();
+  await expect(page.getByText("Win %", { exact: true })).toBeVisible();
+  await expect(page.getByText("Points for", { exact: true })).toBeVisible();
+  await expect(page.getByText("Point differential", { exact: true })).toBeVisible();
+  await expect(page.getByText("weight 40%")).toBeVisible();
+  await expect(page.getByText("88 pct")).toBeVisible(); // 87.5 → 88 rounded for display
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {

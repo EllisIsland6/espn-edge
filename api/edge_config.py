@@ -15,6 +15,33 @@ INSEASON_WEIGHTS: dict[str, float] = {
     "point_diff": 0.30,
 }
 
+# Drafted / no-games-yet branch: the single roster-projection component carries the
+# whole score (weight 1.0), so edge_score == its within-league percentile.
+DRAFTED_WEIGHTS: dict[str, float] = {"roster_proj": 1.0}
+
+# Human labels for edge_score components (Phase 9 breakdown). Keys match the metric
+# rows persisted as edge_component_<key>. Canonical display order.
+COMPONENT_LABELS: dict[str, str] = {
+    "win_pct": "Win %",
+    "points_for": "Points for",
+    "point_diff": "Point differential",
+    "roster_proj": "Roster projection",
+}
+# Canonical order for reading/rendering components (in-season trio, then drafted).
+COMPONENT_ORDER: tuple[str, ...] = ("win_pct", "points_for", "point_diff", "roster_proj")
+
+
+def component_weight(key: str) -> float:
+    """Weight of a component within its branch's edge_score (in-season or drafted)."""
+    if key in INSEASON_WEIGHTS:
+        return INSEASON_WEIGHTS[key]
+    return DRAFTED_WEIGHTS.get(key, 0.0)
+
+
+def component_label(key: str) -> str:
+    """Human label for a component key (falls back to the key itself)."""
+    return COMPONENT_LABELS.get(key, key)
+
 # Verdict thresholds on the 0–100 edge_score (SPEC §6).
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0

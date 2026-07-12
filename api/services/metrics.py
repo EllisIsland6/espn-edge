@@ -14,12 +14,20 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..edge_config import INSEASON_WEIGHTS, grade_for, verdict_for
+from ..edge_config import (
+    COMPONENT_ORDER,
+    component_label,
+    component_weight,
+    grade_for,
+    verdict_for,
+)
 from ..models import DraftPick, League, Matchup, Metric, Player, Team
 from .playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 
 EDGE_SCORE = "edge_score"
 PLAYOFF_ODDS = "playoff_odds"
+# Persisted component rows are keyed edge_component_<name> (Phase 9 breakdown).
+COMPONENT_PREFIX = "edge_component_"
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -62,50 +70,90 @@ def _percentile(values: list[float], v: float) -> float:
 # --------------------------------------------------------------------------- #
 # Pure computation
 # --------------------------------------------------------------------------- #
-def compute_edge_scores(
-    teams: list[TeamStat], lifecycle: str, projections_fresh: bool = True
-) -> dict[int, float | None]:
-    """edge_score (0–100) per team, or None (pending) when inputs are insufficient.
+@dataclass
+class EdgeComponent:
+    """One weighted, within-league percentile that feeds edge_score (Phase 9).
 
-    `projections_fresh` guards the roster-projection branch: if the player pool was
-    not refreshed this sync (kona_player_info failed), projection-based scores are
-    treated as pending rather than recomputed from possibly-stale proj_ros. The
-    record/points branch does not depend on projections and is unaffected.
+    `percentile` is the exact (unrounded) value so the reduction to edge_score stays
+    byte-identical to the pre-Phase-9 formula; only the final sum is rounded.
+    """
+
+    key: str
+    label: str
+    weight: float
+    percentile: float
+
+
+def _component(key: str, percentile: float) -> EdgeComponent:
+    return EdgeComponent(
+        key=key, label=component_label(key), weight=component_weight(key), percentile=percentile
+    )
+
+
+def compute_edge_components(
+    teams: list[TeamStat], lifecycle: str, projections_fresh: bool = True
+) -> dict[int, list[EdgeComponent]]:
+    """Per-team weighted component percentiles behind edge_score, or [] (pending).
+
+    Same branching as the score: pre_draft → pending; in_season/complete *with games*
+    → the win_pct/points_for/point_diff trio; otherwise the roster-projection branch
+    (guarded by `projections_fresh` and ≥2 known projections). edge_score is the
+    weighted mean of exactly these components (see `compute_edge_scores`).
     """
     if not teams:
         return {}
     if lifecycle == "pre_draft":
-        return {t.team_id: None for t in teams}
+        return {t.team_id: [] for t in teams}
 
     any_games = any(games_played(t) > 0 for t in teams)
     if lifecycle in _RECORD_LIFECYCLES and any_games:
         wps = [win_pct(t) for t in teams]
         pfs = [t.points_for for t in teams]
         diffs = [t.points_for - t.points_against for t in teams]
-        out: dict[int, float | None] = {}
-        for t in teams:
-            score = (
-                INSEASON_WEIGHTS["win_pct"] * _percentile(wps, win_pct(t))
-                + INSEASON_WEIGHTS["points_for"] * _percentile(pfs, t.points_for)
-                + INSEASON_WEIGHTS["point_diff"]
-                * _percentile(diffs, t.points_for - t.points_against)
-            )
-            out[t.team_id] = round(score, 1)
-        return out
+        return {
+            t.team_id: [
+                _component("win_pct", _percentile(wps, win_pct(t))),
+                _component("points_for", _percentile(pfs, t.points_for)),
+                _component("point_diff", _percentile(diffs, t.points_for - t.points_against)),
+            ]
+            for t in teams
+        }
 
-    # drafted (or in_season with no games yet): roster-projection percentile.
+    # drafted (or in_season with no games yet): single roster-projection component.
     if not projections_fresh:
-        # Player pool wasn't refreshed → don't publish scores from stale proj_ros.
-        return {t.team_id: None for t in teams}
+        # Player pool wasn't refreshed → don't publish components from stale proj_ros.
+        return {t.team_id: [] for t in teams}
     valid = [t.roster_proj for t in teams if t.roster_proj is not None]
     if len(valid) < 2:
-        return {t.team_id: None for t in teams}
-    out2: dict[int, float | None] = {}
-    for t in teams:
-        out2[t.team_id] = (
-            round(_percentile(valid, t.roster_proj), 1) if t.roster_proj is not None else None
+        return {t.team_id: [] for t in teams}
+    return {
+        t.team_id: (
+            [_component("roster_proj", _percentile(valid, t.roster_proj))]
+            if t.roster_proj is not None
+            else []
         )
-    return out2
+        for t in teams
+    }
+
+
+def _reduce_components(components: list[EdgeComponent]) -> float | None:
+    """edge_score from components: weighted mean, rounded once. [] → None (pending)."""
+    if not components:
+        return None
+    return round(sum(c.weight * c.percentile for c in components), 1)
+
+
+def compute_edge_scores(
+    teams: list[TeamStat], lifecycle: str, projections_fresh: bool = True
+) -> dict[int, float | None]:
+    """edge_score (0–100) per team, or None (pending) when inputs are insufficient.
+
+    Derived from `compute_edge_components` so score and breakdown never drift; the
+    numbers are byte-identical to the pre-Phase-9 formula (same weights/percentiles,
+    a single final round). `projections_fresh` guards the roster-projection branch.
+    """
+    comps = compute_edge_components(teams, lifecycle, projections_fresh=projections_fresh)
+    return {tid: _reduce_components(cs) for tid, cs in comps.items()}
 
 
 def _split_matchups(
@@ -233,16 +281,24 @@ def recompute_league(
         )
         for t in teams
     ]
-    edges = compute_edge_scores(stats, league.lifecycle, projections_fresh=projections_fresh)
+    comps = compute_edge_components(stats, league.lifecycle, projections_fresh=projections_fresh)
     odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
 
     scored = 0
     for stat in stats:
-        score = edges.get(stat.team_id)
+        team_comps = comps.get(stat.team_id, [])
+        score = _reduce_components(team_comps)
         if score is not None:
             scored += 1
         _upsert_or_clear(session, league.id, stat.team_id, EDGE_SCORE, score)
         _upsert_or_clear(session, league.id, stat.team_id, PLAYOFF_ODDS, odds_map.get(stat.team_id))
+        # Persist each component; clear every other component key so a stale row from a
+        # previous branch (e.g. roster_proj after a league starts playing) can't survive.
+        present = {c.key: c.percentile for c in team_comps}
+        for key in COMPONENT_ORDER:
+            _upsert_or_clear(
+                session, league.id, stat.team_id, COMPONENT_PREFIX + key, present.get(key)
+            )
     session.flush()
     return {"teams": len(stats), "scored": scored}
 
@@ -323,3 +379,29 @@ def team_edge(session: Session, league_id: int, team_id: int | None) -> TeamEdge
         grade=grade_for(edge),
         verdict=verdict_for(edge),
     )
+
+
+def team_components(session: Session, league_id: int, team_id: int | None) -> list[EdgeComponent]:
+    """Persisted edge_score components for one team, in canonical order (Phase 9).
+
+    Returns [] when pending. Labels/weights come from edge_config so the view layer
+    never recomputes analytics — it only renders what the DB already holds.
+    """
+    if team_id is None:
+        return []
+    rows = dict(
+        session.execute(
+            select(Metric.key, Metric.value_float).where(
+                Metric.league_id == league_id,
+                Metric.team_id == team_id,
+                Metric.key.startswith(COMPONENT_PREFIX),
+                Metric.week.is_(None),
+            )
+        ).all()
+    )
+    out: list[EdgeComponent] = []
+    for key in COMPONENT_ORDER:
+        pct = rows.get(COMPONENT_PREFIX + key)
+        if pct is not None:
+            out.append(_component(key, pct))
+    return out

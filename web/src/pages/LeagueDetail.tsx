@@ -35,6 +35,7 @@ import {
   Panel,
   SizePill,
   Spinner,
+  ValueBar,
   ValueChip,
   WarningNote,
 } from "../components/ui";
@@ -219,7 +220,32 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
           )}
         </div>
         <div className="mt-4">
-          {ov.edge_score == null ? (
+          {ov.components.length > 0 ? (
+            <>
+              <div className="text-[10px] uppercase tracking-wide text-muted">
+                Components (within-league percentile)
+              </div>
+              <div className="mt-2 space-y-2">
+                {ov.components.map((c) => (
+                  <div key={c.key}>
+                    <div className="flex items-baseline justify-between text-[11px]">
+                      <span className="text-secondary">{c.label}</span>
+                      <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+                    </div>
+                    <ValueBar
+                      value={c.percentile}
+                      max={100}
+                      label={`${num(c.percentile, 0)} pct`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                Edge Score is the weighted mean of these percentiles. The fuller
+                LeagueSoftness + MyEdge model (SPEC §6) is future work.
+              </p>
+            </>
+          ) : (
             <EmptyState
               title={
                 ov.league.lifecycle === "pre_draft"
@@ -228,11 +254,6 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
               }
               hint="Within-league v1 score; full LeagueSoftness + MyEdge breakdown (SPEC §6) is future."
             />
-          ) : (
-            <p className="text-[11px] leading-relaxed text-muted">
-              v1 within-league score from record, points, and roster projections. The full
-              component breakdown (SPEC §6) lands in a later phase.
-            </p>
           )}
         </div>
       </Panel>

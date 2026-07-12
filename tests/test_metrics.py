@@ -10,7 +10,7 @@ from api.edge_config import INSEASON_WEIGHTS, grade_for, verdict_for
 from api.main import app
 from api.models import Account, DraftPick, League, Matchup, Metric, Player, Team
 from api.services import metrics
-from api.services.metrics import TeamStat, team_edge
+from api.services.metrics import TeamStat, team_components, team_edge
 from api.services.playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 from api.services.sync import SyncService
 
@@ -79,6 +79,56 @@ def test_edge_scores_drafted_uses_roster_projection():
 def test_edge_scores_drafted_pending_without_enough_projections():
     teams = [TeamStat(1, 0, 0, 0, 0, 0, None, None), TeamStat(2, 0, 0, 0, 0, 0, None, 100.0)]
     assert metrics.compute_edge_scores(teams, "drafted") == {1: None, 2: None}
+
+
+# --------------------------------------------------------------------------- #
+# Phase 9: edge_score component breakdown (pure)
+# --------------------------------------------------------------------------- #
+def test_edge_components_in_season_hand_computed():
+    comps = metrics.compute_edge_components(_toy_stats(), "in_season")
+    # Leader (team 1): win_pct 75, points_for 87.5, point_diff 87.5.
+    by_key = {c.key: c for c in comps[1]}
+    assert set(by_key) == {"win_pct", "points_for", "point_diff"}
+    assert by_key["win_pct"].percentile == 75.0
+    assert by_key["points_for"].percentile == 87.5
+    assert by_key["point_diff"].percentile == 87.5
+    # Weights come straight from INSEASON_WEIGHTS.
+    assert by_key["win_pct"].weight == INSEASON_WEIGHTS["win_pct"]
+    assert by_key["points_for"].weight == INSEASON_WEIGHTS["points_for"]
+    assert by_key["point_diff"].weight == INSEASON_WEIGHTS["point_diff"]
+
+
+def test_edge_components_reduce_to_edge_score_byte_identical():
+    # The weighted component sum must equal the persisted edge_score exactly, for every team.
+    stats = _toy_stats()
+    comps = metrics.compute_edge_components(stats, "in_season")
+    scores = metrics.compute_edge_scores(stats, "in_season")
+    for t in stats:
+        reduced = round(sum(c.weight * c.percentile for c in comps[t.team_id]), 1)
+        assert reduced == scores[t.team_id]
+    assert scores[1] == 82.5  # unchanged from Phase 3
+
+
+def test_edge_components_drafted_single_roster_proj():
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0),
+        TeamStat(3, 0, 0, 0, 0, 0, None, 100.0),
+        TeamStat(4, 0, 0, 0, 0, 0, None, None),  # no projection → pending, no components
+    ]
+    comps = metrics.compute_edge_components(teams, "drafted")
+    assert [c.key for c in comps[1]] == ["roster_proj"]
+    assert comps[1][0].weight == 1.0
+    assert comps[1][0].percentile == metrics._percentile([300.0, 200.0, 100.0], 300.0)
+    assert comps[4] == []  # pending team has no components
+    # Reduction with weight 1.0 equals the roster-projection edge_score.
+    assert round(comps[1][0].weight * comps[1][0].percentile, 1) == metrics.compute_edge_scores(teams, "drafted")[1]
+
+
+def test_edge_components_pending_when_pre_draft_or_stale():
+    assert metrics.compute_edge_components(_toy_stats(), "pre_draft") == {1: [], 2: [], 3: [], 4: []}
+    drafted = [TeamStat(1, 0, 0, 0, 0, 0, None, 300.0), TeamStat(2, 0, 0, 0, 0, 0, None, 200.0)]
+    assert metrics.compute_edge_components(drafted, "drafted", projections_fresh=False) == {1: [], 2: []}
 
 
 # --------------------------------------------------------------------------- #
@@ -293,8 +343,9 @@ def test_recompute_is_idempotent(db_session):
     db_session.commit()
     metrics.recompute_league(db_session, lg)
     db_session.commit()
-    # No duplicate rows (partial unique index holds).
-    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 8
+    # No duplicate rows (partial unique index holds). 4 teams × 5 keys
+    # (edge_score + playoff_odds + 3 in-season components) = 20, stable across recomputes.
+    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 20
 
 
 # --------------------------------------------------------------------------- #
@@ -402,3 +453,93 @@ def test_recompute_clears_stale_projection_edge_when_players_not_fresh(db_sessio
     assert db_session.scalar(
         select(func.count()).select_from(Metric).where(Metric.league_id == lg.id, Metric.key == "edge_score")
     ) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Phase 9: component persistence, invalidation, branch switching
+# --------------------------------------------------------------------------- #
+def _component_row_count(session, league_id) -> int:
+    return session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == league_id, Metric.key.startswith("edge_component_")
+        )
+    )
+
+
+def test_components_persist_and_read_back(db_session):
+    lg = _make_inseason_league(db_session)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    # 4 teams × 3 in-season components.
+    assert _component_row_count(db_session, lg.id) == 12
+    comps = team_components(db_session, lg.id, lg.my_team_id)
+    assert [c.key for c in comps] == ["win_pct", "points_for", "point_diff"]  # canonical order
+    assert comps[0].percentile == 75.0 and comps[1].percentile == 87.5 and comps[2].percentile == 87.5
+    # Reduction of the persisted components equals the persisted edge_score.
+    assert round(sum(c.weight * c.percentile for c in comps), 1) == team_edge(
+        db_session, lg.id, lg.my_team_id
+    ).edge_score
+
+
+def test_components_clear_when_pending(db_session):
+    lg = _make_inseason_league(db_session)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert _component_row_count(db_session, lg.id) == 12
+
+    lg.lifecycle = "pre_draft"  # → all pending
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert _component_row_count(db_session, lg.id) == 0
+    assert team_components(db_session, lg.id, lg.my_team_id) == []
+
+
+def test_components_clear_when_projections_stale(db_session):
+    lg = _make_drafted_league(db_session)
+    metrics.recompute_league(db_session, lg, projections_fresh=True)
+    db_session.commit()
+    assert [c.key for c in team_components(db_session, lg.id, lg.my_team_id)] == ["roster_proj"]
+
+    metrics.recompute_league(db_session, lg, projections_fresh=False)
+    db_session.commit()
+    assert _component_row_count(db_session, lg.id) == 0
+    assert team_components(db_session, lg.id, lg.my_team_id) == []
+
+
+def test_components_branch_switch_clears_previous_keys(db_session):
+    # Drafted → roster_proj component persisted.
+    lg = _make_drafted_league(db_session)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert [c.key for c in team_components(db_session, lg.id, lg.my_team_id)] == ["roster_proj"]
+
+    # League starts playing (give teams records so the record branch activates).
+    lg.lifecycle = "in_season"
+    for t in db_session.scalars(select(Team).where(Team.league_id == lg.id)):
+        t.wins = 1 if t.espn_team_id <= 2 else 0
+        t.losses = 0 if t.espn_team_id <= 2 else 1
+        t.points_for = 100.0 + t.espn_team_id
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    keys = {c.key for c in team_components(db_session, lg.id, lg.my_team_id)}
+    assert keys == {"win_pct", "points_for", "point_diff"}
+    # The stale roster_proj row from the drafted branch is gone.
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "edge_component_roster_proj"
+        )
+    ) == 0
+
+
+def test_api_overview_exposes_components(synced_league_id):
+    ov = client.get(f"/api/leagues/{synced_league_id}/overview").json()
+    assert "components" in ov
+    keys = {c["key"] for c in ov["components"]}
+    assert keys == {"win_pct", "points_for", "point_diff"}
+    for c in ov["components"]:
+        assert c["label"] and c["weight"] > 0 and 0.0 <= c["percentile"] <= 100.0
+    # Existing metrics unchanged (byte-identical edge_score).
+    assert ov["edge_score"] == 82.5 and ov["grade"] == "A" and ov["verdict"] == "advantaged"

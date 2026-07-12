@@ -14,6 +14,7 @@ from ..db import get_session
 from ..models import Account, DraftPick, League, Matchup, Team, Transaction
 from ..schemas import (
     DraftPickOut,
+    EdgeComponent,
     LeagueOut,
     LeagueOverview,
     MatchupOut,
@@ -22,7 +23,7 @@ from ..schemas import (
     TeamOut,
     TransactionOut,
 )
-from ..services.metrics import team_edge
+from ..services.metrics import team_components, team_edge
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
 
@@ -67,6 +68,7 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
         key=_standing_key,
     )
     edge = team_edge(session, league.id, league.my_team_id)
+    components = team_components(session, league.id, league.my_team_id)
     return LeagueOverview(
         league=LeagueOut.model_validate(league),
         account_label=account.label if account else None,
@@ -76,6 +78,7 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
         grade=edge.grade,
         verdict=edge.verdict,
         playoff_odds=edge.playoff_odds,
+        components=[EdgeComponent.model_validate(c) for c in components],
     )
 
 
