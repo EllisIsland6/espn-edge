@@ -103,6 +103,8 @@ export interface DraftPickOut {
   bid_amount: number | null;
   adp_at_draft: number | null;
   value_delta: number | null;
+  player_name: string | null;
+  player_position: string | null;
 }
 
 export interface MatchupOut {

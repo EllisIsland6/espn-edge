@@ -40,16 +40,17 @@ def _picks_for_team(session: Session, league_id: int, team_id: int) -> list[dict
             DraftPick.autodraft,
             Player.name,
             Player.position,
-            Player.espn_adp,
+            DraftPick.adp_at_draft,
+            DraftPick.value_delta,
         )
         .join(Player, Player.espn_player_id == DraftPick.espn_player_id, isouter=True)
         .where(DraftPick.league_id == league_id, DraftPick.team_id == team_id)
         .order_by(DraftPick.overall)
     ).all()
     picks: list[dict] = []
-    for overall, rnd, pid, auto, name, pos, adp in rows:
-        # Positive delta = drafted later than ADP (captured value); negative = a reach.
-        delta = round(adp - overall, 1) if (adp is not None and overall is not None) else None
+    for overall, rnd, pid, auto, name, pos, adp, delta in rows:
+        # ADP + value delta are persisted at sync (Phase 10); positive delta = drafted
+        # later than ADP (captured value), negative = a reach.
         picks.append(
             {
                 "overall": overall,

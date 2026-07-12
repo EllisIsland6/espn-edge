@@ -215,6 +215,13 @@ class SyncService:
             projections_fresh = False
             result["errors"].append(f"players_failed: {exc}")
 
+        # ---- Step 5b: stamp draft ADP/value (only on a fresh player pool) --
+        # Picks were replaced in Step 2 with null ADP/value; stamp them from the
+        # just-refreshed pool. Skipped when the pool fetch failed, so a failed refresh
+        # never backfills stale ADP onto the new picks (Phase 10).
+        if projections_fresh:
+            self._stamp_draft_values(league)
+
         # ---- Step 6: lifecycle, metrics recompute, last_synced_at ---------
         league.lifecycle = self._lifecycle(drafted, completed_weeks, data)
         self.session.flush()  # lifecycle drives the analytics branch below
@@ -324,6 +331,30 @@ class SyncService:
                     bid_amount=p.bid_amount,
                 )
             )
+        self.session.flush()
+
+    def _stamp_draft_values(self, league: League) -> None:
+        """Stamp adp_at_draft (from the just-refreshed player pool) + value_delta on each
+        pick (Phase 10). Only called on a successful kona_player_info refresh, so a failed
+        refresh leaves the freshly-replaced picks' ADP/value null — never stale. A pick
+        with no matching ADP or no overall position is left null."""
+        adp_by_player = dict(
+            self.session.execute(
+                select(Player.espn_player_id, Player.espn_adp).where(Player.espn_adp.is_not(None))
+            ).all()
+        )
+        picks = self.session.scalars(
+            select(DraftPick).where(DraftPick.league_id == league.id)
+        )
+        for pick in picks:
+            adp = adp_by_player.get(pick.espn_player_id)
+            if adp is not None and pick.overall is not None:
+                pick.adp_at_draft = adp
+                # Positive delta = drafted later than ADP (existing AI convention).
+                pick.value_delta = round(adp - pick.overall, 1)
+            else:
+                pick.adp_at_draft = None
+                pick.value_delta = None
         self.session.flush()
 
     def _flag_autodrafted_teams(

@@ -33,6 +33,7 @@ import {
   GradePill,
   LifecycleBadge,
   Panel,
+  PositionPill,
   SizePill,
   Spinner,
   ValueBar,
@@ -285,7 +286,23 @@ function DraftTab({
     { accessorKey: "overall", header: "Overall", cell: (c) => <span className="mono text-secondary">{c.getValue<number>()}</span> },
     { id: "rp", header: "Rd.Pick", accessorFn: (p) => (p.round ?? 0) * 100 + (p.round_pick ?? 0), cell: (c) => <span className="mono text-muted">{c.row.original.round}.{c.row.original.round_pick}</span> },
     { id: "team", header: "Team", accessorFn: (p) => teamLabel(teamName, p.team_id), cell: (c) => <span className="text-primary">{teamLabel(teamName, c.row.original.team_id)}</span> },
-    { accessorKey: "espn_player_id", header: "Player ID", cell: (c) => <span className="mono text-secondary">{c.getValue<number | null>() ?? DASH}</span> },
+    {
+      id: "player",
+      header: "Player",
+      accessorFn: (p) => p.player_name ?? (p.espn_player_id != null ? `#${p.espn_player_id}` : ""),
+      cell: (c) => {
+        const p = c.row.original;
+        return (
+          <span className="flex items-center gap-2">
+            <PositionPill pos={p.player_position} />
+            <span className="text-primary">
+              {p.player_name ?? (p.espn_player_id != null ? `#${p.espn_player_id}` : DASH)}
+            </span>
+          </span>
+        );
+      },
+    },
+    { accessorKey: "adp_at_draft", header: "ADP", cell: (c) => <span className="mono text-secondary">{c.getValue<number | null>() == null ? DASH : num(c.getValue<number>())}</span> },
     { accessorKey: "keeper", header: "Keeper", cell: (c) => (c.getValue<boolean>() ? "K" : "") },
     { accessorKey: "autodraft", header: "Auto", cell: (c) => (c.getValue<boolean>() ? <span className="text-muted">auto</span> : "") },
     { id: "value", header: "Δ vs ADP", accessorFn: (p) => p.value_delta ?? 0, cell: (c) => <span className="mono text-muted">{c.row.original.value_delta == null ? DASH : num(c.row.original.value_delta)}</span> },
@@ -301,7 +318,8 @@ function DraftTab({
           rowClassName={(p) => (myTeamId != null && p.team_id === myTeamId ? "bg-greenchip/40" : "")}
         />
         <p className="px-3 py-2 text-[11px] text-muted">
-          Player names + ADP value deltas resolve once player mapping lands.
+          ADP and Δ vs ADP (positive = drafted later than ADP) come from the ESPN player
+          pool at last sync; blank when a player isn&apos;t in the pool.
         </p>
       </Panel>
     </div>

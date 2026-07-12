@@ -145,6 +145,9 @@ def test_draft_recap_input_is_grounded(synced_league_id):
         p = facts["picks"][0]
         assert {"overall", "round", "pos", "player", "adp", "value_delta", "auto"} <= set(p)
         assert facts["fingerprint"]["total_picks"] == len(facts["picks"])
+        # Phase 10: ADP + value delta come from the persisted DraftPick, not a live recompute.
+        # Team 1's first pick is player 1001 (ADP 3.4) at overall 1 → delta 3.4 - 1 = 2.4.
+        assert p["overall"] == 1 and p["adp"] == 3.4 and p["value_delta"] == 2.4
     finally:
         session.close()
 

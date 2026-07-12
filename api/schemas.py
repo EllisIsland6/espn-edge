@@ -119,6 +119,9 @@ class DraftPickOut(BaseModel):
     bid_amount: int | None
     adp_at_draft: float | None
     value_delta: float | None
+    # Phase 10: resolved from the players table on the read endpoint (null if unmapped).
+    player_name: str | None = None
+    player_position: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import Account, DraftPick, League, Matchup, Team, Transaction
+from ..models import Account, DraftPick, League, Matchup, Player, Team, Transaction
 from ..schemas import (
     DraftPickOut,
     EdgeComponent,
@@ -90,13 +90,32 @@ def league_teams(league_id: int, session: Session = Depends(get_session)) -> lis
 
 
 @router.get("/api/leagues/{league_id}/draft", response_model=list[DraftPickOut])
-def league_draft(league_id: int, session: Session = Depends(get_session)) -> list[DraftPick]:
+def league_draft(league_id: int, session: Session = Depends(get_session)) -> list[DraftPickOut]:
     _get_league(session, league_id)
-    return list(
-        session.scalars(
-            select(DraftPick).where(DraftPick.league_id == league_id).order_by(DraftPick.overall)
+    # Join players so the board shows names/positions instead of raw IDs (Phase 10).
+    rows = session.execute(
+        select(DraftPick, Player.name, Player.position)
+        .join(Player, Player.espn_player_id == DraftPick.espn_player_id, isouter=True)
+        .where(DraftPick.league_id == league_id)
+        .order_by(DraftPick.overall)
+    ).all()
+    return [
+        DraftPickOut(
+            overall=p.overall,
+            round=p.round,
+            round_pick=p.round_pick,
+            team_id=p.team_id,
+            espn_player_id=p.espn_player_id,
+            keeper=p.keeper,
+            autodraft=p.autodraft,
+            bid_amount=p.bid_amount,
+            adp_at_draft=p.adp_at_draft,
+            value_delta=p.value_delta,
+            player_name=name,
+            player_position=pos,
         )
-    )
+        for p, name, pos in rows
+    ]
 
 
 @router.get("/api/leagues/{league_id}/matchups", response_model=list[MatchupOut])

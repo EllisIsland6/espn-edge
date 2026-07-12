@@ -10,7 +10,9 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
 > reliability (re-auth + sync diagnostics), Phase 8 beta-readiness polish (read-only
 > System Status page + a [live-smoke runbook](docs/live-smoke.md)), and **Phase 9 Edge
-> Score [component breakdown](docs/phase-9-edge-components.md) in League detail.**
+> Score [component breakdown](docs/phase-9-edge-components.md) in League detail, and
+> **Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
+> value delta + a draft-surplus metric; Draft Board shows player names).**
 
 ## Quick start
 
@@ -176,6 +178,12 @@ League detail → Overview shows the **component breakdown** behind `edge_score`
 weighted within-league percentiles (win %, points for, point differential, or roster
 projection) that the score is the mean of, rendered as bars. See
 **[docs/phase-9-edge-components.md](docs/phase-9-edge-components.md)**.
+
+The **Draft Board** persists each pick's `adp_at_draft` and `value_delta` (ADP − overall)
+at sync from the ESPN player pool, and stores a per-team `draft_surplus` metric from the
+pick-value curve `v(p)=100·e^(−p/34)`. This is the **foundation** for the SPEC §6.2
+draft-surplus MyEdge component — it is **not** folded into `edge_score` yet. See
+**[docs/phase-10-draft-value.md](docs/phase-10-draft-value.md)**.
 
 ## AI analysis (optional)
 

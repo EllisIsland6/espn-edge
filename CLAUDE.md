@@ -18,7 +18,18 @@
   Phase 6 v1 (beta hardening: CI + Playwright smoke suite),
   Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics),
   Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook),
-  Phase 9 v1 (Edge Score component breakdown in League detail) implemented.
+  Phase 9 v1 (Edge Score component breakdown in League detail),
+  Phase 10 v1 (draft value foundation) implemented.
+- Phase 10: sync stamps DraftPick.adp_at_draft (from the fresh kona_player_info pool) +
+  value_delta=round(adp-overall,1) in a Step 5b (_stamp_draft_values), only when
+  projections_fresh — a failed player fetch leaves the freshly-replaced picks null (never
+  stale). Pure draft-surplus foundation in metrics.py: pick_value(p)=100·e^(-p/34)
+  (DRAFT_VALUE_DECAY in edge_config), pick_surplus, compute_draft_surplus; persisted as a
+  team metric key=draft_surplus (week NULL), cleared when no valid picks. NOT part of
+  edge_score/grade/verdict/components (unchanged, byte-identical). AI draft facts read the
+  persisted adp_at_draft/value_delta. /api/leagues/{id}/draft joins players → DraftPickOut
+  gains player_name/player_position; Draft Board shows name/pos/ADP/Δ. No schema change, no
+  db-reset. Contract: docs/phase-10-draft-value.md.
 - Phase 9: edge_score is now derived from its within-league percentile components
   (compute_edge_components in metrics.py): in_season/complete → win_pct/points_for/
   point_diff (INSEASON_WEIGHTS); drafted/no-games → roster_proj (weight 1.0, fresh

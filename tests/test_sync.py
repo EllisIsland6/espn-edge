@@ -201,3 +201,60 @@ def test_partial_failure_records_safe_diagnostic(db_session, league_fixture, pla
     # The diagnostic never carries the account's secrets.
     assert "some-espn-s2-value" not in lg.last_sync_error
     assert acct.swid not in lg.last_sync_error
+
+
+def test_sync_stamps_draft_adp_and_value_delta(db_session, league_fixture, players_fixture):
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    SyncService(db_session, espn=FakeEspn(league_fixture, players_fixture)).sync_league(lg)
+    db_session.commit()
+
+    picks = {
+        p.overall: p
+        for p in db_session.scalars(select(DraftPick).where(DraftPick.league_id == lg.id))
+    }
+    # Player 1001 (ADP 3.4) drafted at overall 1 → value_delta = 3.4 - 1 = 2.4.
+    assert picks[1].adp_at_draft == 3.4
+    assert picks[1].value_delta == 2.4
+    # Player 1002 (ADP 1.1) drafted at overall 2 → value_delta = 1.1 - 2 = -0.9.
+    assert picks[2].adp_at_draft == 1.1
+    assert picks[2].value_delta == -0.9
+    # Picks whose player isn't in the pool have no ADP/value stamped.
+    assert picks[3].adp_at_draft is None and picks[3].value_delta is None
+
+
+def test_sync_failure_leaves_draft_adp_null_no_stale(db_session, league_fixture, players_fixture):
+    from api.services.espn import EspnError
+
+    class PlayerFailEspn(FakeEspn):
+        def fetch_views(self, league_id, season, views, **kw):
+            if "kona_player_info" in views:
+                raise EspnError("players endpoint 500")
+            return super().fetch_views(league_id, season, views, **kw)
+
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    # First sync succeeds and stamps ADP.
+    SyncService(db_session, espn=FakeEspn(league_fixture, players_fixture)).sync_league(lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(DraftPick.adp_at_draft).where(DraftPick.league_id == lg.id, DraftPick.overall == 1)
+    ) == 3.4
+
+    # Second sync: player pool fetch fails → picks are replaced and left null (no stale ADP).
+    SyncService(db_session, espn=PlayerFailEspn(league_fixture, players_fixture)).sync_league(lg)
+    db_session.commit()
+    adps = [
+        row[0]
+        for row in db_session.execute(
+            select(DraftPick.adp_at_draft).where(DraftPick.league_id == lg.id)
+        )
+    ]
+    assert all(a is None for a in adps)
+    deltas = [
+        row[0]
+        for row in db_session.execute(
+            select(DraftPick.value_delta).where(DraftPick.league_id == lg.id)
+        )
+    ]
+    assert all(d is None for d in deltas)

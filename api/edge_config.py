@@ -46,6 +46,10 @@ def component_label(key: str) -> str:
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0
 
+# Phase 10: draft pick-value curve v(p) = 100·e^(−p/DECAY) (SPEC §6.2). Steep early, flat
+# late; ~100 at pick 1, ~5 by pick 100. Used for draft_surplus (not in edge_score yet).
+DRAFT_VALUE_DECAY = 34.0
+
 # Letter-grade bands, checked high → low: (min_inclusive, grade).
 GRADE_BANDS: tuple[tuple[float, str], ...] = (
     (80.0, "A"),

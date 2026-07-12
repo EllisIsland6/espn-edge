@@ -8,6 +8,7 @@ are touched. Contract: docs/phase-3-analytics.md.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..edge_config import (
     COMPONENT_ORDER,
+    DRAFT_VALUE_DECAY,
     component_label,
     component_weight,
     grade_for,
@@ -28,6 +30,8 @@ EDGE_SCORE = "edge_score"
 PLAYOFF_ODDS = "playoff_odds"
 # Persisted component rows are keyed edge_component_<name> (Phase 9 breakdown).
 COMPONENT_PREFIX = "edge_component_"
+# Phase 10: informational team draft-surplus metric (not part of edge_score yet).
+DRAFT_SURPLUS = "draft_surplus"
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -141,6 +145,32 @@ def _reduce_components(components: list[EdgeComponent]) -> float | None:
     if not components:
         return None
     return round(sum(c.weight * c.percentile for c in components), 1)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 10: draft-surplus foundation (pure; not folded into edge_score yet)
+# --------------------------------------------------------------------------- #
+def pick_value(overall: float) -> float:
+    """Smooth draft pick-value curve v(p)=100·e^(−p/DECAY) (SPEC §6.2): steep early,
+    flat late. A lower pick number is worth more."""
+    return 100.0 * math.exp(-overall / DRAFT_VALUE_DECAY)
+
+
+def pick_surplus(adp_at_draft: float | None, overall: float | None) -> float | None:
+    """Value captured on one pick: pick_value(adp) − pick_value(overall). None when the
+    pick's ADP or overall position is unknown."""
+    if adp_at_draft is None or overall is None:
+        return None
+    return pick_value(adp_at_draft) - pick_value(overall)
+
+
+def compute_draft_surplus(picks: list[tuple[float | None, float | None]]) -> float | None:
+    """Team draft surplus = sum of known per-pick surpluses. None when no pick has both
+    an ADP and an overall position (→ metric cleared)."""
+    surpluses = [
+        s for adp, overall in picks if (s := pick_surplus(adp, overall)) is not None
+    ]
+    return round(sum(surpluses), 3) if surpluses else None
 
 
 def compute_edge_scores(
@@ -283,6 +313,7 @@ def recompute_league(
     ]
     comps = compute_edge_components(stats, league.lifecycle, projections_fresh=projections_fresh)
     odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
+    surplus_map = _draft_surplus_by_team(session, league.id)
 
     scored = 0
     for stat in stats:
@@ -299,8 +330,25 @@ def recompute_league(
             _upsert_or_clear(
                 session, league.id, stat.team_id, COMPONENT_PREFIX + key, present.get(key)
             )
+        # Phase 10: informational draft surplus (cleared when no valid pick values).
+        _upsert_or_clear(
+            session, league.id, stat.team_id, DRAFT_SURPLUS, surplus_map.get(stat.team_id)
+        )
     session.flush()
     return {"teams": len(stats), "scored": scored}
+
+
+def _draft_surplus_by_team(session: Session, league_id: int) -> dict[int, float | None]:
+    """Per-team draft surplus from persisted DraftPick adp_at_draft/overall (Phase 10)."""
+    rows = session.execute(
+        select(DraftPick.team_id, DraftPick.adp_at_draft, DraftPick.overall).where(
+            DraftPick.league_id == league_id, DraftPick.team_id.is_not(None)
+        )
+    ).all()
+    by_team: dict[int, list[tuple[float | None, float | None]]] = {}
+    for tid, adp, overall in rows:
+        by_team.setdefault(tid, []).append((adp, overall))
+    return {tid: compute_draft_surplus(picks) for tid, picks in by_team.items()}
 
 
 def _roster_projection_by_team(session: Session, league_id: int) -> dict[int, float]:

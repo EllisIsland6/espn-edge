@@ -63,6 +63,20 @@ const AI_DISABLED = (kind: string) => ({
   content: null, error: null,
 });
 
+// Draft board with a resolved player name/position/ADP (Phase 10).
+const DRAFT = [
+  {
+    overall: 1, round: 1, round_pick: 1, team_id: 1, espn_player_id: 1001,
+    keeper: false, autodraft: false, bid_amount: null,
+    adp_at_draft: 3.4, value_delta: 2.4, player_name: "Star Runningback", player_position: "RB",
+  },
+  {
+    overall: 2, round: 1, round_pick: 2, team_id: 2, espn_player_id: 1002,
+    keeper: false, autodraft: false, bid_amount: null,
+    adp_at_draft: 1.1, value_delta: -0.9, player_name: "Ace Receiver", player_position: "WR",
+  },
+];
+
 function json(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 }
@@ -82,6 +96,7 @@ async function mockApi(page: Page) {
     json(r, AI_DISABLED("advantage_verdict")));
   await page.route("**/api/leagues/1/ai/draft-recaps", (r) =>
     json(r, { enabled: false, kind: "draft_recap", reports: [] }));
+  await page.route("**/api/leagues/1/draft", (r) => json(r, DRAFT));
   // CSV export responds like the backend (attachment) so clicking it triggers a download.
   await page.route("**/api/exports/portfolio.csv", (r) =>
     r.fulfill({
@@ -140,6 +155,16 @@ test("league detail Overview renders edge component breakdown bars", async ({ pa
   await expect(page.getByText("Point differential", { exact: true })).toBeVisible();
   await expect(page.getByText("weight 40%")).toBeVisible();
   await expect(page.getByText("88 pct")).toBeVisible(); // 87.5 → 88 rounded for display
+});
+
+test("draft board shows player name, position, and ADP (not raw IDs)", async ({ page }) => {
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Draft Board" }).click();
+  // Resolved player name + position + ADP from the mocked draft payload (Phase 10).
+  await expect(page.getByText("Star Runningback")).toBeVisible();
+  await expect(page.getByText("Ace Receiver")).toBeVisible();
+  await expect(page.getByText("RB", { exact: true })).toBeVisible(); // position pill
+  await expect(page.getByText("3.4")).toBeVisible(); // ADP column
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {

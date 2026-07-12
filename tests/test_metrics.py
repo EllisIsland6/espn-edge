@@ -1,5 +1,7 @@
 """Phase 3 analytics tests — pure computation, persistence, invalidation, API."""
 
+import math
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -543,3 +545,67 @@ def test_api_overview_exposes_components(synced_league_id):
         assert c["label"] and c["weight"] > 0 and 0.0 <= c["percentile"] <= 100.0
     # Existing metrics unchanged (byte-identical edge_score).
     assert ov["edge_score"] == 82.5 and ov["grade"] == "A" and ov["verdict"] == "advantaged"
+
+
+# --------------------------------------------------------------------------- #
+# Phase 10: draft-value foundation (pure + persistence)
+# --------------------------------------------------------------------------- #
+def test_pick_value_curve():
+    assert metrics.pick_value(0) == 100.0  # 100·e^0
+    assert metrics.pick_value(34) == pytest.approx(100 * math.exp(-1))  # one decay length
+    # Earlier picks are worth more (monotonically decreasing).
+    assert metrics.pick_value(1) > metrics.pick_value(10) > metrics.pick_value(100)
+
+
+def test_pick_surplus_and_team_surplus():
+    assert metrics.pick_surplus(None, 5.0) is None
+    assert metrics.pick_surplus(5.0, None) is None
+    # Player with ADP 10 taken at overall 20 (fell 10 spots) → value captured, positive.
+    s = metrics.pick_surplus(10.0, 20.0)
+    assert s == pytest.approx(metrics.pick_value(10.0) - metrics.pick_value(20.0))
+    assert s > 0
+    # Team surplus sums known picks, ignores those missing ADP/overall.
+    picks = [(10.0, 20.0), (None, 3.0), (5.0, 4.0)]
+    expected = round(
+        (metrics.pick_value(10.0) - metrics.pick_value(20.0))
+        + (metrics.pick_value(5.0) - metrics.pick_value(4.0)),
+        3,
+    )
+    assert metrics.compute_draft_surplus(picks) == expected
+    # No pick has both values → None (metric cleared).
+    assert metrics.compute_draft_surplus([(None, 1.0), (2.0, None)]) is None
+
+
+def test_draft_surplus_persists_and_clears(db_session):
+    lg = _make_drafted_league(db_session)
+    # Stamp ADP earlier than the pick (adp < overall) so surplus is positive.
+    for p in db_session.scalars(select(DraftPick).where(DraftPick.league_id == lg.id)):
+        p.adp_at_draft = p.overall * 0.5
+        p.value_delta = round(p.adp_at_draft - p.overall, 1)
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    surplus = db_session.scalar(
+        select(Metric.value_float).where(
+            Metric.league_id == lg.id,
+            Metric.team_id == lg.my_team_id,
+            Metric.key == "draft_surplus",
+            Metric.week.is_(None),
+        )
+    )
+    # My team has one pick (overall 1, adp 0.5) → equals the pure computation, positive.
+    assert surplus == pytest.approx(metrics.compute_draft_surplus([(0.5, 1)]))
+    assert surplus > 0
+
+    # Remove ADP → no valid pick values → the metric is cleared.
+    for p in db_session.scalars(select(DraftPick).where(DraftPick.league_id == lg.id)):
+        p.adp_at_draft = None
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "draft_surplus"
+        )
+    ) == 0
