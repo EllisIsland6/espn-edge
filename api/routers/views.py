@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..models import Account, DraftPick, League, Matchup, Player, Team, Transaction
 from ..schemas import (
+    AllPlayOut,
     DraftPickOut,
     EdgeComponent,
     LeagueOut,
@@ -23,7 +24,7 @@ from ..schemas import (
     TeamOut,
     TransactionOut,
 )
-from ..services.metrics import team_components, team_edge
+from ..services.metrics import read_all_play, team_components, team_edge
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
 
@@ -126,6 +127,30 @@ def league_matchups(league_id: int, session: Session = Depends(get_session)) -> 
             select(Matchup).where(Matchup.league_id == league_id).order_by(Matchup.week)
         )
     )
+
+
+@router.get("/api/leagues/{league_id}/all-play", response_model=list[AllPlayOut])
+def league_all_play(league_id: int, session: Session = Depends(get_session)) -> list[AllPlayOut]:
+    _get_league(session, league_id)
+    names = dict(
+        session.execute(select(Team.id, Team.name).where(Team.league_id == league_id)).all()
+    )
+    return [
+        AllPlayOut(
+            team_id=r.team_id,
+            team_name=names.get(r.team_id),
+            wins=r.actual_wins,
+            losses=r.actual_losses,
+            ties=r.actual_ties,
+            win_pct=r.actual_win_pct,
+            all_play_wins=r.all_play_wins,
+            all_play_losses=r.all_play_losses,
+            all_play_ties=r.all_play_ties,
+            all_play_win_pct=r.all_play_win_pct,
+            luck_delta=r.luck_delta,
+        )
+        for r in read_all_play(session, league_id)
+    ]
 
 
 @router.get("/api/leagues/{league_id}/activity", response_model=list[TransactionOut])

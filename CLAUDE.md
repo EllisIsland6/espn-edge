@@ -20,7 +20,17 @@
   Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook),
   Phase 9 v1 (Edge Score component breakdown in League detail),
   Phase 10 v1 (draft value foundation),
-  Phase 11 v1 (preseason edge blends roster projection + draft surplus) implemented.
+  Phase 11 v1 (preseason edge blends roster projection + draft surplus),
+  Phase 12 v1 (all-play record + luck delta) implemented.
+- Phase 12: metrics.py compute_all_play (pure) scores each team vs every other scored team
+  each completed regular-season week (playoffs ignored, weeks with <2 scored teams skipped);
+  luck_delta = all_play_win_pct - actual_win_pct. Completed weeks from sync's completed_weeks;
+  completed_weeks=None falls back to the "either side scored >0" heuristic. Persisted as team
+  metrics (week NULL): all_play_wins/losses/ties/all_play_win_pct/luck_delta, cleared when no
+  completed sample. read_all_play + GET /api/leagues/{id}/all-play (ordered by AP win% desc,
+  AllPlayOut). Matchups tab shows an All-play & luck table (placeholder removed). NOT in
+  edge_score (unchanged, 82.5 byte-identical). No schema change, no db-reset. Contract:
+  docs/phase-12-all-play-luck.md.
 - Phase 11: the preseason branch of compute_edge_components (drafted/no-games) now blends
   within-league percentiles of roster_proj and draft_surplus. TeamStat gains draft_surplus
   (fed from _draft_surplus_by_team in recompute). Base weights from SPEC §6.2 (0.35/0.25)

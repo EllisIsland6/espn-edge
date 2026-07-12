@@ -9,6 +9,7 @@ import {
   getAiStatus,
   getDraftRecaps,
   getLeagueActivity,
+  getLeagueAllPlay,
   getLeagueBrief,
   getLeagueDraft,
   getLeagueMatchups,
@@ -17,6 +18,7 @@ import {
   type AdvantageVerdictContent,
   type AiReportEnvelope,
   type AiStatus,
+  type AllPlayOut,
   type DraftPickOut,
   type DraftRecapContent,
   type LeagueBriefContent,
@@ -154,7 +156,7 @@ export default function LeagueDetail() {
         {tab === "overview" && <OverviewTab ov={ov} />}
         {tab === "draft" && <DraftTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "teams" && <TeamsTab teams={ov.teams} />}
-        {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} />}
+        {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "activity" && <ActivityTab leagueId={leagueId} teamName={teamName} />}
         {tab === "ai" && <AiTab leagueId={leagueId} />}
       </div>
@@ -412,7 +414,15 @@ function TeamsTab({ teams }: { teams: TeamOut[] }) {
 }
 
 // --- Matchups ---------------------------------------------------------------
-function MatchupsTab({ leagueId, teamName }: { leagueId: number; teamName: Map<number, TeamOut> }) {
+function MatchupsTab({
+  leagueId,
+  teamName,
+  myTeamId,
+}: {
+  leagueId: number;
+  teamName: Map<number, TeamOut>;
+  myTeamId: number | null;
+}) {
   const [ms, setMs] = useState<MatchupOut[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -433,9 +443,68 @@ function MatchupsTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
     { accessorKey: "is_playoff", header: "PO", cell: (c) => (c.getValue<boolean>() ? <span className="text-gold">●</span> : "") },
   ];
   return (
+    <div className="space-y-5">
+      <AllPlayTable leagueId={leagueId} myTeamId={myTeamId} />
+      <Panel className="overflow-hidden p-1">
+        <div className="border-b border-line px-3 py-2 text-xs uppercase tracking-wide text-muted">
+          Matchup schedule
+        </div>
+        <DataTable data={played} columns={cols} initialSort={[{ id: "week", desc: false }]} />
+      </Panel>
+    </div>
+  );
+}
+
+// All-play record + luck delta (Phase 12). All numbers are backend-computed; the component
+// only formats them (percent, signed luck) — no analytics math here.
+function AllPlayTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: number | null }) {
+  const [rows, setRows] = useState<AllPlayOut[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    getLeagueAllPlay(leagueId).then(setRows).catch((e) => setErr(String(e)));
+  }, [leagueId]);
+  if (err) return <ErrorNote message={err} />;
+  if (!rows) return <Spinner />;
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        title="No all-play sample yet"
+        hint="All-play records and luck deltas appear once a regular-season week completes."
+      />
+    );
+
+  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+  const luck = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}`;
+  const cols: ColumnDef<AllPlayOut, any>[] = [
+    { accessorKey: "team_name", header: "Team", cell: (c) => <span className="text-primary">{c.getValue<string | null>() ?? DASH}</span> },
+    { id: "record", header: "W-L-T", accessorFn: (r) => r.wins, cell: (c) => <span className="mono">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
+    { accessorKey: "win_pct", header: "Win%", cell: (c) => <span className="mono text-secondary">{pct(c.getValue<number>())}</span> },
+    { id: "ap_record", header: "All-play", accessorFn: (r) => r.all_play_win_pct, cell: (c) => <span className="mono">{record(c.row.original.all_play_wins, c.row.original.all_play_losses, c.row.original.all_play_ties)}</span> },
+    { accessorKey: "all_play_win_pct", header: "AP Win%", cell: (c) => <span className="mono text-secondary">{pct(c.getValue<number>())}</span> },
+    {
+      accessorKey: "luck_delta",
+      header: "Luck",
+      cell: (c) => {
+        const v = c.getValue<number>();
+        return <span className={`mono ${v > 0 ? "text-green" : v < 0 ? "text-red" : "text-muted"}`}>{luck(v)}</span>;
+      },
+    },
+  ];
+  return (
     <Panel className="overflow-hidden p-1">
-      <DataTable data={played} columns={cols} initialSort={[{ id: "week", desc: false }]} />
-      <p className="px-3 py-2 text-[11px] text-muted">All-play records + luck delta arrive in Phase 3.</p>
+      <div className="border-b border-line px-3 py-2 text-xs uppercase tracking-wide text-muted">
+        All-play &amp; luck
+      </div>
+      <DataTable
+        data={rows}
+        columns={cols}
+        initialSort={[{ id: "all_play_win_pct", desc: true }]}
+        rowClassName={(r) => (myTeamId != null && r.team_id === myTeamId ? "bg-greenchip/40" : "")}
+      />
+      <p className="px-3 py-2 text-[11px] text-muted">
+        All-play scores each team against every other team every completed week. Luck = all-play
+        win% − actual win% (in points); positive means better scoring than the record shows.
+      </p>
     </Panel>
   );
 }

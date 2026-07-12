@@ -14,7 +14,8 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
 > value delta + a draft-surplus metric; Draft Board shows player names), and **Phase 11
 > [preseason Edge](docs/phase-11-preseason-edge.md) blending roster projection + draft
-> surplus for drafted/no-games leagues.**
+> surplus for drafted/no-games leagues, and **Phase 12 [all-play + luck
+> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab.**
 
 ## Quick start
 
@@ -191,6 +192,12 @@ percentiles of **roster projection** (weight ≈0.58) and **draft surplus** (≈
 components in the Overview. Roster-only leagues are unchanged, and in-season/complete
 scoring is byte-identical. Still a within-league v1, not the cross-league SPEC §6 Index.
 See **[docs/phase-11-preseason-edge.md](docs/phase-11-preseason-edge.md)**.
+
+The **Matchups** tab shows each team's **all-play** record (scored against every other team
+every completed week) and **luck delta** (`all-play win% − actual win%`), served by
+`GET /api/leagues/{id}/all-play`. It's the foundation for SPEC §6.2 luck-adjusted record and
+is **not** folded into `edge_score` yet. See
+**[docs/phase-12-all-play-luck.md](docs/phase-12-all-play-luck.md)**.
 
 ## AI analysis (optional)
 

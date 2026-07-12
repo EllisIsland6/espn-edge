@@ -116,6 +116,21 @@ export interface MatchupOut {
   is_playoff: boolean;
 }
 
+// Actual vs all-play record + luck delta (Phase 12). Backend-computed; React formats only.
+export interface AllPlayOut {
+  team_id: number;
+  team_name: string | null;
+  wins: number;
+  losses: number;
+  ties: number;
+  win_pct: number;
+  all_play_wins: number;
+  all_play_losses: number;
+  all_play_ties: number;
+  all_play_win_pct: number;
+  luck_delta: number;
+}
+
 export interface TransactionOut {
   team_id: number | null;
   type: string | null;
@@ -249,6 +264,8 @@ export const getLeagueTeams = (id: number) => get<TeamOut[]>(`/api/leagues/${id}
 export const getLeagueDraft = (id: number) => get<DraftPickOut[]>(`/api/leagues/${id}/draft`);
 export const getLeagueMatchups = (id: number) =>
   get<MatchupOut[]>(`/api/leagues/${id}/matchups`);
+export const getLeagueAllPlay = (id: number) =>
+  get<AllPlayOut[]>(`/api/leagues/${id}/all-play`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
 

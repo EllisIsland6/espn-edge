@@ -160,6 +160,22 @@ class EdgeComponent(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AllPlayOut(BaseModel):
+    """A team's actual vs all-play record + luck delta (Phase 12)."""
+
+    team_id: int
+    team_name: str | None
+    wins: int
+    losses: int
+    ties: int
+    win_pct: float
+    all_play_wins: int
+    all_play_losses: int
+    all_play_ties: int
+    all_play_win_pct: float
+    luck_delta: float
+
+
 class LeagueOverview(BaseModel):
     league: LeagueOut
     account_label: str | None

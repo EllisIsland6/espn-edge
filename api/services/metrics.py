@@ -32,6 +32,20 @@ PLAYOFF_ODDS = "playoff_odds"
 COMPONENT_PREFIX = "edge_component_"
 # Phase 10: informational team draft-surplus metric (not part of edge_score yet).
 DRAFT_SURPLUS = "draft_surplus"
+# Phase 12: all-play + luck metrics (informational; not part of edge_score yet).
+ALL_PLAY_WINS = "all_play_wins"
+ALL_PLAY_LOSSES = "all_play_losses"
+ALL_PLAY_TIES = "all_play_ties"
+ALL_PLAY_WIN_PCT = "all_play_win_pct"
+LUCK_DELTA = "luck_delta"
+# Every all-play key, so a team with no completed sample gets all of them cleared.
+_ALL_PLAY_KEYS = (
+    ALL_PLAY_WINS,
+    ALL_PLAY_LOSSES,
+    ALL_PLAY_TIES,
+    ALL_PLAY_WIN_PCT,
+    LUCK_DELTA,
+)
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -253,6 +267,106 @@ def _split_matchups(
     return played_scores, remaining
 
 
+# --------------------------------------------------------------------------- #
+# Phase 12: all-play record + luck delta (pure; not folded into edge_score yet)
+# --------------------------------------------------------------------------- #
+@dataclass
+class AllPlayRow:
+    """A team's actual vs all-play record and the luck delta between them."""
+
+    team_id: int
+    actual_wins: int
+    actual_losses: int
+    actual_ties: int
+    actual_win_pct: float
+    all_play_wins: int
+    all_play_losses: int
+    all_play_ties: int
+    all_play_win_pct: float | None  # None when no completed all-play sample
+    luck_delta: float | None  # all_play_win_pct − actual_win_pct; None when no sample
+
+
+def compute_all_play(
+    teams: list[TeamStat], weekly_scores: dict[int, dict[int, float]]
+) -> dict[int, AllPlayRow]:
+    """All-play record + luck delta per team from completed weekly scores.
+
+    `weekly_scores` maps week → {team_id: score} for **completed regular-season** weeks.
+    For each such week with ≥2 scored teams, every team is scored against every other
+    scored team (win/loss/tie). `luck_delta = all_play_win_pct − actual_win_pct`; positive
+    means the team's scoring quality outran its actual record. A team with no completed
+    all-play games gets None win_pct/luck (→ metrics cleared)."""
+    ids = {t.team_id for t in teams}
+    wins = {tid: 0 for tid in ids}
+    losses = {tid: 0 for tid in ids}
+    ties = {tid: 0 for tid in ids}
+    for scores in weekly_scores.values():
+        scored = {tid: s for tid, s in scores.items() if tid in ids and s is not None}
+        if len(scored) < 2:  # need a field to play against
+            continue
+        for tid, s in scored.items():
+            for other_tid, other_s in scored.items():
+                if other_tid == tid:
+                    continue
+                if s > other_s:
+                    wins[tid] += 1
+                elif s < other_s:
+                    losses[tid] += 1
+                else:
+                    ties[tid] += 1
+
+    out: dict[int, AllPlayRow] = {}
+    for t in teams:
+        tid = t.team_id
+        games = wins[tid] + losses[tid] + ties[tid]
+        actual_wp = win_pct(t)
+        if games == 0:
+            out[tid] = AllPlayRow(
+                tid, t.wins, t.losses, t.ties, actual_wp, 0, 0, 0, None, None
+            )
+        else:
+            ap_wp = round((wins[tid] + 0.5 * ties[tid]) / games, 4)
+            out[tid] = AllPlayRow(
+                tid, t.wins, t.losses, t.ties, actual_wp,
+                wins[tid], losses[tid], ties[tid], ap_wp, round(ap_wp - actual_wp, 4),
+            )
+    return out
+
+
+def _weekly_scores(
+    matchups, ids: set[int], completed_weeks: set[int] | None
+) -> dict[int, dict[int, float]]:
+    """Group completed regular-season matchup scores by week → {team_id: score}.
+
+    Playoff matchups are ignored. A week counts as completed when it's in
+    `completed_weeks`; with `completed_weeks is None` (manual/test recompute) fall back to
+    the conservative "either side scored > 0" heuristic (mirrors `_split_matchups`)."""
+    weekly: dict[int, dict[int, float]] = {}
+    for m in matchups:
+        if m.is_playoff:
+            continue
+        if completed_weeks is not None:
+            played = m.week in completed_weeks
+        else:
+            played = (m.home_points or 0) > 0 or (m.away_points or 0) > 0
+        if not played:
+            continue
+        wk = weekly.setdefault(m.week, {})
+        if m.home_team_id in ids and m.home_points is not None:
+            wk[m.home_team_id] = m.home_points
+        if m.away_team_id in ids and m.away_points is not None:
+            wk[m.away_team_id] = m.away_points
+    return weekly
+
+
+def _all_play_by_team(
+    session: Session, league: League, stats: list[TeamStat], completed_weeks: set[int] | None
+) -> dict[int, AllPlayRow]:
+    matchups = session.scalars(select(Matchup).where(Matchup.league_id == league.id))
+    weekly = _weekly_scores(matchups, {s.team_id for s in stats}, completed_weeks)
+    return compute_all_play(stats, weekly)
+
+
 def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
     """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
     don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
@@ -354,6 +468,7 @@ def recompute_league(
     ]
     comps = compute_edge_components(stats, league.lifecycle, projections_fresh=projections_fresh)
     odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
+    all_play_map = _all_play_by_team(session, league, stats, completed_weeks)
 
     scored = 0
     for stat in stats:
@@ -373,6 +488,29 @@ def recompute_league(
         # Phase 10: informational draft surplus (cleared when no valid pick values).
         _upsert_or_clear(
             session, league.id, stat.team_id, DRAFT_SURPLUS, surplus_map.get(stat.team_id)
+        )
+        # Phase 12: all-play + luck (cleared for a team with no completed all-play sample).
+        ap = all_play_map.get(stat.team_id)
+        has_sample = ap is not None and ap.all_play_win_pct is not None
+        _upsert_or_clear(
+            session, league.id, stat.team_id, ALL_PLAY_WINS,
+            float(ap.all_play_wins) if has_sample else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, ALL_PLAY_LOSSES,
+            float(ap.all_play_losses) if has_sample else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, ALL_PLAY_TIES,
+            float(ap.all_play_ties) if has_sample else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, ALL_PLAY_WIN_PCT,
+            ap.all_play_win_pct if has_sample else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, LUCK_DELTA,
+            ap.luck_delta if has_sample else None,
         )
     session.flush()
     return {"teams": len(stats), "scored": scored}
@@ -492,4 +630,45 @@ def team_components(session: Session, league_id: int, team_id: int | None) -> li
         pct = rows.get(COMPONENT_PREFIX + key)
         if pct is not None:
             out.append(_component(key, pct))
+    return out
+
+
+def read_all_play(session: Session, league_id: int) -> list[AllPlayRow]:
+    """Persisted all-play/luck rows for a league (Phase 12), teams with a completed sample
+    only, ordered by all-play win% descending. Reads metrics + Team record; no recompute."""
+    teams = list(session.scalars(select(Team).where(Team.league_id == league_id)))
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.in_(_ALL_PLAY_KEYS),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for tid, key, val in rows:
+        by_team.setdefault(tid, {})[key] = val
+
+    out: list[AllPlayRow] = []
+    for t in teams:
+        m = by_team.get(t.id)
+        if not m or m.get(ALL_PLAY_WIN_PCT) is None:
+            continue  # no completed all-play sample for this team
+        stat = TeamStat(
+            t.id, t.wins, t.losses, t.ties, t.points_for, t.points_against, t.standing, None
+        )
+        out.append(
+            AllPlayRow(
+                team_id=t.id,
+                actual_wins=t.wins,
+                actual_losses=t.losses,
+                actual_ties=t.ties,
+                actual_win_pct=round(win_pct(stat), 4),
+                all_play_wins=int(m.get(ALL_PLAY_WINS, 0)),
+                all_play_losses=int(m.get(ALL_PLAY_LOSSES, 0)),
+                all_play_ties=int(m.get(ALL_PLAY_TIES, 0)),
+                all_play_win_pct=m[ALL_PLAY_WIN_PCT],
+                luck_delta=m.get(LUCK_DELTA),
+            )
+        )
+    out.sort(key=lambda r: r.all_play_win_pct, reverse=True)
     return out

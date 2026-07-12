@@ -424,9 +424,9 @@ def test_recompute_is_idempotent(db_session):
     db_session.commit()
     metrics.recompute_league(db_session, lg)
     db_session.commit()
-    # No duplicate rows (partial unique index holds). 4 teams × 5 keys
-    # (edge_score + playoff_odds + 3 in-season components) = 20, stable across recomputes.
-    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 20
+    # No duplicate rows (partial unique index holds). 4 teams × 10 keys (edge_score +
+    # playoff_odds + 3 in-season components + 5 all-play/luck) = 40, stable across recomputes.
+    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 40
 
 
 # --------------------------------------------------------------------------- #
@@ -796,3 +796,96 @@ def test_api_overview_exposes_draft_surplus_component(preseason_league_id):
     # Persisted components reduce to the exposed edge_score.
     reduced = round(sum(c["weight"] * c["percentile"] for c in ov["components"]), 1)
     assert reduced == ov["edge_score"]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 12: all-play record + luck delta
+# --------------------------------------------------------------------------- #
+def test_all_play_and_luck_hand_computed():
+    # 4 teams, 2 completed weeks. Actual records chosen to make luck deltas clean.
+    teams = [
+        TeamStat(1, 1, 1, 0, 0, 0, None, None),  # actual .500
+        TeamStat(2, 2, 0, 0, 0, 0, None, None),  # actual 1.000
+        TeamStat(3, 0, 2, 0, 0, 0, None, None),  # actual .000
+        TeamStat(4, 1, 1, 0, 0, 0, None, None),  # actual .500
+    ]
+    weekly = {
+        1: {1: 120.0, 2: 100.0, 3: 90.0, 4: 80.0},
+        2: {1: 80.0, 2: 110.0, 3: 95.0, 4: 105.0},
+    }
+    ap = metrics.compute_all_play(teams, weekly)
+    # T1: wk1 3-0, wk2 0-3 → 3-3 → .500; luck .500-.500 = 0.
+    assert (ap[1].all_play_wins, ap[1].all_play_losses, ap[1].all_play_ties) == (3, 3, 0)
+    assert ap[1].all_play_win_pct == 0.5 and ap[1].luck_delta == 0.0
+    # T2: wk1 2-1, wk2 3-0 → 5-1 → .8333; luck .8333-1.0 = -.1667.
+    assert (ap[2].all_play_wins, ap[2].all_play_losses) == (5, 1)
+    assert ap[2].all_play_win_pct == 0.8333 and ap[2].luck_delta == -0.1667
+    # T3: wk1 1-2, wk2 1-2 → 2-4 → .3333; luck .3333-0.0 = .3333 (unlucky, better than record).
+    assert ap[3].all_play_win_pct == 0.3333 and ap[3].luck_delta == 0.3333
+    # T4: wk1 0-3, wk2 2-1 → 2-4 → .3333.
+    assert (ap[4].all_play_wins, ap[4].all_play_losses) == (2, 4)
+
+
+def test_all_play_skips_thin_weeks_and_pending_team():
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, None),
+        TeamStat(2, 0, 0, 0, 0, 0, None, None),
+        TeamStat(3, 0, 0, 0, 0, 0, None, None),
+    ]
+    weekly = {
+        1: {1: 100.0},           # only one scored team → week skipped
+        2: {1: 100.0, 2: 90.0},  # T3 didn't play
+    }
+    ap = metrics.compute_all_play(teams, weekly)
+    assert (ap[1].all_play_wins, ap[1].all_play_losses) == (1, 0)
+    assert ap[2].all_play_losses == 1
+    # T3 never played → no sample.
+    assert ap[3].all_play_win_pct is None and ap[3].luck_delta is None
+
+
+def test_all_play_metrics_persist_and_clear(db_session):
+    lg = _make_inseason_league(db_session)  # week 1 completed, week 2 remaining (0-0)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    rows = metrics.read_all_play(db_session, lg.id)
+    pcts = [r.all_play_win_pct for r in rows]
+    assert pcts == sorted(pcts, reverse=True)  # ordered by all-play win% desc
+    me = next(r for r in rows if r.team_id == lg.my_team_id)
+    # My team (top score week 1) beat all 3 others → 3-0, undefeated all-play, luck 0.
+    assert (me.all_play_wins, me.all_play_losses, me.all_play_ties) == (3, 0, 0)
+    assert me.all_play_win_pct == 1.0 and me.luck_delta == 0.0
+    # 4 teams × 5 all-play keys persisted.
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._ALL_PLAY_KEYS))
+        )
+    ) == 20
+
+    # Zero the completed scores → no all-play sample → metrics cleared.
+    for m in db_session.scalars(select(Matchup).where(Matchup.league_id == lg.id)):
+        m.home_points = 0.0
+        m.away_points = 0.0
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._ALL_PLAY_KEYS))
+        )
+    ) == 0
+    assert metrics.read_all_play(db_session, lg.id) == []
+
+
+def test_api_all_play_exposes_rows(synced_league_id):
+    rows = client.get(f"/api/leagues/{synced_league_id}/all-play").json()
+    assert rows, "expected all-play rows for a league that has played"
+    pcts = [r["all_play_win_pct"] for r in rows]
+    assert pcts == sorted(pcts, reverse=True)
+    fields = {
+        "team_id", "team_name", "wins", "losses", "ties", "win_pct",
+        "all_play_wins", "all_play_losses", "all_play_ties", "all_play_win_pct", "luck_delta",
+    }
+    for r in rows:
+        assert fields <= set(r)
+        assert r["team_name"]

@@ -63,6 +63,22 @@ const AI_DISABLED = (kind: string) => ({
   content: null, error: null,
 });
 
+// Matchups + all-play/luck (Phase 12).
+const MATCHUPS = [
+  { week: 1, home_team_id: 1, away_team_id: 2, home_points: 120.5, away_points: 100.0, is_playoff: false },
+  { week: 1, home_team_id: 3, away_team_id: 4, home_points: 90.0, away_points: 80.0, is_playoff: false },
+];
+const ALL_PLAY = [
+  {
+    team_id: 1, team_name: "My Team", wins: 1, losses: 0, ties: 0, win_pct: 1.0,
+    all_play_wins: 3, all_play_losses: 0, all_play_ties: 0, all_play_win_pct: 1.0, luck_delta: 0.0,
+  },
+  {
+    team_id: 2, team_name: "Rival", wins: 0, losses: 1, ties: 0, win_pct: 0.0,
+    all_play_wins: 1, all_play_losses: 2, all_play_ties: 0, all_play_win_pct: 0.3333, luck_delta: 0.3333,
+  },
+];
+
 // Draft board with a resolved player name/position/ADP (Phase 10).
 const DRAFT = [
   {
@@ -97,6 +113,8 @@ async function mockApi(page: Page) {
   await page.route("**/api/leagues/1/ai/draft-recaps", (r) =>
     json(r, { enabled: false, kind: "draft_recap", reports: [] }));
   await page.route("**/api/leagues/1/draft", (r) => json(r, DRAFT));
+  await page.route("**/api/leagues/1/matchups", (r) => json(r, MATCHUPS));
+  await page.route("**/api/leagues/1/all-play", (r) => json(r, ALL_PLAY));
   // CSV export responds like the backend (attachment) so clicking it triggers a download.
   await page.route("**/api/exports/portfolio.csv", (r) =>
     r.fulfill({
@@ -182,6 +200,16 @@ test("draft board shows player name, position, and ADP (not raw IDs)", async ({ 
   await expect(page.getByText("Ace Receiver")).toBeVisible();
   await expect(page.getByText("RB", { exact: true })).toBeVisible(); // position pill
   await expect(page.getByText("3.4")).toBeVisible(); // ADP column
+});
+
+test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) => {
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Matchups" }).click();
+  await expect(page.getByText("All-play & luck")).toBeVisible();
+  await expect(page.getByText("Luck", { exact: true })).toBeVisible(); // column header
+  // Mocked all-play row values: My Team is 3-0 all-play, Rival has a +33.3 luck delta.
+  await expect(page.getByText("+33.3")).toBeVisible();
+  await expect(page.getByText("Matchup schedule")).toBeVisible();
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {
