@@ -15,9 +15,16 @@ INSEASON_WEIGHTS: dict[str, float] = {
     "point_diff": 0.30,
 }
 
-# Drafted / no-games-yet branch: the single roster-projection component carries the
-# whole score (weight 1.0), so edge_score == its within-league percentile.
-DRAFTED_WEIGHTS: dict[str, float] = {"roster_proj": 1.0}
+# Drafted / no-games-yet (preseason) branch weights (Phase 11). Base weights come from
+# SPEC §6.2 MyEdge (roster strength 0.35, draft surplus 0.25); we renormalize that pair to
+# sum to 1.0 so preseason edge_score stays on the same 0–100 scale. When only one component
+# is available for a team the score renormalizes across what's present (see metrics.py), so
+# a roster-only preseason league keeps its exact Phase 9/10 roster-percentile behavior.
+_DRAFTED_BASE_WEIGHTS: dict[str, float] = {"roster_proj": 0.35, "draft_surplus": 0.25}
+_DRAFTED_BASE_TOTAL = sum(_DRAFTED_BASE_WEIGHTS.values())
+DRAFTED_WEIGHTS: dict[str, float] = {
+    k: v / _DRAFTED_BASE_TOTAL for k, v in _DRAFTED_BASE_WEIGHTS.items()
+}
 
 # Human labels for edge_score components (Phase 9 breakdown). Keys match the metric
 # rows persisted as edge_component_<key>. Canonical display order.
@@ -26,13 +33,22 @@ COMPONENT_LABELS: dict[str, str] = {
     "points_for": "Points for",
     "point_diff": "Point differential",
     "roster_proj": "Roster projection",
+    "draft_surplus": "Draft surplus",
 }
-# Canonical order for reading/rendering components (in-season trio, then drafted).
-COMPONENT_ORDER: tuple[str, ...] = ("win_pct", "points_for", "point_diff", "roster_proj")
+# Canonical order for reading/rendering components (in-season trio, then preseason pair).
+COMPONENT_ORDER: tuple[str, ...] = (
+    "win_pct",
+    "points_for",
+    "point_diff",
+    "roster_proj",
+    "draft_surplus",
+)
 
 
 def component_weight(key: str) -> float:
-    """Weight of a component within its branch's edge_score (in-season or drafted)."""
+    """Base weight of a component within its branch (in-season sums to 1.0; the preseason
+    pair also sums to 1.0). The drafted branch renormalizes across the components actually
+    present for a team, so a lone component ends up at weight 1.0."""
     if key in INSEASON_WEIGHTS:
         return INSEASON_WEIGHTS[key]
     return DRAFTED_WEIGHTS.get(key, 0.0)

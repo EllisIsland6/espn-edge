@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
-from api.edge_config import INSEASON_WEIGHTS, grade_for, verdict_for
+from api.edge_config import DRAFTED_WEIGHTS, INSEASON_WEIGHTS, grade_for, verdict_for
 from api.main import app
 from api.models import Account, DraftPick, League, Matchup, Metric, Player, Team
 from api.services import metrics
@@ -131,6 +131,85 @@ def test_edge_components_pending_when_pre_draft_or_stale():
     assert metrics.compute_edge_components(_toy_stats(), "pre_draft") == {1: [], 2: [], 3: [], 4: []}
     drafted = [TeamStat(1, 0, 0, 0, 0, 0, None, 300.0), TeamStat(2, 0, 0, 0, 0, 0, None, 200.0)]
     assert metrics.compute_edge_components(drafted, "drafted", projections_fresh=False) == {1: [], 2: []}
+
+
+# --------------------------------------------------------------------------- #
+# Phase 11: preseason Edge blends roster projection + draft surplus
+# --------------------------------------------------------------------------- #
+def _preseason_stats():
+    # 8th positional arg is roster_proj, 9th is draft_surplus.
+    return [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0, 10.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0, 5.0),
+        TeamStat(3, 0, 0, 0, 0, 0, None, 100.0, 20.0),
+    ]
+
+
+def test_preseason_components_blend_roster_and_surplus_hand_computed():
+    teams = _preseason_stats()
+    comps = metrics.compute_edge_components(teams, "drafted")
+    assert [c.key for c in comps[1]] == ["roster_proj", "draft_surplus"]
+    by = {c.key: c for c in comps[1]}
+    # Both components available (3 teams each) → base weights already sum to 1.0.
+    assert by["roster_proj"].weight == pytest.approx(DRAFTED_WEIGHTS["roster_proj"])
+    assert by["draft_surplus"].weight == pytest.approx(DRAFTED_WEIGHTS["draft_surplus"])
+    rp = metrics._percentile([300.0, 200.0, 100.0], 300.0)  # 83.33
+    ds = metrics._percentile([10.0, 5.0, 20.0], 10.0)  # 50.0
+    assert by["roster_proj"].percentile == rp
+    assert by["draft_surplus"].percentile == ds
+    expected = round(DRAFTED_WEIGHTS["roster_proj"] * rp + DRAFTED_WEIGHTS["draft_surplus"] * ds, 1)
+    assert metrics.compute_edge_scores(teams, "drafted")[1] == expected
+
+
+def test_preseason_roster_only_unchanged_when_surplus_unavailable():
+    # No draft_surplus values → surplus unavailable → roster-only, weight renormalized to 1.0
+    # (byte-identical to the pre-Phase-11 roster-only preseason score).
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0),
+        TeamStat(3, 0, 0, 0, 0, 0, None, 100.0),
+    ]
+    comps = metrics.compute_edge_components(teams, "drafted")
+    assert [c.key for c in comps[1]] == ["roster_proj"]
+    assert comps[1][0].weight == 1.0
+    assert metrics.compute_edge_scores(teams, "drafted")[1] == round(
+        metrics._percentile([300.0, 200.0, 100.0], 300.0), 1
+    )
+
+
+def test_preseason_surplus_needs_two_teams_with_values():
+    # Only one team has a draft_surplus → not enough population → surplus unavailable.
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0, 10.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0, None),
+        TeamStat(3, 0, 0, 0, 0, 0, None, 100.0, None),
+    ]
+    comps = metrics.compute_edge_components(teams, "drafted")
+    assert [c.key for c in comps[1]] == ["roster_proj"]
+    assert comps[1][0].weight == 1.0
+
+
+def test_preseason_both_pending_when_projections_stale():
+    teams = _preseason_stats()
+    assert metrics.compute_edge_components(teams, "drafted", projections_fresh=False) == {
+        1: [],
+        2: [],
+        3: [],
+    }
+
+
+def test_preseason_team_missing_surplus_uses_present_component_only():
+    # Team 3 lacks a surplus value but the component is available league-wide (teams 1,2);
+    # team 3 falls back to roster-only at weight 1.0, others blend both.
+    teams = [
+        TeamStat(1, 0, 0, 0, 0, 0, None, 300.0, 10.0),
+        TeamStat(2, 0, 0, 0, 0, 0, None, 200.0, 5.0),
+        TeamStat(3, 0, 0, 0, 0, 0, None, 100.0, None),
+    ]
+    comps = metrics.compute_edge_components(teams, "drafted")
+    assert [c.key for c in comps[1]] == ["roster_proj", "draft_surplus"]
+    assert [c.key for c in comps[3]] == ["roster_proj"]
+    assert comps[3][0].weight == 1.0
 
 
 # --------------------------------------------------------------------------- #
@@ -609,3 +688,111 @@ def test_draft_surplus_persists_and_clears(db_session):
             Metric.league_id == lg.id, Metric.key == "draft_surplus"
         )
     ) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Phase 11: preseason draft-surplus component persistence + API exposure
+# --------------------------------------------------------------------------- #
+def _stamp_adp(session, league_id) -> None:
+    for p in session.scalars(select(DraftPick).where(DraftPick.league_id == league_id)):
+        p.adp_at_draft = p.overall + 3.0  # some ADP so the surplus is defined
+    session.flush()
+
+
+def test_preseason_draft_surplus_component_persists_and_clears(db_session):
+    lg = _make_drafted_league(db_session)
+    _stamp_adp(db_session, lg.id)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    # Both preseason components persist for my team (roster_proj + draft_surplus).
+    assert {c.key for c in team_components(db_session, lg.id, lg.my_team_id)} == {
+        "roster_proj",
+        "draft_surplus",
+    }
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "edge_component_draft_surplus"
+        )
+    ) == 4
+    # edge_score is the weighted mean of the two persisted components.
+    comps = team_components(db_session, lg.id, lg.my_team_id)
+    assert round(sum(c.weight * c.percentile for c in comps), 1) == team_edge(
+        db_session, lg.id, lg.my_team_id
+    ).edge_score
+
+    # Branch switch to in_season (with games) clears the preseason draft_surplus component.
+    lg.lifecycle = "in_season"
+    for t in db_session.scalars(select(Team).where(Team.league_id == lg.id)):
+        t.wins = 1 if t.espn_team_id <= 2 else 0
+        t.losses = 0 if t.espn_team_id <= 2 else 1
+        t.points_for = 100.0 + t.espn_team_id
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "edge_component_draft_surplus"
+        )
+    ) == 0
+    assert {c.key for c in team_components(db_session, lg.id, lg.my_team_id)} == {
+        "win_pct",
+        "points_for",
+        "point_diff",
+    }
+
+    # Reverting to pre_draft clears all components.
+    lg.lifecycle = "pre_draft"
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert team_components(db_session, lg.id, lg.my_team_id) == []
+
+
+@pytest.fixture
+def preseason_league_id():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        lg = League(espn_league_id="909", season=2026, is_public=True, lifecycle="drafted",
+                    size=4, playoff_team_count=2)
+        session.add(lg)
+        session.flush()
+        teams = []
+        for i in range(1, 5):
+            t = Team(league_id=lg.id, espn_team_id=i, name=f"T{i}", is_me=(i == 1))
+            session.add(t)
+            teams.append(t)
+        session.flush()
+        lg.my_team_id = teams[0].id
+        for pid, proj in [(201, 300.0), (202, 250.0), (203, 200.0), (204, 150.0)]:
+            session.add(Player(espn_player_id=pid, name=f"P{pid}", position="RB", proj_ros=proj))
+        session.flush()
+        for i, t in enumerate(teams, start=1):
+            session.add(
+                DraftPick(league_id=lg.id, overall=i, team_id=t.id, espn_player_id=200 + i,
+                          adp_at_draft=float(i) + 2.0, value_delta=2.0)
+            )
+        session.flush()
+        metrics.recompute_league(session, lg)
+        session.commit()
+        lid = lg.id
+    finally:
+        session.close()
+    yield lid
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+def test_api_overview_exposes_draft_surplus_component(preseason_league_id):
+    ov = client.get(f"/api/leagues/{preseason_league_id}/overview").json()
+    keys = {c["key"] for c in ov["components"]}
+    assert {"roster_proj", "draft_surplus"} <= keys
+    ds = next(c for c in ov["components"] if c["key"] == "draft_surplus")
+    assert ds["label"] == "Draft surplus"
+    assert ds["weight"] > 0 and 0.0 <= ds["percentile"] <= 100.0
+    # Persisted components reduce to the exposed edge_score.
+    reduced = round(sum(c["weight"] * c["percentile"] for c in ov["components"]), 1)
+    assert reduced == ov["edge_score"]

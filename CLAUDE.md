@@ -19,7 +19,19 @@
   Phase 7 v1 (private-beta reliability: account re-auth + persistent sync diagnostics),
   Phase 8 v1 (beta-readiness polish: read-only Status page + live-smoke runbook),
   Phase 9 v1 (Edge Score component breakdown in League detail),
-  Phase 10 v1 (draft value foundation) implemented.
+  Phase 10 v1 (draft value foundation),
+  Phase 11 v1 (preseason edge blends roster projection + draft surplus) implemented.
+- Phase 11: the preseason branch of compute_edge_components (drafted/no-games) now blends
+  within-league percentiles of roster_proj and draft_surplus. TeamStat gains draft_surplus
+  (fed from _draft_surplus_by_team in recompute). Base weights from SPEC §6.2 (0.35/0.25)
+  renormalized to sum to 1.0 (DRAFTED_WEIGHTS in edge_config); per-team weights renormalize
+  across the components PRESENT (a component needs ≥2 teams with values). Roster-only →
+  weight 1.0 → byte-identical to Phase 9/10; both present → preseason edge_score changes.
+  projections_fresh=False → pending + cleared. New component row edge_component_draft_surplus
+  (percentile, not raw surplus); the raw draft_surplus metric is unchanged. In-season/
+  complete scoring byte-identical (82.5 fixtures pass). No schema change, no db-reset.
+  Overview exposes the Draft surplus component automatically. Contract:
+  docs/phase-11-preseason-edge.md.
 - Phase 10: sync stamps DraftPick.adp_at_draft (from the fresh kona_player_info pool) +
   value_delta=round(adp-overall,1) in a Step 5b (_stamp_draft_values), only when
   projections_fresh — a failed player fetch leaves the freshly-replaced picks null (never

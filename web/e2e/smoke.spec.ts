@@ -157,6 +157,23 @@ test("league detail Overview renders edge component breakdown bars", async ({ pa
   await expect(page.getByText("88 pct")).toBeVisible(); // 87.5 → 88 rounded for display
 });
 
+test("overview renders the preseason Draft surplus component (Phase 11)", async ({ page }) => {
+  // Override with a preseason-style overview blending roster projection + draft surplus.
+  await page.route("**/api/leagues/1/overview", (r) =>
+    json(r, {
+      ...OVERVIEW,
+      edge_score: 63.0, grade: "C",
+      components: [
+        { key: "roster_proj", label: "Roster projection", weight: 0.5833, percentile: 83.3 },
+        { key: "draft_surplus", label: "Draft surplus", weight: 0.4167, percentile: 37.5 },
+      ],
+    }));
+  await page.goto("/league/1");
+  await expect(page.getByText("Roster projection", { exact: true })).toBeVisible();
+  await expect(page.getByText("Draft surplus", { exact: true })).toBeVisible();
+  await expect(page.getByText("weight 42%")).toBeVisible(); // 0.4167 → 42%
+});
+
 test("draft board shows player name, position, and ADP (not raw IDs)", async ({ page }) => {
   await page.goto("/league/1");
   await page.getByRole("button", { name: "Draft Board" }).click();

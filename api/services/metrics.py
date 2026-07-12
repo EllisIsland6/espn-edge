@@ -49,6 +49,7 @@ class TeamStat:
     points_against: float
     standing: int | None
     roster_proj: float | None  # summed proj_ros of drafted players; None if unknown
+    draft_surplus: float | None = None  # Phase 11: team draft surplus; None if unknown
 
 
 def games_played(t: TeamStat) -> int:
@@ -100,9 +101,9 @@ def compute_edge_components(
     """Per-team weighted component percentiles behind edge_score, or [] (pending).
 
     Same branching as the score: pre_draft → pending; in_season/complete *with games*
-    → the win_pct/points_for/point_diff trio; otherwise the roster-projection branch
-    (guarded by `projections_fresh` and ≥2 known projections). edge_score is the
-    weighted mean of exactly these components (see `compute_edge_scores`).
+    → the win_pct/points_for/point_diff trio; otherwise the preseason branch (guarded
+    by `projections_fresh`) which blends roster_proj and draft_surplus percentiles.
+    edge_score is the weighted mean of exactly these components (see `compute_edge_scores`).
     """
     if not teams:
         return {}
@@ -123,21 +124,59 @@ def compute_edge_components(
             for t in teams
         }
 
-    # drafted (or in_season with no games yet): single roster-projection component.
+    # Preseason (drafted, or in_season with no games yet): roster projection + draft surplus.
     if not projections_fresh:
-        # Player pool wasn't refreshed → don't publish components from stale proj_ros.
+        # Player pool wasn't refreshed → don't publish preseason components from stale data.
         return {t.team_id: [] for t in teams}
-    valid = [t.roster_proj for t in teams if t.roster_proj is not None]
-    if len(valid) < 2:
+    return _preseason_components(teams)
+
+
+# Preseason components and the per-team value on each (Phase 11).
+_PRESEASON_KEYS: tuple[str, ...] = ("roster_proj", "draft_surplus")
+
+
+def _preseason_value(team: TeamStat, key: str) -> float | None:
+    return team.roster_proj if key == "roster_proj" else team.draft_surplus
+
+
+def _preseason_components(teams: list[TeamStat]) -> dict[int, list[EdgeComponent]]:
+    """Blend of within-league percentiles for roster_proj and draft_surplus, with weights
+    renormalized across the components actually present for each team.
+
+    A component is *available* only when ≥2 teams have a value for it (a percentile needs a
+    population). With only roster_proj available this reduces to weight 1.0 on roster_proj —
+    byte-identical to the pre-Phase-11 roster-only score.
+    """
+    populations: dict[str, list[float]] = {}
+    for key in _PRESEASON_KEYS:
+        vals = [v for t in teams if (v := _preseason_value(t, key)) is not None]
+        if len(vals) >= 2:  # need a population to rank against
+            populations[key] = vals
+    if not populations:
         return {t.team_id: [] for t in teams}
-    return {
-        t.team_id: (
-            [_component("roster_proj", _percentile(valid, t.roster_proj))]
-            if t.roster_proj is not None
-            else []
-        )
-        for t in teams
-    }
+
+    out: dict[int, list[EdgeComponent]] = {}
+    for t in teams:
+        present: list[tuple[str, float]] = []
+        for key in _PRESEASON_KEYS:
+            if key in populations:
+                v = _preseason_value(t, key)
+                if v is not None:
+                    present.append((key, _percentile(populations[key], v)))
+        if not present:
+            out[t.team_id] = []
+            continue
+        base_total = sum(component_weight(key) for key, _ in present)
+        out[t.team_id] = [
+            EdgeComponent(
+                key=key,
+                label=component_label(key),
+                weight=component_weight(key) / base_total,  # renormalize across present
+                percentile=pct,
+            )
+            for key, pct in present
+        ]
+    return out
 
 
 def _reduce_components(components: list[EdgeComponent]) -> float | None:
@@ -297,6 +336,7 @@ def recompute_league(
     """
     teams = list(session.scalars(select(Team).where(Team.league_id == league.id)))
     proj_by_team = _roster_projection_by_team(session, league.id)
+    surplus_map = _draft_surplus_by_team(session, league.id)
 
     stats = [
         TeamStat(
@@ -308,12 +348,12 @@ def recompute_league(
             points_against=t.points_against,
             standing=t.standing,
             roster_proj=proj_by_team.get(t.id),
+            draft_surplus=surplus_map.get(t.id),  # Phase 11: feeds the preseason blend
         )
         for t in teams
     ]
     comps = compute_edge_components(stats, league.lifecycle, projections_fresh=projections_fresh)
     odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
-    surplus_map = _draft_surplus_by_team(session, league.id)
 
     scored = 0
     for stat in stats:

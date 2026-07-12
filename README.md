@@ -11,8 +11,10 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > reliability (re-auth + sync diagnostics), Phase 8 beta-readiness polish (read-only
 > System Status page + a [live-smoke runbook](docs/live-smoke.md)), and **Phase 9 Edge
 > Score [component breakdown](docs/phase-9-edge-components.md) in League detail, and
-> **Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
-> value delta + a draft-surplus metric; Draft Board shows player names).**
+> Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
+> value delta + a draft-surplus metric; Draft Board shows player names), and **Phase 11
+> [preseason Edge](docs/phase-11-preseason-edge.md) blending roster projection + draft
+> surplus for drafted/no-games leagues.**
 
 ## Quick start
 
@@ -181,9 +183,14 @@ projection) that the score is the mean of, rendered as bars. See
 
 The **Draft Board** persists each pick's `adp_at_draft` and `value_delta` (ADP − overall)
 at sync from the ESPN player pool, and stores a per-team `draft_surplus` metric from the
-pick-value curve `v(p)=100·e^(−p/34)`. This is the **foundation** for the SPEC §6.2
-draft-surplus MyEdge component — it is **not** folded into `edge_score` yet. See
+pick-value curve `v(p)=100·e^(−p/34)`. See
 **[docs/phase-10-draft-value.md](docs/phase-10-draft-value.md)**.
+
+For **drafted / no-games (preseason) leagues**, `edge_score` now blends the within-league
+percentiles of **roster projection** (weight ≈0.58) and **draft surplus** (≈0.42), shown as
+components in the Overview. Roster-only leagues are unchanged, and in-season/complete
+scoring is byte-identical. Still a within-league v1, not the cross-league SPEC §6 Index.
+See **[docs/phase-11-preseason-edge.md](docs/phase-11-preseason-edge.md)**.
 
 ## AI analysis (optional)
 
