@@ -10,7 +10,7 @@ from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.edge_config import DRAFTED_WEIGHTS, INSEASON_WEIGHTS, grade_for, verdict_for
 from api.main import app
-from api.models import Account, DraftPick, League, Matchup, Metric, Player, Team
+from api.models import Account, DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
 from api.services import metrics
 from api.services.metrics import TeamStat, team_components, team_edge
 from api.services.playoff_sim import SimGame, SimTeam, simulate_playoff_odds
@@ -885,6 +885,165 @@ def test_api_all_play_exposes_rows(synced_league_id):
     fields = {
         "team_id", "team_name", "wins", "losses", "ties", "win_pct",
         "all_play_wins", "all_play_losses", "all_play_ties", "all_play_win_pct", "luck_delta",
+    }
+    for r in rows:
+        assert fields <= set(r)
+        assert r["team_name"]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 13: lineup efficiency (pure solver + persistence + API)
+# --------------------------------------------------------------------------- #
+def test_optimal_lineup_flex_and_positions():
+    slots = {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1, "K": 1, "D/ST": 1}
+    entries = [
+        metrics.LineupEntry("QB", 25.0, True),
+        metrics.LineupEntry("RB", 20.0, True),
+        metrics.LineupEntry("RB", 15.0, True),
+        metrics.LineupEntry("RB", 12.0, False),
+        metrics.LineupEntry("WR", 18.0, True),
+        metrics.LineupEntry("WR", 10.0, True),
+        metrics.LineupEntry("WR", 8.0, False),
+        metrics.LineupEntry("TE", 9.0, True),
+        metrics.LineupEntry("TE", 5.0, False),
+        metrics.LineupEntry("K", 7.0, True),
+        metrics.LineupEntry("D/ST", 6.0, True),
+    ]
+    # QB 25 + RB(20,15) + WR(18,10) + TE 9 + K 7 + DST 6 + FLEX best remaining (RB 12) = 122.
+    assert metrics.optimal_lineup_points(entries, slots) == 122.0
+
+
+def test_optimal_ignores_unknown_positions():
+    slots = {"RB": 1, "FLEX": 1}
+    entries = [
+        metrics.LineupEntry("RB", 10.0, True),
+        metrics.LineupEntry(None, 99.0, False),  # unknown position → never placed
+        metrics.LineupEntry("LB", 88.0, False),  # IDP → never placed
+        metrics.LineupEntry("WR", 7.0, False),
+    ]
+    # RB slot 10; FLEX best remaining RB/WR/TE = WR 7. Unknowns excluded.
+    assert metrics.optimal_lineup_points(entries, slots) == 17.0
+
+
+def test_compute_lineup_week_efficiency_and_pending():
+    slots = {"QB": 1, "RB": 1, "FLEX": 1}
+    entries = [
+        metrics.LineupEntry("QB", 20.0, True),
+        metrics.LineupEntry("RB", 8.0, True),  # started a weak RB
+        metrics.LineupEntry("RB", 14.0, False),  # better RB benched
+        metrics.LineupEntry("WR", 6.0, False),
+    ]
+    wk = metrics.compute_lineup_week(entries, slots)
+    # started 20+8=28; optimal QB 20 + RB 14 + FLEX best remaining (RB 8) = 42.
+    assert wk.started_points == 28.0
+    assert wk.optimal_points == 42.0
+    assert wk.points_left_on_bench == 14.0
+    assert wk.lineup_efficiency == round(28 / 42, 4)
+    # No known-position points → optimal 0 → pending.
+    assert metrics.compute_lineup_week([metrics.LineupEntry(None, 5.0, True)], slots) is None
+
+
+def test_compute_lineup_efficiency_points_weighted():
+    slots = {"QB": 1}
+    team_weeks = {
+        1: {
+            1: [metrics.LineupEntry("QB", 10.0, True), metrics.LineupEntry("QB", 20.0, False)],
+            2: [metrics.LineupEntry("QB", 30.0, True), metrics.LineupEntry("QB", 30.0, False)],
+        }
+    }
+    r = metrics.compute_lineup_efficiency(team_weeks, slots)[1]
+    assert r.weeks == 2
+    assert r.lineup_efficiency == 0.8  # (10+30)/(20+30)
+    assert r.started_points_avg == 20.0 and r.optimal_points_avg == 25.0
+    assert r.points_left_on_bench_avg == 5.0
+
+
+def _make_lineup_league(session) -> League:
+    lg = League(
+        espn_league_id="777", season=2026, is_public=True, lifecycle="in_season",
+        size=2, playoff_team_count=1, lineup_slots_json={"0": 1, "23": 1},  # QB + FLEX
+    )
+    session.add(lg)
+    session.flush()
+    t1 = Team(league_id=lg.id, espn_team_id=1, name="A", is_me=True)
+    t2 = Team(league_id=lg.id, espn_team_id=2, name="B")
+    session.add_all([t1, t2])
+    session.flush()
+    lg.my_team_id = t1.id
+    for pid, pos in [(1, "QB"), (2, "RB"), (3, "WR"), (11, "QB"), (12, "RB")]:
+        session.add(Player(espn_player_id=pid, name=f"P{pid}", position=pos))
+    session.flush()
+    session.add_all([
+        # Team 1: started QB 10 + FLEX(RB) 5; WR 8 benched (better FLEX option).
+        LineupSlot(league_id=lg.id, team_id=t1.id, week=1, slot="QB", espn_player_id=1, points=10.0, is_starter=True),
+        LineupSlot(league_id=lg.id, team_id=t1.id, week=1, slot="FLEX", espn_player_id=2, points=5.0, is_starter=True),
+        LineupSlot(league_id=lg.id, team_id=t1.id, week=1, slot="BE", espn_player_id=3, points=8.0, is_starter=False),
+        # Team 2: optimal already (QB 20 + FLEX RB 12).
+        LineupSlot(league_id=lg.id, team_id=t2.id, week=1, slot="QB", espn_player_id=11, points=20.0, is_starter=True),
+        LineupSlot(league_id=lg.id, team_id=t2.id, week=1, slot="FLEX", espn_player_id=12, points=12.0, is_starter=True),
+    ])
+    session.flush()
+    return lg
+
+
+def test_lineup_efficiency_persists_and_clears(db_session):
+    lg = _make_lineup_league(db_session)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    rows = metrics.read_lineup_efficiency(db_session, lg.id)
+    effs = [r.lineup_efficiency for r in rows]
+    assert effs == sorted(effs, reverse=True)  # ordered by efficiency desc
+    me = next(r for r in rows if r.team_id == lg.my_team_id)
+    # Team 1: started 15, optimal QB 10 + FLEX best (WR 8) = 18 → eff 15/18, bench 3.
+    assert me.started_points_avg == 15.0 and me.optimal_points_avg == 18.0
+    assert me.points_left_on_bench_avg == 3.0
+    assert me.lineup_efficiency == round(15 / 18, 4)
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._LINEUP_KEYS))
+        )
+    ) == 8  # 2 teams × 4 keys
+
+    # No slot map → no sample → all lineup metrics cleared.
+    lg.lineup_slots_json = None
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._LINEUP_KEYS))
+        )
+    ) == 0
+    assert metrics.read_lineup_efficiency(db_session, lg.id) == []
+
+
+@pytest.fixture
+def lineup_league_id():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        lg = _make_lineup_league(session)
+        metrics.recompute_league(session, lg)
+        session.commit()
+        lid = lg.id
+    finally:
+        session.close()
+    yield lid
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+def test_api_lineup_efficiency_exposes_rows(lineup_league_id):
+    rows = client.get(f"/api/leagues/{lineup_league_id}/lineup-efficiency").json()
+    assert rows, "expected lineup-efficiency rows"
+    effs = [r["lineup_efficiency"] for r in rows]
+    assert effs == sorted(effs, reverse=True)
+    fields = {
+        "team_id", "team_name", "lineup_efficiency",
+        "started_points_avg", "optimal_points_avg", "points_left_on_bench_avg",
     }
     for r in rows:
         assert fields <= set(r)

@@ -78,6 +78,16 @@ const ALL_PLAY = [
     all_play_wins: 1, all_play_losses: 2, all_play_ties: 0, all_play_win_pct: 0.3333, luck_delta: 0.3333,
   },
 ];
+const LINEUP_EFFICIENCY = [
+  {
+    team_id: 2, team_name: "Rival", lineup_efficiency: 1.0,
+    started_points_avg: 130.0, optimal_points_avg: 130.0, points_left_on_bench_avg: 0.0,
+  },
+  {
+    team_id: 1, team_name: "My Team", lineup_efficiency: 0.8333,
+    started_points_avg: 100.0, optimal_points_avg: 120.0, points_left_on_bench_avg: 20.0,
+  },
+];
 
 // Draft board with a resolved player name/position/ADP (Phase 10).
 const DRAFT = [
@@ -115,6 +125,7 @@ async function mockApi(page: Page) {
   await page.route("**/api/leagues/1/draft", (r) => json(r, DRAFT));
   await page.route("**/api/leagues/1/matchups", (r) => json(r, MATCHUPS));
   await page.route("**/api/leagues/1/all-play", (r) => json(r, ALL_PLAY));
+  await page.route("**/api/leagues/1/lineup-efficiency", (r) => json(r, LINEUP_EFFICIENCY));
   // CSV export responds like the backend (attachment) so clicking it triggers a download.
   await page.route("**/api/exports/portfolio.csv", (r) =>
     r.fulfill({
@@ -210,6 +221,14 @@ test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) =
   // Mocked all-play row values: My Team is 3-0 all-play, Rival has a +33.3 luck delta.
   await expect(page.getByText("+33.3")).toBeVisible();
   await expect(page.getByText("Matchup schedule")).toBeVisible();
+});
+
+test("teams tab renders lineup efficiency table (Phase 13)", async ({ page }) => {
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Teams" }).click();
+  await expect(page.getByText("Lineup efficiency")).toBeVisible();
+  await expect(page.getByText("83.3%")).toBeVisible(); // My Team efficiency (0.8333)
+  await expect(page.getByText("Left on bench/wk")).toBeVisible(); // column header
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {

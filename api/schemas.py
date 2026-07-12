@@ -176,6 +176,17 @@ class AllPlayOut(BaseModel):
     luck_delta: float
 
 
+class LineupEfficiencyOut(BaseModel):
+    """A team's started-vs-optimal lineup efficiency (Phase 13)."""
+
+    team_id: int
+    team_name: str | None
+    lineup_efficiency: float
+    started_points_avg: float
+    optimal_points_avg: float
+    points_left_on_bench_avg: float
+
+
 class LeagueOverview(BaseModel):
     league: LeagueOut
     account_label: str | None

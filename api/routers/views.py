@@ -18,13 +18,19 @@ from ..schemas import (
     EdgeComponent,
     LeagueOut,
     LeagueOverview,
+    LineupEfficiencyOut,
     MatchupOut,
     PortfolioRow,
     PortfolioSummary,
     TeamOut,
     TransactionOut,
 )
-from ..services.metrics import read_all_play, team_components, team_edge
+from ..services.metrics import (
+    read_all_play,
+    read_lineup_efficiency,
+    team_components,
+    team_edge,
+)
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
 
@@ -150,6 +156,27 @@ def league_all_play(league_id: int, session: Session = Depends(get_session)) -> 
             luck_delta=r.luck_delta,
         )
         for r in read_all_play(session, league_id)
+    ]
+
+
+@router.get("/api/leagues/{league_id}/lineup-efficiency", response_model=list[LineupEfficiencyOut])
+def league_lineup_efficiency(
+    league_id: int, session: Session = Depends(get_session)
+) -> list[LineupEfficiencyOut]:
+    _get_league(session, league_id)
+    names = dict(
+        session.execute(select(Team.id, Team.name).where(Team.league_id == league_id)).all()
+    )
+    return [
+        LineupEfficiencyOut(
+            team_id=r.team_id,
+            team_name=names.get(r.team_id),
+            lineup_efficiency=r.lineup_efficiency,
+            started_points_avg=r.started_points_avg,
+            optimal_points_avg=r.optimal_points_avg,
+            points_left_on_bench_avg=r.points_left_on_bench_avg,
+        )
+        for r in read_lineup_efficiency(session, league_id)
     ]
 
 

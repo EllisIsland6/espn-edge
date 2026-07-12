@@ -116,6 +116,16 @@ export interface MatchupOut {
   is_playoff: boolean;
 }
 
+// Started-vs-optimal lineup efficiency (Phase 13). Backend-computed; React formats only.
+export interface LineupEfficiencyOut {
+  team_id: number;
+  team_name: string | null;
+  lineup_efficiency: number;
+  started_points_avg: number;
+  optimal_points_avg: number;
+  points_left_on_bench_avg: number;
+}
+
 // Actual vs all-play record + luck delta (Phase 12). Backend-computed; React formats only.
 export interface AllPlayOut {
   team_id: number;
@@ -266,6 +276,8 @@ export const getLeagueMatchups = (id: number) =>
   get<MatchupOut[]>(`/api/leagues/${id}/matchups`);
 export const getLeagueAllPlay = (id: number) =>
   get<AllPlayOut[]>(`/api/leagues/${id}/all-play`);
+export const getLeagueLineupEfficiency = (id: number) =>
+  get<LineupEfficiencyOut[]>(`/api/leagues/${id}/lineup-efficiency`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
 

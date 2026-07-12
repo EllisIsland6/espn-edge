@@ -23,7 +23,8 @@ from ..edge_config import (
     grade_for,
     verdict_for,
 )
-from ..models import DraftPick, League, Matchup, Metric, Player, Team
+from ..models import DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
+from .espn_constants import slot_name
 from .playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 
 EDGE_SCORE = "edge_score"
@@ -45,6 +46,17 @@ _ALL_PLAY_KEYS = (
     ALL_PLAY_TIES,
     ALL_PLAY_WIN_PCT,
     LUCK_DELTA,
+)
+# Phase 13: lineup efficiency metrics (informational; not part of edge_score yet).
+LINEUP_EFFICIENCY = "lineup_efficiency"
+STARTED_POINTS_AVG = "started_points_avg"
+OPTIMAL_POINTS_AVG = "optimal_points_avg"
+POINTS_LEFT_ON_BENCH_AVG = "points_left_on_bench_avg"
+_LINEUP_KEYS = (
+    LINEUP_EFFICIENCY,
+    STARTED_POINTS_AVG,
+    OPTIMAL_POINTS_AVG,
+    POINTS_LEFT_ON_BENCH_AVG,
 )
 
 # Lifecycles with completed games (record-based edge is meaningful).
@@ -367,6 +379,174 @@ def _all_play_by_team(
     return compute_all_play(stats, weekly)
 
 
+# --------------------------------------------------------------------------- #
+# Phase 13: lineup efficiency (pure solver; not folded into edge_score yet)
+# --------------------------------------------------------------------------- #
+# Dedicated starting slots → the single position that fills them.
+_DEDICATED_SLOTS: dict[str, str] = {
+    "QB": "QB",
+    "RB": "RB",
+    "WR": "WR",
+    "TE": "TE",
+    "K": "K",
+    "D/ST": "D/ST",
+}
+_FLEX_ELIGIBLE: tuple[str, ...] = ("RB", "WR", "TE")
+# Starting slot names the solver understands (everything else — bench/IR/IDP — is ignored).
+_SUPPORTED_SLOTS: frozenset[str] = frozenset({*_DEDICATED_SLOTS, "FLEX"})
+_KNOWN_POSITIONS: frozenset[str] = frozenset({"QB", "RB", "WR", "TE", "K", "D/ST"})
+
+
+@dataclass
+class LineupEntry:
+    """One roster spot in a team's week: player position, points, and whether started."""
+
+    position: str | None
+    points: float | None
+    is_starter: bool
+
+
+@dataclass
+class LineupWeek:
+    started_points: float
+    optimal_points: float
+    points_left_on_bench: float
+    lineup_efficiency: float
+
+
+def optimal_lineup_points(entries: list[LineupEntry], slot_counts: dict[str, int]) -> float:
+    """Best legal lineup total from a team's full roster for one week.
+
+    Fills each dedicated slot with the top scorers of its position, then FLEX slots with the
+    best remaining RB/WR/TE — optimal for a single RB/WR/TE flex. Unknown positions (and
+    None points) are never placed. Only supported slot types are considered."""
+    by_pos: dict[str, list[float]] = {}
+    for e in entries:
+        if e.position in _KNOWN_POSITIONS and e.points is not None:
+            by_pos.setdefault(e.position, []).append(e.points)
+    for pts in by_pos.values():
+        pts.sort(reverse=True)
+
+    used: dict[str, int] = {}
+    total = 0.0
+    for slot, pos in _DEDICATED_SLOTS.items():
+        avail = by_pos.get(pos, [])
+        for _ in range(slot_counts.get(slot, 0)):
+            i = used.get(pos, 0)
+            if i < len(avail):
+                total += avail[i]
+                used[pos] = i + 1
+
+    flex_need = slot_counts.get("FLEX", 0)
+    if flex_need:
+        remaining: list[float] = []
+        for pos in _FLEX_ELIGIBLE:
+            avail = by_pos.get(pos, [])
+            remaining.extend(avail[used.get(pos, 0):])
+        remaining.sort(reverse=True)
+        total += sum(remaining[:flex_need])
+    return total
+
+
+def compute_lineup_week(
+    entries: list[LineupEntry], slot_counts: dict[str, int]
+) -> LineupWeek | None:
+    """started/optimal/bench/efficiency for one team-week. None (pending) if optimal <= 0."""
+    started = sum(e.points for e in entries if e.is_starter and e.points is not None)
+    optimal = optimal_lineup_points(entries, slot_counts)
+    if optimal <= 0:
+        return None
+    return LineupWeek(
+        started_points=round(started, 2),
+        optimal_points=round(optimal, 2),
+        points_left_on_bench=round(optimal - started, 2),
+        lineup_efficiency=round(started / optimal, 4),
+    )
+
+
+@dataclass
+class LineupEfficiencyRow:
+    team_id: int
+    weeks: int
+    lineup_efficiency: float  # points-weighted: Σ started / Σ optimal
+    started_points_avg: float
+    optimal_points_avg: float
+    points_left_on_bench_avg: float
+
+
+def compute_lineup_efficiency(
+    team_weeks: dict[int, dict[int, list[LineupEntry]]], slot_counts: dict[str, int]
+) -> dict[int, LineupEfficiencyRow]:
+    """Per-team season lineup efficiency from {team_id: {week: entries}}.
+
+    Season efficiency is points-weighted (Σ started / Σ optimal) across valid weeks; the
+    other fields are per-week means. Teams with no valid week are omitted (→ cleared)."""
+    out: dict[int, LineupEfficiencyRow] = {}
+    for team_id, weeks in team_weeks.items():
+        started_tot = optimal_tot = bench_tot = 0.0
+        n = 0
+        for entries in weeks.values():
+            wk = compute_lineup_week(entries, slot_counts)
+            if wk is None:
+                continue
+            started_tot += wk.started_points
+            optimal_tot += wk.optimal_points
+            bench_tot += wk.points_left_on_bench
+            n += 1
+        if n == 0 or optimal_tot <= 0:
+            continue
+        out[team_id] = LineupEfficiencyRow(
+            team_id=team_id,
+            weeks=n,
+            lineup_efficiency=round(started_tot / optimal_tot, 4),
+            started_points_avg=round(started_tot / n, 2),
+            optimal_points_avg=round(optimal_tot / n, 2),
+            points_left_on_bench_avg=round(bench_tot / n, 2),
+        )
+    return out
+
+
+def _starting_slot_counts(lineup_slots_json: dict | None) -> dict[str, int]:
+    """Translate ESPN lineupSlotCounts (slot_id → count) into supported starting slot names."""
+    out: dict[str, int] = {}
+    if not lineup_slots_json:
+        return out
+    for sid_str, count in lineup_slots_json.items():
+        try:
+            name = slot_name(int(sid_str))
+        except (ValueError, TypeError):
+            continue
+        if name in _SUPPORTED_SLOTS and count:
+            out[name] = out.get(name, 0) + int(count)
+    return out
+
+
+def _lineup_efficiency_by_team(
+    session: Session, league: League, ids: set[int], completed_weeks: set[int] | None
+) -> dict[int, LineupEfficiencyRow]:
+    slot_counts = _starting_slot_counts(league.lineup_slots_json)
+    if not slot_counts:
+        return {}
+    rows = session.execute(
+        select(
+            LineupSlot.team_id, LineupSlot.week, LineupSlot.points,
+            LineupSlot.is_starter, Player.position,
+        )
+        .join(Player, Player.espn_player_id == LineupSlot.espn_player_id, isouter=True)
+        .where(LineupSlot.league_id == league.id)
+    ).all()
+    team_weeks: dict[int, dict[int, list[LineupEntry]]] = {}
+    for team_id, week, points, is_starter, position in rows:
+        if team_id not in ids:
+            continue
+        if completed_weeks is not None and week not in completed_weeks:
+            continue
+        team_weeks.setdefault(team_id, {}).setdefault(week, []).append(
+            LineupEntry(position=position, points=points, is_starter=bool(is_starter))
+        )
+    return compute_lineup_efficiency(team_weeks, slot_counts)
+
+
 def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
     """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
     don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
@@ -469,6 +649,9 @@ def recompute_league(
     comps = compute_edge_components(stats, league.lifecycle, projections_fresh=projections_fresh)
     odds_map = compute_playoff_odds_for_league(session, league, teams, completed_weeks)
     all_play_map = _all_play_by_team(session, league, stats, completed_weeks)
+    lineup_map = _lineup_efficiency_by_team(
+        session, league, {s.team_id for s in stats}, completed_weeks
+    )
 
     scored = 0
     for stat in stats:
@@ -511,6 +694,24 @@ def recompute_league(
         _upsert_or_clear(
             session, league.id, stat.team_id, LUCK_DELTA,
             ap.luck_delta if has_sample else None,
+        )
+        # Phase 13: lineup efficiency (cleared for a team with no valid lineup sample).
+        le = lineup_map.get(stat.team_id)
+        _upsert_or_clear(
+            session, league.id, stat.team_id, LINEUP_EFFICIENCY,
+            le.lineup_efficiency if le else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, STARTED_POINTS_AVG,
+            le.started_points_avg if le else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, OPTIMAL_POINTS_AVG,
+            le.optimal_points_avg if le else None,
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, POINTS_LEFT_ON_BENCH_AVG,
+            le.points_left_on_bench_avg if le else None,
         )
     session.flush()
     return {"teams": len(stats), "scored": scored}
@@ -671,4 +872,36 @@ def read_all_play(session: Session, league_id: int) -> list[AllPlayRow]:
             )
         )
     out.sort(key=lambda r: r.all_play_win_pct, reverse=True)
+    return out
+
+
+def read_lineup_efficiency(session: Session, league_id: int) -> list[LineupEfficiencyRow]:
+    """Persisted lineup-efficiency rows for a league (Phase 13), teams with a completed
+    sample only, ordered by efficiency descending. Reads metrics only; no recompute."""
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.in_(_LINEUP_KEYS),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for tid, key, val in rows:
+        by_team.setdefault(tid, {})[key] = val
+
+    out: list[LineupEfficiencyRow] = []
+    for tid, m in by_team.items():
+        if m.get(LINEUP_EFFICIENCY) is None:
+            continue
+        out.append(
+            LineupEfficiencyRow(
+                team_id=tid,
+                weeks=0,  # not persisted; the view exposes averages, not the week count
+                lineup_efficiency=m[LINEUP_EFFICIENCY],
+                started_points_avg=m.get(STARTED_POINTS_AVG, 0.0),
+                optimal_points_avg=m.get(OPTIMAL_POINTS_AVG, 0.0),
+                points_left_on_bench_avg=m.get(POINTS_LEFT_ON_BENCH_AVG, 0.0),
+            )
+        )
+    out.sort(key=lambda r: r.lineup_efficiency, reverse=True)
     return out

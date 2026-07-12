@@ -21,7 +21,18 @@
   Phase 9 v1 (Edge Score component breakdown in League detail),
   Phase 10 v1 (draft value foundation),
   Phase 11 v1 (preseason edge blends roster projection + draft surplus),
-  Phase 12 v1 (all-play record + luck delta) implemented.
+  Phase 12 v1 (all-play record + luck delta),
+  Phase 13 v1 (lineup efficiency foundation) implemented.
+- Phase 13: metrics.py optimal_lineup_points (pure solver: QB/RB/WR/TE/FLEX(RB-WR-TE)/K/DST,
+  respects leagues.lineup_slots_json via _starting_slot_counts, ignores bench/IR/IDP, never
+  places unknown positions); compute_lineup_week (started/optimal/bench/efficiency, pending
+  if optimal<=0); compute_lineup_efficiency aggregates per team season (efficiency is
+  points-weighted Σstarted/Σoptimal; *_avg are per-week means). Reads LineupSlot joined to
+  Player.position for completed weeks. Persisted team metrics (week NULL): lineup_efficiency,
+  started_points_avg, optimal_points_avg, points_left_on_bench_avg; cleared when no sample.
+  read_lineup_efficiency + GET /api/leagues/{id}/lineup-efficiency (ordered by efficiency
+  desc). Teams tab shows a Lineup efficiency table. NOT in edge_score (unchanged, 82.5
+  byte-identical). No schema change, no db-reset. Contract: docs/phase-13-lineup-efficiency.md.
 - Phase 12: metrics.py compute_all_play (pure) scores each team vs every other scored team
   each completed regular-season week (playoffs ignored, weeks with <2 scored teams skipped);
   luck_delta = all_play_win_pct - actual_win_pct. Completed weeks from sync's completed_weeks;

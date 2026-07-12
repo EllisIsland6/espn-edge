@@ -12,6 +12,7 @@ import {
   getLeagueAllPlay,
   getLeagueBrief,
   getLeagueDraft,
+  getLeagueLineupEfficiency,
   getLeagueMatchups,
   getLeagueOverview,
   syncLeague,
@@ -20,6 +21,7 @@ import {
   type AiStatus,
   type AllPlayOut,
   type DraftPickOut,
+  type LineupEfficiencyOut,
   type DraftRecapContent,
   type LeagueBriefContent,
   type LeagueOverview,
@@ -155,7 +157,7 @@ export default function LeagueDetail() {
       <div className="mt-5">
         {tab === "overview" && <OverviewTab ov={ov} />}
         {tab === "draft" && <DraftTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
-        {tab === "teams" && <TeamsTab teams={ov.teams} />}
+        {tab === "teams" && <TeamsTab teams={ov.teams} leagueId={leagueId} myTeamId={lg.my_team_id} />}
         {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "activity" && <ActivityTab leagueId={leagueId} teamName={teamName} />}
         {tab === "ai" && <AiTab leagueId={leagueId} />}
@@ -396,7 +398,15 @@ function DraftRecaps({ leagueId }: { leagueId: number }) {
 }
 
 // --- Teams ------------------------------------------------------------------
-function TeamsTab({ teams }: { teams: TeamOut[] }) {
+function TeamsTab({
+  teams,
+  leagueId,
+  myTeamId,
+}: {
+  teams: TeamOut[];
+  leagueId: number;
+  myTeamId: number | null;
+}) {
   const cols: ColumnDef<TeamOut, any>[] = [
     { accessorKey: "name", header: "Team", cell: (c) => <span className={c.row.original.is_me ? "font-semibold text-primary" : "text-primary"}>{c.getValue<string>()}{c.row.original.is_me && <span className="text-red"> ·me</span>}</span> },
     { accessorKey: "abbrev", header: "Abbr", cell: (c) => <span className="mono text-muted">{c.getValue<string | null>() ?? DASH}</span> },
@@ -406,9 +416,55 @@ function TeamsTab({ teams }: { teams: TeamOut[] }) {
     { id: "strength", header: "Roster str.", cell: () => <span className="mono text-muted">{DASH}</span> },
   ];
   return (
+    <div className="space-y-5">
+      <Panel className="overflow-hidden p-1">
+        <DataTable data={teams} columns={cols} rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")} />
+        <p className="px-3 py-2 text-[11px] text-muted">Roster strength (ADP/projection based) computes in Phase 3.</p>
+      </Panel>
+      <LineupEfficiencyTable leagueId={leagueId} myTeamId={myTeamId} />
+    </div>
+  );
+}
+
+// Lineup efficiency: started vs optimal points (Phase 13). Backend-computed; React formats.
+function LineupEfficiencyTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: number | null }) {
+  const [rows, setRows] = useState<LineupEfficiencyOut[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    getLeagueLineupEfficiency(leagueId).then(setRows).catch((e) => setErr(String(e)));
+  }, [leagueId]);
+  if (err) return <ErrorNote message={err} />;
+  if (!rows) return <Spinner />;
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        title="No lineup efficiency yet"
+        hint="Started-vs-optimal efficiency appears once a regular-season week completes."
+      />
+    );
+
+  const cols: ColumnDef<LineupEfficiencyOut, any>[] = [
+    { accessorKey: "team_name", header: "Team", cell: (c) => <span className="text-primary">{c.getValue<string | null>() ?? DASH}</span> },
+    { accessorKey: "lineup_efficiency", header: "Efficiency", cell: (c) => <span className="mono text-green">{`${(c.getValue<number>() * 100).toFixed(1)}%`}</span> },
+    { accessorKey: "started_points_avg", header: "Started/wk", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
+    { accessorKey: "optimal_points_avg", header: "Optimal/wk", cell: (c) => <span className="mono text-secondary">{num(c.getValue<number>())}</span> },
+    { accessorKey: "points_left_on_bench_avg", header: "Left on bench/wk", cell: (c) => <span className="mono text-muted">{num(c.getValue<number>())}</span> },
+  ];
+  return (
     <Panel className="overflow-hidden p-1">
-      <DataTable data={teams} columns={cols} rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")} />
-      <p className="px-3 py-2 text-[11px] text-muted">Roster strength (ADP/projection based) computes in Phase 3.</p>
+      <div className="border-b border-line px-3 py-2 text-xs uppercase tracking-wide text-muted">
+        Lineup efficiency
+      </div>
+      <DataTable
+        data={rows}
+        columns={cols}
+        initialSort={[{ id: "lineup_efficiency", desc: true }]}
+        rowClassName={(r) => (myTeamId != null && r.team_id === myTeamId ? "bg-greenchip/40" : "")}
+      />
+      <p className="px-3 py-2 text-[11px] text-muted">
+        Efficiency = started points ÷ best legal lineup from that week&apos;s roster, averaged
+        (points-weighted) over completed weeks.
+      </p>
     </Panel>
   );
 }

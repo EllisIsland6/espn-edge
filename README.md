@@ -14,8 +14,9 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
 > value delta + a draft-surplus metric; Draft Board shows player names), and **Phase 11
 > [preseason Edge](docs/phase-11-preseason-edge.md) blending roster projection + draft
-> surplus for drafted/no-games leagues, and **Phase 12 [all-play + luck
-> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab.**
+> surplus for drafted/no-games leagues, Phase 12 [all-play + luck
+> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, and **Phase 13 [lineup
+> efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab.**
 
 ## Quick start
 
@@ -198,6 +199,12 @@ every completed week) and **luck delta** (`all-play win% − actual win%`), serv
 `GET /api/leagues/{id}/all-play`. It's the foundation for SPEC §6.2 luck-adjusted record and
 is **not** folded into `edge_score` yet. See
 **[docs/phase-12-all-play-luck.md](docs/phase-12-all-play-luck.md)**.
+
+The **Teams** tab shows **lineup efficiency** — started points ÷ the best legal lineup from
+that week's roster (an optimal-lineup solver over the ESPN slot map), with points left on
+bench — served by `GET /api/leagues/{id}/lineup-efficiency`. Foundation for SPEC §6.1/§6.2
+lineup metrics; **not** in `edge_score` yet. See
+**[docs/phase-13-lineup-efficiency.md](docs/phase-13-lineup-efficiency.md)**.
 
 ## AI analysis (optional)
 
