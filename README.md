@@ -17,8 +17,9 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > surplus for drafted/no-games leagues, Phase 12 [all-play + luck
 > metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, Phase 13 [lineup
 > efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab, and
-> **Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
-> the Overview.**
+> Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
+> the Overview, and **Phase 15 [LeagueSoftness v1](docs/phase-15-league-softness-foundation.md)
+> — how exploitable your opponents are, beside MyEdge.**
 
 ## Quick start
 
@@ -213,6 +214,12 @@ components (roster strength, draft surplus, lineup efficiency, luck-adjusted rec
 `waiver_capture` pending), served by `GET /api/leagues/{id}/my-edge`. It does **not** replace
 the existing `edge_score`. See
 **[docs/phase-14-my-edge-foundation.md](docs/phase-14-my-edge-foundation.md)**.
+
+Beside it, a **LeagueSoftness (v1)** panel scores how exploitable a team's *opponents* are
+(SPEC §6.1: opponent lineup inefficiency, draft indiscipline, exploitable weakness share,
+abandoned-team proxy, opponent inactivity), served by
+`GET /api/leagues/{id}/league-softness`. Also **separate** from `edge_score`. See
+**[docs/phase-15-league-softness-foundation.md](docs/phase-15-league-softness-foundation.md)**.
 
 ## AI analysis (optional)
 

@@ -23,7 +23,22 @@
   Phase 11 v1 (preseason edge blends roster projection + draft surplus),
   Phase 12 v1 (all-play record + luck delta),
   Phase 13 v1 (lineup efficiency foundation),
-  Phase 14 v1 (MyEdge component foundation) implemented.
+  Phase 14 v1 (MyEdge component foundation),
+  Phase 15 v1 (LeagueSoftness component foundation) implemented.
+- Phase 15: metrics.py compute_league_softness is a SEPARATE per-team score (how exploitable
+  a team's opponents are, SPEC §6.1): within-league percentiles of opponent_lineup_inefficiency
+  (1-median opp lineup_efficiency), opponent_draft_indiscipline (-median opp draft_surplus),
+  exploitable_weakness_share (frac opponents PF<median-1SD, played only), abandoned_proxy
+  (frac opponents autodrafted), opponent_inactivity (-median opp txn count; ONLY when the
+  league has transaction rows — an empty feed is unknown, not zero, via
+  _transaction_counts_by_team). Equal base weights (edge_config LEAGUE_SOFTNESS_WEIGHTS);
+  a component needs >=2 teams with distinct raw values; weights renormalize across present.
+  Persisted team metrics (week NULL): league_softness_score + league_softness_component_<name>
+  (percentiles), cleared when unavailable. read_league_softness + GET
+  /api/leagues/{id}/league-softness (ordered by score desc, includes is_me). Overview shows a
+  LeagueSoftness v1 panel beside MyEdge. Does NOT change edge_score or Phase 9/11/12/13/14
+  semantics (82.5 byte-identical). No schema change, no db-reset. Contract:
+  docs/phase-15-league-softness-foundation.md.
 - Phase 14: metrics.py compute_my_edge blends within-league percentiles of roster_strength
   (roster proj, gated on projections_fresh), draft_surplus, lineup_efficiency, and
   luck_adjusted_record (all_play_win_pct) into a SEPARATE my_edge_score (SPEC §6.2 weights in

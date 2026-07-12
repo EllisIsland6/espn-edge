@@ -116,6 +116,21 @@ export interface MatchupOut {
   is_playoff: boolean;
 }
 
+// LeagueSoftness v1 (Phase 15): how exploitable a team's opponents are. Backend-computed.
+export interface LeagueSoftnessComponentOut {
+  key: string;
+  label: string;
+  weight: number;
+  percentile: number;
+}
+export interface LeagueSoftnessOut {
+  team_id: number;
+  team_name: string | null;
+  is_me: boolean;
+  league_softness_score: number;
+  components: LeagueSoftnessComponentOut[];
+}
+
 // MyEdge v1 (Phase 14): a separate blended score + component breakdown. Backend-computed.
 export interface MyEdgeComponentOut {
   key: string;
@@ -295,6 +310,8 @@ export const getLeagueLineupEfficiency = (id: number) =>
   get<LineupEfficiencyOut[]>(`/api/leagues/${id}/lineup-efficiency`);
 export const getLeagueMyEdge = (id: number) =>
   get<MyEdgeOut[]>(`/api/leagues/${id}/my-edge`);
+export const getLeagueSoftness = (id: number) =>
+  get<LeagueSoftnessOut[]>(`/api/leagues/${id}/league-softness`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
 

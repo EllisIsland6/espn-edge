@@ -185,6 +185,25 @@ class MyEdgeComponentOut(BaseModel):
     percentile: float
 
 
+class LeagueSoftnessComponentOut(BaseModel):
+    """One within-league percentile that feeds LeagueSoftness (Phase 15)."""
+
+    key: str
+    label: str
+    weight: float
+    percentile: float
+
+
+class LeagueSoftnessOut(BaseModel):
+    """A team's LeagueSoftness v1 score + component breakdown (Phase 15)."""
+
+    team_id: int
+    team_name: str | None
+    is_me: bool
+    league_softness_score: float
+    components: list[LeagueSoftnessComponentOut]
+
+
 class MyEdgeOut(BaseModel):
     """A team's MyEdge v1 score + component breakdown (Phase 14)."""
 

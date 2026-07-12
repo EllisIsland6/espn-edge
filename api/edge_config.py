@@ -91,6 +91,41 @@ def my_edge_weight(key: str) -> float:
 def my_edge_label(key: str) -> str:
     return MY_EDGE_LABELS.get(key, key)
 
+
+# --- Phase 15: LeagueSoftness v1 (a separate score; does NOT touch edge_score) -------
+# SPEC §6.1 uses an equal-weighted mean of the softness components, so base weights are
+# equal; the score renormalizes across whichever components are present for a team.
+LEAGUE_SOFTNESS_WEIGHTS: dict[str, float] = {
+    "opponent_lineup_inefficiency": 0.20,
+    "opponent_draft_indiscipline": 0.20,
+    "exploitable_weakness_share": 0.20,
+    "abandoned_proxy": 0.20,
+    "opponent_inactivity": 0.20,
+}
+LEAGUE_SOFTNESS_LABELS: dict[str, str] = {
+    "opponent_lineup_inefficiency": "Opponent lineup inefficiency",
+    "opponent_draft_indiscipline": "Opponent draft indiscipline",
+    "exploitable_weakness_share": "Exploitable weakness share",
+    "abandoned_proxy": "Abandoned teams (proxy)",
+    "opponent_inactivity": "Opponent inactivity",
+}
+LEAGUE_SOFTNESS_ORDER: tuple[str, ...] = (
+    "opponent_lineup_inefficiency",
+    "opponent_draft_indiscipline",
+    "exploitable_weakness_share",
+    "abandoned_proxy",
+    "opponent_inactivity",
+)
+
+
+def league_softness_weight(key: str) -> float:
+    """Base LeagueSoftness weight (equal); renormalized across present components."""
+    return LEAGUE_SOFTNESS_WEIGHTS.get(key, 0.0)
+
+
+def league_softness_label(key: str) -> str:
+    return LEAGUE_SOFTNESS_LABELS.get(key, key)
+
 # Verdict thresholds on the 0–100 edge_score (SPEC §6).
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0

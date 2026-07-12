@@ -11,12 +11,23 @@ from api.db import Base, SessionLocal, engine, init_db
 from api.edge_config import (
     DRAFTED_WEIGHTS,
     INSEASON_WEIGHTS,
+    LEAGUE_SOFTNESS_ORDER,
     MY_EDGE_WEIGHTS,
     grade_for,
     verdict_for,
 )
 from api.main import app
-from api.models import Account, DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
+from api.models import (
+    Account,
+    DraftPick,
+    League,
+    LineupSlot,
+    Matchup,
+    Metric,
+    Player,
+    Team,
+    Transaction,
+)
 from api.services import metrics
 from api.services.metrics import TeamStat, team_components, team_edge
 from api.services.playoff_sim import SimGame, SimTeam, simulate_playoff_odds
@@ -430,11 +441,11 @@ def test_recompute_is_idempotent(db_session):
     db_session.commit()
     metrics.recompute_league(db_session, lg)
     db_session.commit()
-    # No duplicate rows (partial unique index holds). 4 teams × 12 keys (edge_score +
+    # No duplicate rows (partial unique index holds). 4 teams × 14 keys (edge_score +
     # playoff_odds + 3 in-season components + 5 all-play/luck + my_edge_score + 1 MyEdge
-    # component (luck_adjusted_record; the others are unavailable for this fixture)) = 48,
-    # stable across recomputes.
-    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 48
+    # component + league_softness_score + 1 softness component (exploitable_weakness_share;
+    # the others are unavailable for this fixture)) = 56, stable across recomputes.
+    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 56
 
 
 # --------------------------------------------------------------------------- #
@@ -1181,5 +1192,153 @@ def test_api_my_edge_exposes_rows(synced_league_id):
     assert any(r["is_me"] for r in rows)
     for r in rows:
         assert {"team_id", "team_name", "is_me", "my_edge_score", "components"} <= set(r)
+        for c in r["components"]:
+            assert {"key", "label", "weight", "percentile"} <= set(c)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 15: LeagueSoftness v1 (pure blend + persistence + API)
+# --------------------------------------------------------------------------- #
+def _softness_stats():
+    # SoftnessTeam: team_id, points_for, played, autodrafted, lineup_eff, draft_surplus, txns.
+    return [
+        metrics.SoftnessTeam(1, 130.0, True, False, 0.9, 10.0, 3),
+        metrics.SoftnessTeam(2, 110.0, True, False, 0.8, 5.0, 2),
+        metrics.SoftnessTeam(3, 90.0, True, True, 0.7, 0.0, 1),
+        metrics.SoftnessTeam(4, 70.0, True, True, 0.6, -5.0, 0),
+    ]
+
+
+def test_league_softness_blend_hand_computed():
+    r = metrics.compute_league_softness(_softness_stats())[1]
+    # All five components are available (each has ≥2 distinct opponent-derived values).
+    assert [c.key for c in r.components] == list(LEAGUE_SOFTNESS_ORDER)
+    for c in r.components:
+        assert c.weight == pytest.approx(0.2)  # equal weights, 5 present → 1/5 each
+    # T1 opponent-derived percentiles: lineup 75, draft 75, weakness 62.5, abandoned 75,
+    # inactivity 75 → mean = 72.5.
+    assert r.league_softness_score == 72.5
+
+
+def test_league_softness_drops_unavailable_and_renormalizes():
+    # No lineup/draft data → those two components unavailable; three remain.
+    teams = [
+        metrics.SoftnessTeam(1, 130.0, True, False, None, None, 3),
+        metrics.SoftnessTeam(2, 110.0, True, False, None, None, 2),
+        metrics.SoftnessTeam(3, 90.0, True, True, None, None, 1),
+        metrics.SoftnessTeam(4, 70.0, True, True, None, None, 0),
+    ]
+    r = metrics.compute_league_softness(teams)[1]
+    keys = {c.key for c in r.components}
+    assert keys == {"exploitable_weakness_share", "abandoned_proxy", "opponent_inactivity"}
+    assert sum(c.weight for c in r.components) == pytest.approx(1.0)
+    for c in r.components:
+        assert c.weight == pytest.approx(1 / 3)  # equal, renormalized across the present 3
+
+
+def test_league_softness_omits_inactivity_when_no_transaction_data():
+    # transactions=None on every team → an empty feed is unknown, not zero activity.
+    teams = [
+        metrics.SoftnessTeam(1, 130.0, True, False, 0.9, 10.0, None),
+        metrics.SoftnessTeam(2, 110.0, True, False, 0.8, 5.0, None),
+        metrics.SoftnessTeam(3, 90.0, True, True, 0.7, 0.0, None),
+        metrics.SoftnessTeam(4, 70.0, True, True, 0.6, -5.0, None),
+    ]
+    for r in metrics.compute_league_softness(teams).values():
+        assert all(c.key != "opponent_inactivity" for c in r.components)
+
+
+def test_league_softness_pending_when_nothing_available():
+    teams = [
+        metrics.SoftnessTeam(1, 0.0, False, False, None, None, None),
+        metrics.SoftnessTeam(2, 0.0, False, False, None, None, None),
+    ]
+    r = metrics.compute_league_softness(teams)[1]
+    assert r.league_softness_score is None and r.components == []
+
+
+def test_league_softness_persists_and_clears(db_session):
+    lg = _make_inseason_league(db_session)  # distinct PF → exploitable_weakness_share available
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    rows = metrics.read_league_softness(db_session, lg.id)
+    scores = [r.league_softness_score for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    me = next(r for r in rows if r.team_id == lg.my_team_id)
+    # Only exploitable_weakness_share is available for this fixture → single component, w=1.0.
+    assert [c.key for c in me.components] == ["exploitable_weakness_share"]
+    assert me.components[0].weight == 1.0
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "league_softness_score"
+        )
+    ) == 4
+
+    # Identical points_for → no distinct weakness share, nothing else → all softness cleared.
+    for t in db_session.scalars(select(Team).where(Team.league_id == lg.id)):
+        t.points_for = 100.0
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._LEAGUE_SOFTNESS_ALL_KEYS))
+        )
+    ) == 0
+    assert metrics.read_league_softness(db_session, lg.id) == []
+
+
+def _make_softness_league(session) -> League:
+    lg = League(
+        espn_league_id="890", season=2026, is_public=True, lifecycle="in_season",
+        size=4, playoff_team_count=2,
+    )
+    session.add(lg)
+    session.flush()
+    teams = []
+    for espn, pf, auto in [(1, 130.0, False), (2, 110.0, False), (3, 90.0, True), (4, 70.0, True)]:
+        t = Team(
+            league_id=lg.id, espn_team_id=espn, name=f"S{espn}", is_me=(espn == 1),
+            autodrafted=auto, wins=1, losses=1, ties=0, points_for=pf,
+        )
+        session.add(t)
+        teams.append(t)
+    session.flush()
+    lg.my_team_id = teams[0].id
+    # Some transactions so the league has real activity data (T1 x2, T2 x1).
+    for t, count in [(teams[0], 2), (teams[1], 1)]:
+        for _ in range(count):
+            session.add(Transaction(league_id=lg.id, team_id=t.id, type="fa_add"))
+    session.flush()
+    return lg
+
+
+@pytest.fixture
+def softness_league_id():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        lg = _make_softness_league(session)
+        metrics.recompute_league(session, lg)
+        session.commit()
+        lid = lg.id
+    finally:
+        session.close()
+    yield lid
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+def test_api_league_softness_exposes_rows(softness_league_id):
+    rows = client.get(f"/api/leagues/{softness_league_id}/league-softness").json()
+    assert rows, "expected LeagueSoftness rows"
+    scores = [r["league_softness_score"] for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    assert any(r["is_me"] for r in rows)
+    for r in rows:
+        assert {"team_id", "team_name", "is_me", "league_softness_score", "components"} <= set(r)
         for c in r["components"]:
             assert {"key", "label", "weight", "percentile"} <= set(c)

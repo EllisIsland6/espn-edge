@@ -18,6 +18,8 @@ from ..schemas import (
     EdgeComponent,
     LeagueOut,
     LeagueOverview,
+    LeagueSoftnessComponentOut,
+    LeagueSoftnessOut,
     LineupEfficiencyOut,
     MatchupOut,
     MyEdgeComponentOut,
@@ -29,6 +31,7 @@ from ..schemas import (
 )
 from ..services.metrics import (
     read_all_play,
+    read_league_softness,
     read_lineup_efficiency,
     read_my_edge,
     team_components,
@@ -183,6 +186,32 @@ def league_my_edge(league_id: int, session: Session = Depends(get_session)) -> l
             ],
         )
         for r in read_my_edge(session, league_id)
+    ]
+
+
+@router.get("/api/leagues/{league_id}/league-softness", response_model=list[LeagueSoftnessOut])
+def league_softness(
+    league_id: int, session: Session = Depends(get_session)
+) -> list[LeagueSoftnessOut]:
+    _get_league(session, league_id)
+    teams = {
+        t.id: t
+        for t in session.scalars(select(Team).where(Team.league_id == league_id))
+    }
+    return [
+        LeagueSoftnessOut(
+            team_id=r.team_id,
+            team_name=teams[r.team_id].name if r.team_id in teams else None,
+            is_me=bool(teams[r.team_id].is_me) if r.team_id in teams else False,
+            league_softness_score=r.league_softness_score,
+            components=[
+                LeagueSoftnessComponentOut(
+                    key=c.key, label=c.label, weight=c.weight, percentile=c.percentile
+                )
+                for c in r.components
+            ],
+        )
+        for r in read_league_softness(session, league_id)
     ]
 
 

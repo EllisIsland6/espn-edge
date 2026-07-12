@@ -18,15 +18,18 @@ from sqlalchemy.orm import Session
 from ..edge_config import (
     COMPONENT_ORDER,
     DRAFT_VALUE_DECAY,
+    LEAGUE_SOFTNESS_ORDER,
     MY_EDGE_ORDER,
     component_label,
     component_weight,
     grade_for,
+    league_softness_label,
+    league_softness_weight,
     my_edge_label,
     my_edge_weight,
     verdict_for,
 )
-from ..models import DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
+from ..models import DraftPick, League, LineupSlot, Matchup, Metric, Player, Team, Transaction
 from .espn_constants import slot_name
 from .playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 
@@ -66,6 +69,13 @@ MY_EDGE_SCORE = "my_edge_score"
 MY_EDGE_COMPONENT_PREFIX = "my_edge_component_"
 # All persisted MyEdge keys, for reading and for clearing when inputs go unavailable.
 _MY_EDGE_ALL_KEYS = (MY_EDGE_SCORE, *(MY_EDGE_COMPONENT_PREFIX + k for k in MY_EDGE_ORDER))
+# Phase 15: LeagueSoftness v1 — a separate score + component percentiles (not edge_score).
+LEAGUE_SOFTNESS_SCORE = "league_softness_score"
+LEAGUE_SOFTNESS_COMPONENT_PREFIX = "league_softness_component_"
+_LEAGUE_SOFTNESS_ALL_KEYS = (
+    LEAGUE_SOFTNESS_SCORE,
+    *(LEAGUE_SOFTNESS_COMPONENT_PREFIX + k for k in LEAGUE_SOFTNESS_ORDER),
+)
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -627,6 +637,140 @@ def compute_my_edge(inputs: list[MyEdgeInput]) -> dict[int, MyEdgeRow]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Phase 15: LeagueSoftness v1 — a separate per-team "how exploitable are my opponents"
+# --------------------------------------------------------------------------- #
+@dataclass
+class SoftnessTeam:
+    """Per-team inputs for LeagueSoftness. Opponents = all other teams in the league."""
+
+    team_id: int
+    points_for: float
+    played: bool
+    autodrafted: bool
+    lineup_efficiency: float | None
+    draft_surplus: float | None
+    transactions: int | None  # None = league has no transaction data (unknown, not zero)
+
+
+@dataclass
+class SoftnessComponent:
+    key: str
+    label: str
+    weight: float  # renormalized across the components present for the team
+    percentile: float
+
+
+@dataclass
+class SoftnessRow:
+    team_id: int
+    league_softness_score: float | None
+    components: list[SoftnessComponent]
+
+
+def _median(values: list[float]) -> float:
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2.0
+
+
+def _opponent_values(teams: list[SoftnessTeam], self_id: int, attr: str) -> list[float]:
+    return [
+        v for t in teams if t.team_id != self_id and (v := getattr(t, attr)) is not None
+    ]
+
+
+def _softness_raw(teams: list[SoftnessTeam]) -> dict[str, dict[int, float]]:
+    """Per-team raw softness value per component (higher = softer). Missing = omitted."""
+    raw: dict[str, dict[int, float]] = {key: {} for key in LEAGUE_SOFTNESS_ORDER}
+
+    for t in teams:
+        opp_eff = _opponent_values(teams, t.team_id, "lineup_efficiency")
+        if opp_eff:
+            raw["opponent_lineup_inefficiency"][t.team_id] = 1.0 - _median(opp_eff)
+        opp_surplus = _opponent_values(teams, t.team_id, "draft_surplus")
+        if opp_surplus:
+            raw["opponent_draft_indiscipline"][t.team_id] = -_median(opp_surplus)
+        opp_txn = _opponent_values(teams, t.team_id, "transactions")
+        if opp_txn:
+            raw["opponent_inactivity"][t.team_id] = -_median(opp_txn)
+
+    # exploitable_weakness_share: fraction of opponents below league_median − 1 SD (played).
+    played = [t for t in teams if t.played]
+    if len(played) >= 2:
+        pfs = [t.points_for for t in played]
+        mean = sum(pfs) / len(pfs)
+        sd = (sum((x - mean) ** 2 for x in pfs) / len(pfs)) ** 0.5
+        threshold = _median(pfs) - sd
+        for t in teams:
+            opps = [o for o in teams if o.team_id != t.team_id and o.played]
+            if opps:
+                weak = sum(1 for o in opps if o.points_for < threshold)
+                raw["exploitable_weakness_share"][t.team_id] = weak / len(opps)
+
+    # abandoned_proxy: fraction of opponents that autodrafted.
+    for t in teams:
+        opps = [o for o in teams if o.team_id != t.team_id]
+        if opps:
+            raw["abandoned_proxy"][t.team_id] = sum(1 for o in opps if o.autodrafted) / len(opps)
+    return raw
+
+
+def _softness_components_for(present: list[tuple[str, float]]) -> list[SoftnessComponent]:
+    """Build components with equal weights renormalized across the present keys."""
+    base_total = sum(league_softness_weight(k) for k, _ in present) or 1.0
+    return [
+        SoftnessComponent(
+            key=key, label=league_softness_label(key),
+            weight=league_softness_weight(key) / base_total, percentile=pct,
+        )
+        for key, pct in present
+    ]
+
+
+def compute_league_softness(teams: list[SoftnessTeam]) -> dict[int, SoftnessRow]:
+    """LeagueSoftness v1 per team: within-league percentile of each available opponent-derived
+    softness component, equal-weighted (renormalized across present). A component is available
+    only when ≥2 teams have a raw value AND those values are not all identical (a real
+    percentile). No component available → pending (score None)."""
+    raw = _softness_raw(teams)
+    populations = {
+        key: vals for key, vals in raw.items() if len(vals) >= 2 and len(set(vals.values())) >= 2
+    }
+    out: dict[int, SoftnessRow] = {}
+    for t in teams:
+        present: list[tuple[str, float]] = []
+        for key in LEAGUE_SOFTNESS_ORDER:
+            vals = populations.get(key)
+            if vals is not None and t.team_id in vals:
+                present.append((key, _percentile(list(vals.values()), vals[t.team_id])))
+        if not present:
+            out[t.team_id] = SoftnessRow(t.team_id, None, [])
+            continue
+        comps = _softness_components_for(present)
+        out[t.team_id] = SoftnessRow(
+            t.team_id, round(sum(c.weight * c.percentile for c in comps), 1), comps
+        )
+    return out
+
+
+def _transaction_counts_by_team(session: Session, league_id: int) -> dict[int, int] | None:
+    """Per-team transaction counts, or None when the league has no transaction rows at all
+    (an empty feed is unknown, not proof of zero activity — SPEC §2.4 / Phase 15)."""
+    total = session.scalar(
+        select(func.count()).select_from(Transaction).where(Transaction.league_id == league_id)
+    )
+    if not total:
+        return None
+    rows = session.execute(
+        select(Transaction.team_id, func.count())
+        .where(Transaction.league_id == league_id, Transaction.team_id.is_not(None))
+        .group_by(Transaction.team_id)
+    ).all()
+    return {tid: c for tid, c in rows}
+
+
 def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
     """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
     don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
@@ -747,6 +891,22 @@ def recompute_league(
         )
         for t in teams
     ])
+    # Phase 15: LeagueSoftness — how exploitable each team's opponents are. Reads the same
+    # maps plus per-team transaction counts (None when the feed is empty → unknown, not zero).
+    # A separate score — never touches edge_score.
+    txn_counts = _transaction_counts_by_team(session, league.id)
+    softness_map = compute_league_softness([
+        SoftnessTeam(
+            team_id=t.id,
+            points_for=t.points_for,
+            played=(t.wins + t.losses + t.ties) > 0,
+            autodrafted=bool(t.autodrafted),
+            lineup_efficiency=(lineup_map[t.id].lineup_efficiency if t.id in lineup_map else None),
+            draft_surplus=surplus_map.get(t.id),
+            transactions=(txn_counts.get(t.id, 0) if txn_counts is not None else None),
+        )
+        for t in teams
+    ])
 
     scored = 0
     for stat in stats:
@@ -820,6 +980,19 @@ def recompute_league(
             _upsert_or_clear(
                 session, league.id, stat.team_id, MY_EDGE_COMPONENT_PREFIX + key,
                 present_me.get(key),
+            )
+        # Phase 15: LeagueSoftness score + component percentiles; clear absent keys so a
+        # stale input can't survive (separate from edge_score).
+        sf = softness_map.get(stat.team_id)
+        _upsert_or_clear(
+            session, league.id, stat.team_id, LEAGUE_SOFTNESS_SCORE,
+            sf.league_softness_score if sf else None,
+        )
+        present_sf = {c.key: c.percentile for c in (sf.components if sf else [])}
+        for key in LEAGUE_SOFTNESS_ORDER:
+            _upsert_or_clear(
+                session, league.id, stat.team_id, LEAGUE_SOFTNESS_COMPONENT_PREFIX + key,
+                present_sf.get(key),
             )
     session.flush()
     return {"teams": len(stats), "scored": scored}
@@ -1042,4 +1215,34 @@ def read_my_edge(session: Session, league_id: int) -> list[MyEdgeRow]:
         ]
         out.append(MyEdgeRow(tid, score, _my_edge_components_for(present)))
     out.sort(key=lambda r: r.my_edge_score, reverse=True)
+    return out
+
+
+def read_league_softness(session: Session, league_id: int) -> list[SoftnessRow]:
+    """Persisted LeagueSoftness rows for a league (Phase 15), teams with a score only, ordered
+    by league_softness_score descending. Reconstructs weights (renormalized across present
+    components) from edge_config; reads metrics only, no recompute."""
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.in_(_LEAGUE_SOFTNESS_ALL_KEYS),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for tid, key, val in rows:
+        by_team.setdefault(tid, {})[key] = val
+
+    out: list[SoftnessRow] = []
+    for tid, m in by_team.items():
+        score = m.get(LEAGUE_SOFTNESS_SCORE)
+        if score is None:
+            continue
+        present = [
+            (key, m[LEAGUE_SOFTNESS_COMPONENT_PREFIX + key])
+            for key in LEAGUE_SOFTNESS_ORDER
+            if (LEAGUE_SOFTNESS_COMPONENT_PREFIX + key) in m
+        ]
+        out.append(SoftnessRow(tid, score, _softness_components_for(present)))
+    out.sort(key=lambda r: r.league_softness_score, reverse=True)
     return out
