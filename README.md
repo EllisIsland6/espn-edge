@@ -15,8 +15,10 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > value delta + a draft-surplus metric; Draft Board shows player names), and **Phase 11
 > [preseason Edge](docs/phase-11-preseason-edge.md) blending roster projection + draft
 > surplus for drafted/no-games leagues, Phase 12 [all-play + luck
-> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, and **Phase 13 [lineup
-> efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab.**
+> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, Phase 13 [lineup
+> efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab, and
+> **Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
+> the Overview.**
 
 ## Quick start
 
@@ -205,6 +207,12 @@ that week's roster (an optimal-lineup solver over the ESPN slot map), with point
 bench — served by `GET /api/leagues/{id}/lineup-efficiency`. Foundation for SPEC §6.1/§6.2
 lineup metrics; **not** in `edge_score` yet. See
 **[docs/phase-13-lineup-efficiency.md](docs/phase-13-lineup-efficiency.md)**.
+
+The Overview also shows a **MyEdge (v1)** panel — a **separate** blended score from SPEC §6.2
+components (roster strength, draft surplus, lineup efficiency, luck-adjusted record;
+`waiver_capture` pending), served by `GET /api/leagues/{id}/my-edge`. It does **not** replace
+the existing `edge_score`. See
+**[docs/phase-14-my-edge-foundation.md](docs/phase-14-my-edge-foundation.md)**.
 
 ## AI analysis (optional)
 

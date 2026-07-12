@@ -18,9 +18,12 @@ from sqlalchemy.orm import Session
 from ..edge_config import (
     COMPONENT_ORDER,
     DRAFT_VALUE_DECAY,
+    MY_EDGE_ORDER,
     component_label,
     component_weight,
     grade_for,
+    my_edge_label,
+    my_edge_weight,
     verdict_for,
 )
 from ..models import DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
@@ -58,6 +61,11 @@ _LINEUP_KEYS = (
     OPTIMAL_POINTS_AVG,
     POINTS_LEFT_ON_BENCH_AVG,
 )
+# Phase 14: MyEdge v1 — a separate score + component percentiles (not the edge_score).
+MY_EDGE_SCORE = "my_edge_score"
+MY_EDGE_COMPONENT_PREFIX = "my_edge_component_"
+# All persisted MyEdge keys, for reading and for clearing when inputs go unavailable.
+_MY_EDGE_ALL_KEYS = (MY_EDGE_SCORE, *(MY_EDGE_COMPONENT_PREFIX + k for k in MY_EDGE_ORDER))
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -547,6 +555,78 @@ def _lineup_efficiency_by_team(
     return compute_lineup_efficiency(team_weeks, slot_counts)
 
 
+# --------------------------------------------------------------------------- #
+# Phase 14: MyEdge v1 — a separate score blended from the built foundations
+# --------------------------------------------------------------------------- #
+@dataclass
+class MyEdgeInput:
+    """Per-team raw values for the MyEdge components (None = unknown for that team)."""
+
+    team_id: int
+    roster_strength: float | None
+    draft_surplus: float | None
+    lineup_efficiency: float | None
+    luck_adjusted_record: float | None
+
+
+@dataclass
+class MyEdgeComponent:
+    key: str
+    label: str
+    weight: float  # renormalized across the components present for the team
+    percentile: float
+
+
+@dataclass
+class MyEdgeRow:
+    team_id: int
+    my_edge_score: float | None
+    components: list[MyEdgeComponent]
+
+
+def _my_edge_components_for(
+    present: list[tuple[str, float]]
+) -> list[MyEdgeComponent]:
+    """Build MyEdge components with weights renormalized across the present keys."""
+    base_total = sum(my_edge_weight(k) for k, _ in present) or 1.0
+    return [
+        MyEdgeComponent(
+            key=key, label=my_edge_label(key), weight=my_edge_weight(key) / base_total,
+            percentile=pct,
+        )
+        for key, pct in present
+    ]
+
+
+def compute_my_edge(inputs: list[MyEdgeInput]) -> dict[int, MyEdgeRow]:
+    """MyEdge v1 per team: within-league percentile of each available component, blended
+    with renormalized SPEC §6.2 weights. A component is available only when ≥2 teams have a
+    value; per-team weights renormalize across the components present (a lone component →
+    weight 1.0). No inputs present → pending (score None, no components)."""
+    populations: dict[str, list[float]] = {}
+    for key in MY_EDGE_ORDER:
+        vals = [v for i in inputs if (v := getattr(i, key)) is not None]
+        if len(vals) >= 2:
+            populations[key] = vals
+
+    out: dict[int, MyEdgeRow] = {}
+    for i in inputs:
+        present: list[tuple[str, float]] = []
+        for key in MY_EDGE_ORDER:
+            if key in populations:
+                v = getattr(i, key)
+                if v is not None:
+                    present.append((key, _percentile(populations[key], v)))
+        if not present:
+            out[i.team_id] = MyEdgeRow(i.team_id, None, [])
+            continue
+        comps = _my_edge_components_for(present)
+        out[i.team_id] = MyEdgeRow(
+            i.team_id, round(sum(c.weight * c.percentile for c in comps), 1), comps
+        )
+    return out
+
+
 def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
     """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
     don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
@@ -652,6 +732,21 @@ def recompute_league(
     lineup_map = _lineup_efficiency_by_team(
         session, league, {s.team_id for s in stats}, completed_weeks
     )
+    # Phase 14: MyEdge blends the built foundations. roster_strength is gated on fresh
+    # projections (mirrors the edge roster branch); the others read the same maps computed
+    # above. This is a separate score — it never touches edge_score.
+    my_edge_map = compute_my_edge([
+        MyEdgeInput(
+            team_id=t.id,
+            roster_strength=(proj_by_team.get(t.id) if projections_fresh else None),
+            draft_surplus=surplus_map.get(t.id),
+            lineup_efficiency=(lineup_map[t.id].lineup_efficiency if t.id in lineup_map else None),
+            luck_adjusted_record=(
+                all_play_map[t.id].all_play_win_pct if t.id in all_play_map else None
+            ),
+        )
+        for t in teams
+    ])
 
     scored = 0
     for stat in stats:
@@ -713,6 +808,19 @@ def recompute_league(
             session, league.id, stat.team_id, POINTS_LEFT_ON_BENCH_AVG,
             le.points_left_on_bench_avg if le else None,
         )
+        # Phase 14: MyEdge score + component percentiles; clear every component key that's
+        # not present so a stale input can't survive (separate from edge_score).
+        me = my_edge_map.get(stat.team_id)
+        _upsert_or_clear(
+            session, league.id, stat.team_id, MY_EDGE_SCORE,
+            me.my_edge_score if me else None,
+        )
+        present_me = {c.key: c.percentile for c in (me.components if me else [])}
+        for key in MY_EDGE_ORDER:
+            _upsert_or_clear(
+                session, league.id, stat.team_id, MY_EDGE_COMPONENT_PREFIX + key,
+                present_me.get(key),
+            )
     session.flush()
     return {"teams": len(stats), "scored": scored}
 
@@ -904,4 +1012,34 @@ def read_lineup_efficiency(session: Session, league_id: int) -> list[LineupEffic
             )
         )
     out.sort(key=lambda r: r.lineup_efficiency, reverse=True)
+    return out
+
+
+def read_my_edge(session: Session, league_id: int) -> list[MyEdgeRow]:
+    """Persisted MyEdge rows for a league (Phase 14), teams with a score only, ordered by
+    my_edge_score descending. Reconstructs component weights (renormalized across the present
+    components) from edge_config; reads metrics only, no recompute."""
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.in_(_MY_EDGE_ALL_KEYS),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for tid, key, val in rows:
+        by_team.setdefault(tid, {})[key] = val
+
+    out: list[MyEdgeRow] = []
+    for tid, m in by_team.items():
+        score = m.get(MY_EDGE_SCORE)
+        if score is None:
+            continue
+        present = [
+            (key, m[MY_EDGE_COMPONENT_PREFIX + key])
+            for key in MY_EDGE_ORDER
+            if (MY_EDGE_COMPONENT_PREFIX + key) in m
+        ]
+        out.append(MyEdgeRow(tid, score, _my_edge_components_for(present)))
+    out.sort(key=lambda r: r.my_edge_score, reverse=True)
     return out

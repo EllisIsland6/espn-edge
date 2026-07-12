@@ -116,6 +116,21 @@ export interface MatchupOut {
   is_playoff: boolean;
 }
 
+// MyEdge v1 (Phase 14): a separate blended score + component breakdown. Backend-computed.
+export interface MyEdgeComponentOut {
+  key: string;
+  label: string;
+  weight: number;
+  percentile: number;
+}
+export interface MyEdgeOut {
+  team_id: number;
+  team_name: string | null;
+  is_me: boolean;
+  my_edge_score: number;
+  components: MyEdgeComponentOut[];
+}
+
 // Started-vs-optimal lineup efficiency (Phase 13). Backend-computed; React formats only.
 export interface LineupEfficiencyOut {
   team_id: number;
@@ -278,6 +293,8 @@ export const getLeagueAllPlay = (id: number) =>
   get<AllPlayOut[]>(`/api/leagues/${id}/all-play`);
 export const getLeagueLineupEfficiency = (id: number) =>
   get<LineupEfficiencyOut[]>(`/api/leagues/${id}/lineup-efficiency`);
+export const getLeagueMyEdge = (id: number) =>
+  get<MyEdgeOut[]>(`/api/leagues/${id}/my-edge`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
 

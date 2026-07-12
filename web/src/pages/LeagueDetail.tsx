@@ -14,6 +14,7 @@ import {
   getLeagueDraft,
   getLeagueLineupEfficiency,
   getLeagueMatchups,
+  getLeagueMyEdge,
   getLeagueOverview,
   syncLeague,
   type AdvantageVerdictContent,
@@ -22,6 +23,7 @@ import {
   type AllPlayOut,
   type DraftPickOut,
   type LineupEfficiencyOut,
+  type MyEdgeOut,
   type DraftRecapContent,
   type LeagueBriefContent,
   type LeagueOverview,
@@ -155,7 +157,7 @@ export default function LeagueDetail() {
       </div>
 
       <div className="mt-5">
-        {tab === "overview" && <OverviewTab ov={ov} />}
+        {tab === "overview" && <OverviewTab ov={ov} leagueId={leagueId} />}
         {tab === "draft" && <DraftTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "teams" && <TeamsTab teams={ov.teams} leagueId={leagueId} myTeamId={lg.my_team_id} />}
         {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
@@ -171,8 +173,8 @@ function teamLabel(m: Map<number, TeamOut>, id: number | null): string {
   return m.get(id)?.name ?? `#${id}`;
 }
 
-// --- Overview: standings + Edge breakdown placeholder ----------------------
-function OverviewTab({ ov }: { ov: LeagueOverview }) {
+// --- Overview: standings + Edge breakdown + MyEdge panel --------------------
+function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number }) {
   const cols: ColumnDef<TeamOut, any>[] = [
     { accessorKey: "standing", header: "#", cell: (c) => <span className="mono text-secondary">{ordinal(c.getValue<number | null>())}</span> },
     {
@@ -190,7 +192,8 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
     { accessorKey: "points_against", header: "PA", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
   ];
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
       <Panel className="overflow-hidden">
         <div className="border-b border-line px-4 py-2 text-xs uppercase tracking-wide text-muted">
           Standings
@@ -262,7 +265,55 @@ function OverviewTab({ ov }: { ov: LeagueOverview }) {
           )}
         </div>
       </Panel>
+      </div>
+      <MyEdgePanel leagueId={leagueId} />
     </div>
+  );
+}
+
+// MyEdge v1 (Phase 14): my team's blended score + component bars. Backend-computed.
+function MyEdgePanel({ leagueId }: { leagueId: number }) {
+  const [rows, setRows] = useState<MyEdgeOut[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    getLeagueMyEdge(leagueId).then(setRows).catch((e) => setErr(String(e)));
+  }, [leagueId]);
+  if (err) return <ErrorNote message={err} />;
+  if (!rows) return <Spinner />;
+  const mine = rows.find((r) => r.is_me) ?? null;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">
+          MyEdge <span className="text-[10px] uppercase tracking-wide text-muted">v1</span>
+        </h3>
+        {mine && <ValueChip primary={num(mine.my_edge_score, 0)} secondary="MyEdge" />}
+      </div>
+      {mine ? (
+        <div className="mt-3 space-y-2">
+          {mine.components.map((c) => (
+            <div key={c.key}>
+              <div className="flex items-baseline justify-between text-[11px]">
+                <span className="text-secondary">{c.label}</span>
+                <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+              </div>
+              <ValueBar value={c.percentile} max={100} label={`${num(c.percentile, 0)} pct`} />
+            </div>
+          ))}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            MyEdge blends roster strength, draft surplus, lineup efficiency, and luck-adjusted
+            record (SPEC §6.2). A separate v1 score — it doesn&apos;t change the Edge Score above.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <EmptyState
+            title="MyEdge pending"
+            hint="Appears once your team has enough drafted/played data for its components."
+          />
+        </div>
+      )}
+    </Panel>
   );
 }
 

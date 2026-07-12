@@ -20,6 +20,8 @@ from ..schemas import (
     LeagueOverview,
     LineupEfficiencyOut,
     MatchupOut,
+    MyEdgeComponentOut,
+    MyEdgeOut,
     PortfolioRow,
     PortfolioSummary,
     TeamOut,
@@ -28,6 +30,7 @@ from ..schemas import (
 from ..services.metrics import (
     read_all_play,
     read_lineup_efficiency,
+    read_my_edge,
     team_components,
     team_edge,
 )
@@ -156,6 +159,30 @@ def league_all_play(league_id: int, session: Session = Depends(get_session)) -> 
             luck_delta=r.luck_delta,
         )
         for r in read_all_play(session, league_id)
+    ]
+
+
+@router.get("/api/leagues/{league_id}/my-edge", response_model=list[MyEdgeOut])
+def league_my_edge(league_id: int, session: Session = Depends(get_session)) -> list[MyEdgeOut]:
+    _get_league(session, league_id)
+    teams = {
+        t.id: t
+        for t in session.scalars(select(Team).where(Team.league_id == league_id))
+    }
+    return [
+        MyEdgeOut(
+            team_id=r.team_id,
+            team_name=teams[r.team_id].name if r.team_id in teams else None,
+            is_me=bool(teams[r.team_id].is_me) if r.team_id in teams else False,
+            my_edge_score=r.my_edge_score,
+            components=[
+                MyEdgeComponentOut(
+                    key=c.key, label=c.label, weight=c.weight, percentile=c.percentile
+                )
+                for c in r.components
+            ],
+        )
+        for r in read_my_edge(session, league_id)
     ]
 
 

@@ -8,7 +8,13 @@ from sqlalchemy import func, select
 
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
-from api.edge_config import DRAFTED_WEIGHTS, INSEASON_WEIGHTS, grade_for, verdict_for
+from api.edge_config import (
+    DRAFTED_WEIGHTS,
+    INSEASON_WEIGHTS,
+    MY_EDGE_WEIGHTS,
+    grade_for,
+    verdict_for,
+)
 from api.main import app
 from api.models import Account, DraftPick, League, LineupSlot, Matchup, Metric, Player, Team
 from api.services import metrics
@@ -424,9 +430,11 @@ def test_recompute_is_idempotent(db_session):
     db_session.commit()
     metrics.recompute_league(db_session, lg)
     db_session.commit()
-    # No duplicate rows (partial unique index holds). 4 teams × 10 keys (edge_score +
-    # playoff_odds + 3 in-season components + 5 all-play/luck) = 40, stable across recomputes.
-    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 40
+    # No duplicate rows (partial unique index holds). 4 teams × 12 keys (edge_score +
+    # playoff_odds + 3 in-season components + 5 all-play/luck + my_edge_score + 1 MyEdge
+    # component (luck_adjusted_record; the others are unavailable for this fixture)) = 48,
+    # stable across recomputes.
+    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 48
 
 
 # --------------------------------------------------------------------------- #
@@ -1048,3 +1056,130 @@ def test_api_lineup_efficiency_exposes_rows(lineup_league_id):
     for r in rows:
         assert fields <= set(r)
         assert r["team_name"]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 14: MyEdge v1 (pure blend + persistence + API)
+# --------------------------------------------------------------------------- #
+def test_my_edge_blend_hand_computed():
+    inputs = [
+        metrics.MyEdgeInput(1, 300.0, 10.0, 0.9, 1.0),
+        metrics.MyEdgeInput(2, 200.0, 5.0, 0.8, 0.5),
+        metrics.MyEdgeInput(3, 100.0, 20.0, 0.7, 0.0),
+    ]
+    r = metrics.compute_my_edge(inputs)[1]
+    assert [c.key for c in r.components] == [
+        "roster_strength", "draft_surplus", "lineup_efficiency", "luck_adjusted_record",
+    ]
+    base_total = sum(MY_EDGE_WEIGHTS.values())  # 0.90 (waiver_capture pending)
+    for c in r.components:
+        assert c.weight == pytest.approx(MY_EDGE_WEIGHTS[c.key] / base_total)
+    pcts = {
+        "roster_strength": metrics._percentile([300.0, 200.0, 100.0], 300.0),
+        "draft_surplus": metrics._percentile([10.0, 5.0, 20.0], 10.0),
+        "lineup_efficiency": metrics._percentile([0.9, 0.8, 0.7], 0.9),
+        "luck_adjusted_record": metrics._percentile([1.0, 0.5, 0.0], 1.0),
+    }
+    for c in r.components:
+        assert c.percentile == pcts[c.key]
+    expected = round(sum(MY_EDGE_WEIGHTS[k] / base_total * pcts[k] for k in pcts), 1)
+    assert r.my_edge_score == expected
+
+
+def test_my_edge_drops_unavailable_component_and_renormalizes():
+    # lineup_efficiency only on one team → unavailable; the other three are available.
+    inputs = [
+        metrics.MyEdgeInput(1, 300.0, 10.0, 0.9, 1.0),
+        metrics.MyEdgeInput(2, 200.0, 5.0, None, 0.5),
+        metrics.MyEdgeInput(3, 100.0, 20.0, None, 0.0),
+    ]
+    r = metrics.compute_my_edge(inputs)[1]
+    assert [c.key for c in r.components] == ["roster_strength", "draft_surplus", "luck_adjusted_record"]
+    assert sum(c.weight for c in r.components) == pytest.approx(1.0)  # renormalized
+
+
+def test_my_edge_roster_strength_absent_when_projections_none():
+    # roster_strength None on all teams (stale projections) → dropped from MyEdge.
+    inputs = [
+        metrics.MyEdgeInput(1, None, 10.0, 0.9, 1.0),
+        metrics.MyEdgeInput(2, None, 5.0, 0.8, 0.5),
+    ]
+    r = metrics.compute_my_edge(inputs)[1]
+    assert all(c.key != "roster_strength" for c in r.components)
+
+
+def test_my_edge_pending_when_nothing_available():
+    inputs = [
+        metrics.MyEdgeInput(1, None, None, None, None),
+        metrics.MyEdgeInput(2, None, None, None, None),
+    ]
+    r = metrics.compute_my_edge(inputs)[1]
+    assert r.my_edge_score is None and r.components == []
+
+
+def test_my_edge_persists_and_clears(db_session):
+    lg = _make_inseason_league(db_session)  # matchups → luck_adjusted_record available
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    rows = metrics.read_my_edge(db_session, lg.id)
+    scores = [r.my_edge_score for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    me = next(r for r in rows if r.team_id == lg.my_team_id)
+    # Only luck_adjusted_record is available for this fixture → single component, weight 1.0.
+    assert [c.key for c in me.components] == ["luck_adjusted_record"]
+    assert me.components[0].weight == 1.0
+    assert me.my_edge_score == me.components[0].percentile  # round(1.0 * pct, 1)
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "my_edge_score"
+        )
+    ) == 4
+
+    # Zero completed scores → no all-play → luck unavailable → MyEdge cleared.
+    for m in db_session.scalars(select(Matchup).where(Matchup.league_id == lg.id)):
+        m.home_points = 0.0
+        m.away_points = 0.0
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._MY_EDGE_ALL_KEYS))
+        )
+    ) == 0
+    assert metrics.read_my_edge(db_session, lg.id) == []
+
+
+def test_my_edge_stale_projections_drops_roster_strength(db_session):
+    lg = _make_drafted_league(db_session)  # roster_proj + (stamped) draft_surplus
+    for p in db_session.scalars(select(DraftPick).where(DraftPick.league_id == lg.id)):
+        p.adp_at_draft = p.overall + 3.0
+    db_session.flush()
+
+    metrics.recompute_league(db_session, lg, projections_fresh=True)
+    db_session.commit()
+    fresh_keys = {c.key for c in metrics.read_my_edge(db_session, lg.id)[0].components}
+    assert {"roster_strength", "draft_surplus"} <= fresh_keys
+
+    metrics.recompute_league(db_session, lg, projections_fresh=False)
+    db_session.commit()
+    for r in metrics.read_my_edge(db_session, lg.id):
+        assert all(c.key != "roster_strength" for c in r.components)
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "my_edge_component_roster_strength"
+        )
+    ) == 0
+
+
+def test_api_my_edge_exposes_rows(synced_league_id):
+    rows = client.get(f"/api/leagues/{synced_league_id}/my-edge").json()
+    assert rows, "expected MyEdge rows for a synced league"
+    scores = [r["my_edge_score"] for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    assert any(r["is_me"] for r in rows)
+    for r in rows:
+        assert {"team_id", "team_name", "is_me", "my_edge_score", "components"} <= set(r)
+        for c in r["components"]:
+            assert {"key", "label", "weight", "percentile"} <= set(c)

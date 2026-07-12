@@ -22,7 +22,18 @@
   Phase 10 v1 (draft value foundation),
   Phase 11 v1 (preseason edge blends roster projection + draft surplus),
   Phase 12 v1 (all-play record + luck delta),
-  Phase 13 v1 (lineup efficiency foundation) implemented.
+  Phase 13 v1 (lineup efficiency foundation),
+  Phase 14 v1 (MyEdge component foundation) implemented.
+- Phase 14: metrics.py compute_my_edge blends within-league percentiles of roster_strength
+  (roster proj, gated on projections_fresh), draft_surplus, lineup_efficiency, and
+  luck_adjusted_record (all_play_win_pct) into a SEPARATE my_edge_score (SPEC §6.2 weights in
+  edge_config MY_EDGE_WEIGHTS; waiver_capture 0.10 pending → weights renormalize across present
+  components, ≥2-team availability). Persisted team metrics (week NULL): my_edge_score +
+  my_edge_component_<name> (percentiles), cleared when inputs unavailable. read_my_edge + GET
+  /api/leagues/{id}/my-edge (ordered by score desc, includes is_me). Overview shows a MyEdge v1
+  panel for my team. Does NOT change edge_score/grade/verdict/playoff_odds or Phase 9/11/12/13
+  semantics (82.5 byte-identical). No schema change, no db-reset. Contract:
+  docs/phase-14-my-edge-foundation.md.
 - Phase 13: metrics.py optimal_lineup_points (pure solver: QB/RB/WR/TE/FLEX(RB-WR-TE)/K/DST,
   respects leagues.lineup_slots_json via _starting_slot_counts, ignores bench/IR/IDP, never
   places unknown positions); compute_lineup_week (started/optimal/bench/efficiency, pending

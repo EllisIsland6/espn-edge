@@ -176,6 +176,25 @@ class AllPlayOut(BaseModel):
     luck_delta: float
 
 
+class MyEdgeComponentOut(BaseModel):
+    """One within-league percentile that feeds MyEdge (Phase 14)."""
+
+    key: str
+    label: str
+    weight: float
+    percentile: float
+
+
+class MyEdgeOut(BaseModel):
+    """A team's MyEdge v1 score + component breakdown (Phase 14)."""
+
+    team_id: int
+    team_name: str | None
+    is_me: bool
+    my_edge_score: float
+    components: list[MyEdgeComponentOut]
+
+
 class LineupEfficiencyOut(BaseModel):
     """A team's started-vs-optimal lineup efficiency (Phase 13)."""
 

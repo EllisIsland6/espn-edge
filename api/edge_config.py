@@ -58,6 +58,39 @@ def component_label(key: str) -> str:
     """Human label for a component key (falls back to the key itself)."""
     return COMPONENT_LABELS.get(key, key)
 
+
+# --- Phase 14: MyEdge v1 (a separate score; does NOT touch edge_score) --------------
+# SPEC §6.2 MyEdge weights. waiver_capture (0.10) is intentionally pending/not included yet,
+# so these sum to 0.90 — MyEdge renormalizes across whichever components are present.
+MY_EDGE_WEIGHTS: dict[str, float] = {
+    "roster_strength": 0.35,
+    "draft_surplus": 0.25,
+    "lineup_efficiency": 0.20,
+    "luck_adjusted_record": 0.10,
+}
+MY_EDGE_LABELS: dict[str, str] = {
+    "roster_strength": "Roster strength",
+    "draft_surplus": "Draft surplus",
+    "lineup_efficiency": "Lineup efficiency",
+    "luck_adjusted_record": "Luck-adjusted record",
+}
+# Canonical order for reading/rendering MyEdge components.
+MY_EDGE_ORDER: tuple[str, ...] = (
+    "roster_strength",
+    "draft_surplus",
+    "lineup_efficiency",
+    "luck_adjusted_record",
+)
+
+
+def my_edge_weight(key: str) -> float:
+    """Base MyEdge weight for a component (renormalized across present components)."""
+    return MY_EDGE_WEIGHTS.get(key, 0.0)
+
+
+def my_edge_label(key: str) -> str:
+    return MY_EDGE_LABELS.get(key, key)
+
 # Verdict thresholds on the 0–100 edge_score (SPEC §6).
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0

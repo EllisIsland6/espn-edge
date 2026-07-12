@@ -78,6 +78,23 @@ const ALL_PLAY = [
     all_play_wins: 1, all_play_losses: 2, all_play_ties: 0, all_play_win_pct: 0.3333, luck_delta: 0.3333,
   },
 ];
+// MyEdge v1 (Phase 14): my team + a rival, with component percentiles.
+const MY_EDGE = [
+  {
+    team_id: 1, team_name: "My Team", is_me: true, my_edge_score: 71.0,
+    components: [
+      { key: "roster_strength", label: "Roster strength", weight: 0.5833, percentile: 80.0 },
+      { key: "luck_adjusted_record", label: "Luck-adjusted record", weight: 0.4167, percentile: 58.0 },
+    ],
+  },
+  {
+    team_id: 2, team_name: "Rival", is_me: false, my_edge_score: 40.0,
+    components: [
+      { key: "roster_strength", label: "Roster strength", weight: 1.0, percentile: 40.0 },
+    ],
+  },
+];
+
 const LINEUP_EFFICIENCY = [
   {
     team_id: 2, team_name: "Rival", lineup_efficiency: 1.0,
@@ -126,6 +143,7 @@ async function mockApi(page: Page) {
   await page.route("**/api/leagues/1/matchups", (r) => json(r, MATCHUPS));
   await page.route("**/api/leagues/1/all-play", (r) => json(r, ALL_PLAY));
   await page.route("**/api/leagues/1/lineup-efficiency", (r) => json(r, LINEUP_EFFICIENCY));
+  await page.route("**/api/leagues/1/my-edge", (r) => json(r, MY_EDGE));
   // CSV export responds like the backend (attachment) so clicking it triggers a download.
   await page.route("**/api/exports/portfolio.csv", (r) =>
     r.fulfill({
@@ -186,6 +204,15 @@ test("league detail Overview renders edge component breakdown bars", async ({ pa
   await expect(page.getByText("88 pct")).toBeVisible(); // 87.5 → 88 rounded for display
 });
 
+test("overview renders the MyEdge v1 panel for my team (Phase 14)", async ({ page }) => {
+  await page.goto("/league/1");
+  await expect(page.getByRole("heading", { name: /MyEdge/ })).toBeVisible();
+  // My team's MyEdge components (distinct from the Edge Score component labels).
+  await expect(page.getByText("Roster strength", { exact: true })).toBeVisible();
+  await expect(page.getByText("Luck-adjusted record", { exact: true })).toBeVisible();
+  await expect(page.getByText("MyEdge", { exact: true })).toBeVisible(); // ValueChip label
+});
+
 test("overview renders the preseason Draft surplus component (Phase 11)", async ({ page }) => {
   // Override with a preseason-style overview blending roster projection + draft surplus.
   await page.route("**/api/leagues/1/overview", (r) =>
@@ -197,6 +224,8 @@ test("overview renders the preseason Draft surplus component (Phase 11)", async 
         { key: "draft_surplus", label: "Draft surplus", weight: 0.4167, percentile: 37.5 },
       ],
     }));
+  // This test targets the Edge breakdown panel; keep MyEdge empty so its weights don't collide.
+  await page.route("**/api/leagues/1/my-edge", (r) => json(r, []));
   await page.goto("/league/1");
   await expect(page.getByText("Roster projection", { exact: true })).toBeVisible();
   await expect(page.getByText("Draft surplus", { exact: true })).toBeVisible();
