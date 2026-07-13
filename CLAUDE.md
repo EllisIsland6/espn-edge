@@ -27,7 +27,18 @@
   Phase 15 v1 (LeagueSoftness component foundation),
   Phase 16 v1 (full Edge Index composite),
   Phase 17 v1 (Portfolio Board Edge Index transition),
-  Phase 18 v1 (AI grounding uses the Edge Index model) implemented.
+  Phase 18 v1 (AI grounding uses the Edge Index model),
+  Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers) implemented.
+- Phase 19: ai_inputs.weekly_recap_input now grounds the recap — matchups gain winner/loser/
+  margin/tie; week_all_play (reuses pure metrics.compute_all_play on the week's scores);
+  season_all_play + luck_delta (read_all_play); transactions for that week with player_in/out
+  names resolved from Player (empty feed → [], never invented). ai.py _TASK["weekly_recap"]
+  writes luck_notes only from all-play/luck facts and waiver_highlights only from transactions,
+  calling a quiet week when empty. ai_config SCHEMA_VERSION v2→v3 busts cached weekly recaps.
+  WeeklyRecap OUTPUT schema unchanged; no metric/DB/provider change; production still uses real
+  AnthropicLlmClient when the key is set (tests offline, fake LLM). Manual real-AI smoke:
+  POST /api/leagues/{id}/ai/weekly-recap?week={w}&force=true (docs/phase-19-...md; may cost API
+  usage). Contract: docs/phase-19-ai-weekly-recap-grounding.md.
 - Phase 18: ai_inputs.advantage_verdict_input + league_brief_input regrounded on Edge Index —
   verdict facts carry edge_index_score/grade/verdict + components, my_edge_score + components,
   league_softness_score + components, playoff_odds, and legacy_edge_score/grade/verdict

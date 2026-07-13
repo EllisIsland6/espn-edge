@@ -118,8 +118,13 @@ _TASK: dict[str, str] = {
         "give the single highest_leverage_move."
     ),
     "weekly_recap": (
-        "Write a short league newsletter recap of this week's matchups: a headline, a body, "
-        "luck notes, and waiver highlights — grounded only in the scores provided."
+        "Write a short league newsletter recap of this week's matchups: a headline and body "
+        "grounded only in the provided game scores (use winner/loser/margin). Write luck_notes "
+        "ONLY from week_all_play and season_all_play — e.g. a team that lost despite a top "
+        "all-play week, or a big season luck_delta; do not compute all-play yourself. Write "
+        "waiver_highlights ONLY from the transactions list (team, type, player_in, player_out, "
+        "bid). If transactions is empty, call it a quiet transaction week — do NOT invent any "
+        "moves, players, or numbers not present in the facts."
     ),
     "trade_finder": (
         "Given my positional counts vs the opponent's, propose 1-2 trades that address a "

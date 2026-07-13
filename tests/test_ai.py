@@ -12,7 +12,7 @@ from api.config import get_settings
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
-from api.models import Account, AiReport, League, Team
+from api.models import Account, AiReport, League, Matchup, Player, Team, Transaction
 from api.services import ai_inputs
 from api.services.ai import AiError, AiService
 
@@ -355,10 +355,91 @@ def test_schema_version_bumped_and_busts_cache(monkeypatch):
     from api.ai_config import SCHEMA_VERSION
     from api.services.ai import compute_input_hash
 
-    assert SCHEMA_VERSION == "v2"
+    assert SCHEMA_VERSION == "v3"  # Phase 19 bump
     facts = {"team": "me", "edge_index_score": 68.0}
+    v3 = compute_input_hash("advantage_verdict", "m", facts)
+    # The same facts under the previous version hash to a different value → cache is busted.
+    monkeypatch.setattr("api.services.ai.SCHEMA_VERSION", "v2")
     v2 = compute_input_hash("advantage_verdict", "m", facts)
-    # The same facts under the old version hash to a different value → cache is busted.
-    monkeypatch.setattr("api.services.ai.SCHEMA_VERSION", "v1")
-    v1 = compute_input_hash("advantage_verdict", "m", facts)
-    assert v1 != v2
+    assert v2 != v3
+
+
+# --------------------------------------------------------------------------- #
+# Phase 19: weekly recap grounded on all-play, luck & waivers (offline)
+# --------------------------------------------------------------------------- #
+def _make_weekly_league(session) -> League:
+    lg = League(espn_league_id="960", season=2026, is_public=True, lifecycle="in_season",
+                size=4, playoff_team_count=2)
+    session.add(lg)
+    session.flush()
+    teams = []
+    for espn, w, losses, pf in [(1, 1, 0, 120.0), (2, 0, 1, 100.0), (3, 1, 0, 90.0), (4, 0, 1, 80.0)]:
+        t = Team(league_id=lg.id, espn_team_id=espn, name=f"W{espn}", is_me=(espn == 1),
+                 wins=w, losses=losses, ties=0, points_for=pf, points_against=0.0, standing=espn)
+        session.add(t)
+        teams.append(t)
+    session.flush()
+    lg.my_team_id = teams[0].id
+    ids = {t.espn_team_id: t.id for t in teams}
+    # Week 1 completed matchups.
+    session.add_all([
+        Matchup(league_id=lg.id, week=1, home_team_id=ids[1], away_team_id=ids[2],
+                home_points=120.0, away_points=100.0),
+        Matchup(league_id=lg.id, week=1, home_team_id=ids[3], away_team_id=ids[4],
+                home_points=90.0, away_points=80.0),
+    ])
+    # Players + a week-1 waiver transaction for team 1 (week 2 has none).
+    session.add_all([
+        Player(espn_player_id=501, name="Adds Player", position="RB"),
+        Player(espn_player_id=502, name="Drops Player", position="WR"),
+    ])
+    session.flush()
+    session.add(Transaction(league_id=lg.id, team_id=ids[1], type="waiver", week=1,
+                            player_in=501, player_out=502, bid=17))
+    session.flush()
+    # metrics power season all-play/luck.
+    from api.services import metrics
+    metrics.recompute_league(session, lg)
+    session.flush()
+    return lg
+
+
+def test_weekly_recap_input_grounds_all_play_luck_waivers(db_session):
+    lg = _make_weekly_league(db_session)
+    facts = ai_inputs.weekly_recap_input(db_session, lg, 1)
+    assert {"league", "week", "matchups", "week_all_play", "season_all_play", "transactions"} <= set(facts)
+
+    # Per-game winner/loser/margin from the DB scores (W1 beat W2 by 20).
+    g = next(g for g in facts["matchups"] if g["home"] == "W1")
+    assert g["winner"] == "W1" and g["loser"] == "W2" and g["margin"] == 20.0 and g["tie"] is False
+
+    # Per-week all-play: W1 posted the top score → undefeated all-play this week.
+    ap_me = next(r for r in facts["week_all_play"] if r["team"] == "W1")
+    assert ap_me["all_play_wins"] == 3 and ap_me["all_play_losses"] == 0
+    assert ap_me["all_play_win_pct"] == 1.0
+
+    # Season all-play/luck context present.
+    assert facts["season_all_play"] and all(
+        {"team", "all_play_win_pct", "luck_delta"} <= set(r) for r in facts["season_all_play"]
+    )
+
+    # Waiver highlights resolved from persisted Transaction + Player only.
+    assert len(facts["transactions"]) == 1
+    tx = facts["transactions"][0]
+    assert tx["team"] == "W1" and tx["type"] == "waiver" and tx["bid"] == 17
+    assert tx["player_in"] == "Adds Player" and tx["player_out"] == "Drops Player"
+
+
+def test_weekly_recap_input_empty_transaction_week_is_empty_list(db_session):
+    lg = _make_weekly_league(db_session)
+    facts = ai_inputs.weekly_recap_input(db_session, lg, 2)  # week 2 has no transactions
+    assert facts["transactions"] == []
+
+
+def test_weekly_recap_prompt_grounds_all_play_and_waivers():
+    from api.services.ai import _TASK
+
+    wk = _TASK["weekly_recap"]
+    assert "week_all_play" in wk and "season_all_play" in wk  # luck grounding
+    assert "transactions" in wk and "waiver_highlights" in wk  # waiver grounding
+    assert "quiet transaction week" in wk  # empty-feed instruction, no invention

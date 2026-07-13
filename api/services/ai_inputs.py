@@ -13,8 +13,16 @@ from collections import Counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import DraftPick, League, Matchup, Player, Team
-from .metrics import read_edge_index, read_league_softness, read_my_edge, team_edge
+from ..models import DraftPick, League, Matchup, Player, Team, Transaction
+from .metrics import (
+    TeamStat,
+    compute_all_play,
+    read_all_play,
+    read_edge_index,
+    read_league_softness,
+    read_my_edge,
+    team_edge,
+)
 from .parse import classify_scoring
 
 
@@ -173,23 +181,141 @@ def advantage_verdict_input(session: Session, league: League, team: Team) -> dic
     }
 
 
-def weekly_recap_input(session: Session, league: League, week: int) -> dict:
-    names = {t.id: t.name for t in session.scalars(select(Team).where(Team.league_id == league.id))}
-    matchups = session.scalars(
-        select(Matchup).where(Matchup.league_id == league.id, Matchup.week == week)
+def _team_stat(team: Team) -> TeamStat:
+    """Minimal TeamStat for the all-play helper (roster_proj unused here)."""
+    return TeamStat(
+        team_id=team.id,
+        wins=team.wins,
+        losses=team.losses,
+        ties=team.ties,
+        points_for=team.points_for,
+        points_against=team.points_against,
+        standing=team.standing,
+        roster_proj=None,
     )
-    games = []
+
+
+def _week_matchups(
+    names: dict[int, str], matchups: list[Matchup]
+) -> tuple[list[dict], dict[int, float]]:
+    """Per-game facts (with winner/loser/margin/tie when both scores exist) + this week's
+    {team_id: score} map for the all-play computation. All values come from the DB rows."""
+    games: list[dict] = []
+    week_scores: dict[int, float] = {}
     for m in matchups:
-        games.append(
-            {
-                "home": names.get(m.home_team_id, "?"),
-                "away": names.get(m.away_team_id, "?"),
-                "home_points": m.home_points,
-                "away_points": m.away_points,
-                "is_playoff": m.is_playoff,
-            }
+        hp, ap = m.home_points, m.away_points
+        game = {
+            "home": names.get(m.home_team_id, "?"),
+            "away": names.get(m.away_team_id, "?"),
+            "home_points": hp,
+            "away_points": ap,
+            "is_playoff": m.is_playoff,
+        }
+        if hp is not None and ap is not None:
+            if hp > ap:
+                game.update(
+                    winner=game["home"], loser=game["away"], margin=round(hp - ap, 1), tie=False
+                )
+            elif ap > hp:
+                game.update(
+                    winner=game["away"], loser=game["home"], margin=round(ap - hp, 1), tie=False
+                )
+            else:
+                game.update(winner=None, loser=None, margin=0.0, tie=True)
+            if m.home_team_id is not None:
+                week_scores[m.home_team_id] = hp
+            if m.away_team_id is not None:
+                week_scores[m.away_team_id] = ap
+        games.append(game)
+    return games, week_scores
+
+
+def _week_all_play(teams: list[Team], week: int, week_scores: dict[int, float]) -> list[dict]:
+    """Per-team all-play for THIS week, via the existing pure compute_all_play on the week's
+    scores (grounded; no invention). Only the week ranking is exposed — the helper's season
+    luck_delta is not meaningful for a single week, so season luck comes from read_all_play."""
+    if not week_scores:
+        return []
+    stats = [_team_stat(t) for t in teams if t.id in week_scores]
+    rows = compute_all_play(stats, {week: week_scores})
+    out: list[dict] = []
+    for t in teams:
+        r = rows.get(t.id)
+        if r is not None and r.all_play_win_pct is not None:
+            out.append(
+                {
+                    "team": t.name,
+                    "week_score": week_scores.get(t.id),
+                    "all_play_wins": r.all_play_wins,
+                    "all_play_losses": r.all_play_losses,
+                    "all_play_ties": r.all_play_ties,
+                    "all_play_win_pct": r.all_play_win_pct,
+                }
+            )
+    return out
+
+
+def _week_transactions(
+    session: Session, league_id: int, week: int, team_names: dict[int, str]
+) -> list[dict]:
+    """This week's transactions from persisted Transaction rows only (SPEC §2.4: an empty
+    feed yields []). player_in/out ids are resolved to names, falling back to #id."""
+    rows = list(
+        session.scalars(
+            select(Transaction).where(
+                Transaction.league_id == league_id, Transaction.week == week
+            )
         )
-    return {"league": _league_facts(league), "week": week, "matchups": games}
+    )
+    pids = {p for r in rows for p in (r.player_in, r.player_out) if p is not None}
+    pname: dict[int, str | None] = {}
+    if pids:
+        pname = dict(
+            session.execute(
+                select(Player.espn_player_id, Player.name).where(Player.espn_player_id.in_(pids))
+            ).all()
+        )
+
+    def _player(pid: int | None) -> str | None:
+        if pid is None:
+            return None
+        return pname.get(pid) or f"#{pid}"
+
+    return [
+        {
+            "team": team_names.get(r.team_id, "?"),
+            "type": r.type,
+            "player_in": _player(r.player_in),
+            "player_out": _player(r.player_out),
+            "bid": r.bid,
+        }
+        for r in rows
+    ]
+
+
+def weekly_recap_input(session: Session, league: League, week: int) -> dict:
+    teams = list(session.scalars(select(Team).where(Team.league_id == league.id)))
+    names = {t.id: t.name for t in teams}
+    matchups = list(
+        session.scalars(
+            select(Matchup).where(Matchup.league_id == league.id, Matchup.week == week)
+        )
+    )
+    games, week_scores = _week_matchups(names, matchups)
+    # Season all-play + luck context, from persisted metrics (Phase 12).
+    season_all_play = [
+        {"team": names.get(r.team_id, "?"), "all_play_win_pct": r.all_play_win_pct,
+         "luck_delta": r.luck_delta}
+        for r in read_all_play(session, league.id)
+    ]
+    return {
+        "league": _league_facts(league),
+        "week": week,
+        "matchups": games,
+        "week_all_play": _week_all_play(teams, week, week_scores),
+        "season_all_play": season_all_play,
+        "transactions": _week_transactions(session, league.id, week, names),
+    }
 
 
 def _pos_counts(picks: list[dict]) -> dict:

@@ -253,6 +253,13 @@ Index** (with its MyEdge/LeagueSoftness components) as the primary advantage sig
 metric computation changed. See
 **[docs/phase-18-ai-edge-index-grounding.md](docs/phase-18-ai-edge-index-grounding.md)**.
 
+**Phase 19** grounds the **weekly recap** on real facts: per-game winner/margin, per-week
+all-play, season luck delta, and that week's waiver transactions (player names resolved) — so
+its `luck_notes` and `waiver_highlights` come from the DB, not invention (an empty waiver feed
+is called a quiet week). A documented **manual real-AI smoke** command generates an actual
+recap once `ANTHROPIC_API_KEY` is set (automated tests stay offline). See
+**[docs/phase-19-ai-weekly-recap-grounding.md](docs/phase-19-ai-weekly-recap-grounding.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or
