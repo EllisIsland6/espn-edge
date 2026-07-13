@@ -260,6 +260,13 @@ is called a quiet week). A documented **manual real-AI smoke** command generates
 recap once `ANTHROPIC_API_KEY` is set (automated tests stay offline). See
 **[docs/phase-19-ai-weekly-recap-grounding.md](docs/phase-19-ai-weekly-recap-grounding.md)**.
 
+**Phase 20** surfaces the weekly recap in the app: League detail → AI Brief has a **Weekly
+recap** card with a completed-week picker and Generate/Regenerate, rendering headline, body,
+luck notes, and waiver highlights. A per-week `GET .../ai/weekly-recap?week=N` retrieves the
+right week (recaps carry their `week` in `content_json`; no DB schema change), and generation
+still uses the production Anthropic path only when a key is set. See
+**[docs/phase-20-weekly-recap-ui.md](docs/phase-20-weekly-recap-ui.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or

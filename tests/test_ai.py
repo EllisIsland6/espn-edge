@@ -443,3 +443,105 @@ def test_weekly_recap_prompt_grounds_all_play_and_waivers():
     assert "week_all_play" in wk and "season_all_play" in wk  # luck grounding
     assert "transactions" in wk and "waiver_highlights" in wk  # waiver grounding
     assert "quiet transaction week" in wk  # empty-feed instruction, no invention
+
+
+# --------------------------------------------------------------------------- #
+# Phase 20: weekly recap per-week GET/POST (offline, fake LLM)
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def weekly_league_id():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        lg = _make_weekly_league(session)
+        session.commit()
+        lid = lg.id
+    finally:
+        session.close()
+    yield lid
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+def _enable_fake(monkeypatch):
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test-key")
+    monkeypatch.setattr("api.services.ai.AnthropicLlmClient", FakeLlmClient)
+
+
+def test_api_weekly_recap_get_returns_correct_week(weekly_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    base = f"/api/leagues/{weekly_league_id}/ai/weekly-recap"
+
+    p1 = client.post(f"{base}?week=1").json()
+    p2 = client.post(f"{base}?week=2").json()
+    assert p1["content"]["week"] == 1 and p2["content"]["week"] == 2
+
+    # GET must return the requested week — never another week's latest recap.
+    g1 = client.get(f"{base}?week=1").json()
+    g2 = client.get(f"{base}?week=2").json()
+    assert g1["enabled"] is True and g1["content"]["week"] == 1
+    assert g2["content"]["week"] == 2
+
+
+def test_api_weekly_recap_caches_per_week(weekly_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    base = f"/api/leagues/{weekly_league_id}/ai/weekly-recap"
+
+    client.post(f"{base}?week=1")
+    assert FakeLlmClient.calls == 1
+    client.post(f"{base}?week=1")  # same week, no force → cache hit
+    assert FakeLlmClient.calls == 1
+    client.post(f"{base}?week=2")  # different week → separate model call
+    assert FakeLlmClient.calls == 2
+    client.post(f"{base}?week=1&force=true")  # force regenerates
+    assert FakeLlmClient.calls == 3
+
+
+def test_api_weekly_recap_stale_is_per_week(weekly_league_id, monkeypatch):
+    from sqlalchemy import select as _select
+
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    base = f"/api/leagues/{weekly_league_id}/ai/weekly-recap"
+
+    client.post(f"{base}?week=1")
+    assert client.get(f"{base}?week=1").json()["stale"] is False
+
+    # Change week-1 facts → that week's recap becomes stale (week-2 unaffected).
+    client.post(f"{base}?week=2")
+    with SessionLocal() as s:
+        m = s.scalar(
+            _select(Matchup).where(Matchup.league_id == weekly_league_id, Matchup.week == 1)
+        )
+        m.home_points = 999.0
+        s.commit()
+    assert client.get(f"{base}?week=1").json()["stale"] is True
+    assert client.get(f"{base}?week=2").json()["stale"] is False
+
+
+def test_api_weekly_recap_disabled_without_key(weekly_league_id, monkeypatch):
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "")
+    base = f"/api/leagues/{weekly_league_id}/ai/weekly-recap"
+    g = client.get(f"{base}?week=1")
+    p = client.post(f"{base}?week=1")
+    assert g.status_code == 200 and g.json()["enabled"] is False
+    assert p.status_code == 200 and p.json()["enabled"] is False
+
+
+def test_latest_for_week_filters_by_week(db_session):
+    lg = _make_weekly_league(db_session)
+    svc = AiService(db_session, client=FakeLlmClient())
+    svc.generate(kind="weekly_recap", scope="league", league_id=lg.id, model="m",
+                 facts={"week": 1}, extra={"week": 1})
+    svc.generate(kind="weekly_recap", scope="league", league_id=lg.id, model="m",
+                 facts={"week": 2}, extra={"week": 2})
+    assert svc.latest_for_week(lg.id, "weekly_recap", 1).content_json["week"] == 1
+    assert svc.latest_for_week(lg.id, "weekly_recap", 2).content_json["week"] == 2
+    assert svc.latest_for_week(lg.id, "weekly_recap", 3) is None

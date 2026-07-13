@@ -279,6 +279,14 @@ export interface AdvantageVerdictContent {
   highest_leverage_move: string;
 }
 
+export interface WeeklyRecapContent {
+  headline: string;
+  body: string;
+  luck_notes: string[];
+  waiver_highlights: string[];
+  week?: number;
+}
+
 export interface AiReportEnvelope<T = Record<string, unknown>> {
   enabled: boolean;
   kind: string;
@@ -398,4 +406,11 @@ export const generateAdvantageVerdict = (id: number, force = false) =>
   send<AiReportEnvelope<AdvantageVerdictContent>>(
     "POST",
     `/api/leagues/${id}/ai/advantage-verdict?force=${force}`,
+  );
+export const getWeeklyRecap = (id: number, week: number) =>
+  get<AiReportEnvelope<WeeklyRecapContent>>(`/api/leagues/${id}/ai/weekly-recap?week=${week}`);
+export const generateWeeklyRecap = (id: number, week: number, force = false) =>
+  send<AiReportEnvelope<WeeklyRecapContent>>(
+    "POST",
+    `/api/leagues/${id}/ai/weekly-recap?week=${week}&force=${force}`,
   );

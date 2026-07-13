@@ -28,7 +28,18 @@
   Phase 16 v1 (full Edge Index composite),
   Phase 17 v1 (Portfolio Board Edge Index transition),
   Phase 18 v1 (AI grounding uses the Edge Index model),
-  Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers) implemented.
+  Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers),
+  Phase 20 v1 (weekly recap panel in the AI Brief) implemented.
+- Phase 20: weekly recap is now per-week + in the UI. routers/ai.py adds GET
+  /api/leagues/{id}/ai/weekly-recap?week=N and POST passes extra={"week":week} so the week is
+  stored in content_json; AiService.latest_for_week filters by content_json.week so GET/POST
+  never return another week's recap (plain latest(kind) ignored week). Per-week caching already
+  works via the facts input_hash; per-week stale checks that week's fresh facts. Frontend AI
+  Brief adds a WeeklyRecapCard (completed weeks derived from matchups; Generate/Regenerate;
+  renders headline/body/luck_notes/waiver_highlights). No DB/schema/SCHEMA_VERSION change, no
+  ai_inputs/ai_schemas/metrics change; production AnthropicLlmClient path intact (tests offline,
+  fake LLM; new Playwright test mocks AI-enabled + weekly-recap). Contract:
+  docs/phase-20-weekly-recap-ui.md.
 - Phase 19: ai_inputs.weekly_recap_input now grounds the recap — matchups gain winner/loser/
   margin/tie; week_all_play (reuses pure metrics.compute_all_play on the week's scores);
   season_all_play + luck_delta (read_all_play); transactions for that week with player_in/out

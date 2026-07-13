@@ -186,6 +186,17 @@ class AiService:
             )
         )
 
+    def latest_for_week(self, league_id: int, kind: str, week: int) -> AiReport | None:
+        """Newest stored report of `kind` whose content_json carries this `week` (Phase 20).
+
+        Week is persisted in content_json (via generate's `extra`), so no schema column is
+        needed. all_reports is newest-first, so the first match is the newest for that week —
+        never another week's report the way plain `latest(kind)` would."""
+        for row in self.all_reports(league_id, kind):
+            if (row.content_json or {}).get("week") == week:
+                return row
+        return None
+
     # ---- generation --------------------------------------------------------
     def generate(
         self,

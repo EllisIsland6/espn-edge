@@ -185,7 +185,27 @@ def generate_verdict(
     return env
 
 
-# --- Weekly recap ----------------------------------------------------------
+# --- Weekly recap (per week; Phase 20) -------------------------------------
+@router.get("/api/leagues/{league_id}/ai/weekly-recap", response_model=AiReportEnvelope)
+def get_weekly_recap(
+    league_id: int, week: int = Query(...), session: Session = Depends(get_session)
+) -> AiReportEnvelope:
+    league = _get_league(session, league_id)
+    svc = AiService(session)
+    if not svc.enabled:
+        return AiReportEnvelope(enabled=False, kind=KIND_WEEKLY_RECAP)
+    row = svc.latest_for_week(league.id, KIND_WEEKLY_RECAP, week)
+    if row is None:
+        return AiReportEnvelope(enabled=True, kind=KIND_WEEKLY_RECAP, content=None)
+    # Staleness is measured against THIS week's current facts (facts include the week).
+    facts = ai_inputs.weekly_recap_input(session, league, week)
+    fresh = compute_input_hash(KIND_WEEKLY_RECAP, row.model or BULK_MODEL, facts)
+    return AiReportEnvelope(
+        enabled=True, kind=KIND_WEEKLY_RECAP, model=row.model,
+        content=row.content_json, created_at=row.created_at, stale=row.input_hash != fresh,
+    )
+
+
 @router.post("/api/leagues/{league_id}/ai/weekly-recap", response_model=AiReportEnvelope)
 def generate_weekly_recap(
     league_id: int, week: int = Query(...), force: bool = Query(False),
@@ -193,11 +213,24 @@ def generate_weekly_recap(
 ) -> AiReportEnvelope:
     league = _get_league(session, league_id)
     svc = AiService(session)
-    facts = ai_inputs.weekly_recap_input(session, league, week) if svc.enabled else {}
-    env = _single(svc, league, kind=KIND_WEEKLY_RECAP, scope="league",
-                  model=BULK_MODEL, facts=facts, generate=True, force=force)
+    if not svc.enabled:
+        return AiReportEnvelope(enabled=False, kind=KIND_WEEKLY_RECAP)
+    facts = ai_inputs.weekly_recap_input(session, league, week)
+    try:
+        # extra persists the week in content_json so GET can find the right report.
+        content = svc.generate(
+            kind=KIND_WEEKLY_RECAP, scope="league", league_id=league.id,
+            model=BULK_MODEL, facts=facts, force=force, extra={"week": week},
+        )
+    except AiError as exc:
+        session.commit()
+        return AiReportEnvelope(enabled=True, kind=KIND_WEEKLY_RECAP, error=str(exc))
+    row = svc.latest_for_week(league.id, KIND_WEEKLY_RECAP, week)
     session.commit()
-    return env
+    return AiReportEnvelope(
+        enabled=True, kind=KIND_WEEKLY_RECAP, model=BULK_MODEL, content=content,
+        created_at=row.created_at if row else None, stale=False,
+    )
 
 
 # --- Trade finder ----------------------------------------------------------

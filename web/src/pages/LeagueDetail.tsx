@@ -18,6 +18,8 @@ import {
   getLeagueMyEdge,
   getLeagueOverview,
   getLeagueSoftness,
+  getWeeklyRecap,
+  generateWeeklyRecap,
   syncLeague,
   type AdvantageVerdictContent,
   type AiReportEnvelope,
@@ -34,6 +36,7 @@ import {
   type MatchupOut,
   type TeamOut,
   type TransactionOut,
+  type WeeklyRecapContent,
 } from "../api";
 import { DataTable } from "../components/DataTable";
 import {
@@ -842,7 +845,133 @@ function AiTab({ leagueId }: { leagueId: number }) {
           </div>
         )}
       </AiCard>
+
+      <WeeklyRecapCard leagueId={leagueId} />
     </div>
+  );
+}
+
+// Weekly recap (Phase 20): pick a completed week, generate/regenerate, render the recap.
+// React only formats backend content + the existing matchup weeks — no analytics here.
+function WeeklyRecapCard({ leagueId }: { leagueId: number }) {
+  const [weeks, setWeeks] = useState<number[] | null>(null);
+  const [week, setWeek] = useState<number | null>(null);
+  const [env, setEnv] = useState<AiReportEnvelope<WeeklyRecapContent> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getLeagueMatchups(leagueId)
+      .then((ms) => {
+        const done = [
+          ...new Set(
+            ms
+              .filter((m) => !m.is_playoff && (m.home_points ?? 0) > 0 && (m.away_points ?? 0) > 0)
+              .map((m) => m.week),
+          ),
+        ].sort((a, b) => a - b);
+        setWeeks(done);
+        setWeek(done.length ? done[done.length - 1] : null);
+      })
+      .catch((e) => setErr(String(e)));
+  }, [leagueId]);
+
+  useEffect(() => {
+    if (week == null) {
+      setEnv(null);
+      return;
+    }
+    getWeeklyRecap(leagueId, week).then(setEnv).catch(() => setEnv(null));
+  }, [leagueId, week]);
+
+  async function generate() {
+    if (week == null) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setEnv(await generateWeeklyRecap(leagueId, week, !!env?.content));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (weeks == null) return <Panel className="p-4"><Spinner /></Panel>;
+  const has = !!env?.content;
+  const c = env?.content;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Weekly recap</h3>
+        <div className="flex items-center gap-2">
+          {weeks.length > 0 && (
+            <select
+              value={week ?? ""}
+              onChange={(e) => setWeek(Number(e.target.value))}
+              className="rounded-md border border-line bg-panel px-2 py-1 text-xs text-primary"
+            >
+              {weeks.map((w) => (
+                <option key={w} value={w}>Week {w}</option>
+              ))}
+            </select>
+          )}
+          {has && env?.stale && (
+            <span className="mono text-[10px] uppercase tracking-wide text-gold">inputs changed</span>
+          )}
+          <Button
+            variant={has ? "secondary" : "primary"}
+            onClick={generate}
+            disabled={busy || week == null}
+          >
+            {busy ? "Generating…" : has ? "Regenerate" : "Generate"}
+          </Button>
+        </div>
+      </div>
+      {err && <div className="mt-2"><ErrorNote message={err} /></div>}
+      {env?.error && <div className="mt-2"><ErrorNote message={env.error} /></div>}
+      {weeks.length === 0 ? (
+        <div className="mt-3">
+          <EmptyState
+            title="No completed weeks yet"
+            hint="Weekly recaps unlock once a regular-season week has final scores."
+          />
+        </div>
+      ) : (
+        <div className="mt-3">
+          {has && c ? (
+            <div>
+              <div className="text-sm font-semibold text-primary">{c.headline}</div>
+              <p className="mt-1 text-sm leading-relaxed text-secondary">{c.body}</p>
+              {c.luck_notes.length > 0 && (
+                <>
+                  <div className="mt-2 text-xs uppercase tracking-wide text-muted">Luck notes</div>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">
+                    {c.luck_notes.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                </>
+              )}
+              {c.waiver_highlights.length > 0 && (
+                <>
+                  <div className="mt-2 text-xs uppercase tracking-wide text-muted">Waiver highlights</div>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">
+                    {c.waiver_highlights.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Not generated yet for this week.</p>
+          )}
+        </div>
+      )}
+      {has && env?.model && (
+        <div className="mono mt-3 text-[10px] text-muted">
+          {env.model}
+          {env.created_at ? ` · ${relTime(env.created_at)}` : ""}
+        </div>
+      )}
+    </Panel>
   );
 }
 

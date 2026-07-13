@@ -337,6 +337,30 @@ test("AI-disabled state renders the connect-a-key panel without crashing", async
   await expect(page.getByText("AI analysis is off")).toBeVisible();
 });
 
+test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)", async ({ page }) => {
+  // Enable AI and mock the weekly-recap GET; matchups (mocked) drive the completed-week picker.
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
+  await page.route("**/api/leagues/1/ai/weekly-recap**", (r) =>
+    json(r, {
+      enabled: true, kind: "weekly_recap", model: "claude-haiku-4-5", created_at: NOW, stale: false,
+      content: {
+        week: 1, headline: "Alpha rolls in Week 1", body: "Top scorer took the crown.",
+        luck_notes: ["Rival lost despite a top-3 all-play week"],
+        waiver_highlights: ["Main added Star Runningback ($17)"],
+      },
+      error: null,
+    }));
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await expect(page.getByRole("heading", { name: "Weekly recap" })).toBeVisible();
+  await expect(page.getByText("Alpha rolls in Week 1")).toBeVisible();
+  await expect(page.getByText("Luck notes")).toBeVisible();
+  await expect(page.getByText("Rival lost despite a top-3 all-play week")).toBeVisible();
+  await expect(page.getByText("Waiver highlights")).toBeVisible();
+  await expect(page.getByText("Main added Star Runningback ($17)")).toBeVisible();
+});
+
 test("status page renders health/AI/account/league counts without leaking secrets", async ({ page }) => {
   const FAKE_SWID = "{FAKE-SWID-DO-NOT-RENDER}";
   const FAKE_S2 = "fake-espn-s2-should-never-render";
