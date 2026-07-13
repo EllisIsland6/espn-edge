@@ -18,8 +18,9 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, Phase 13 [lineup
 > efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab, and
 > Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
-> the Overview, and **Phase 15 [LeagueSoftness v1](docs/phase-15-league-softness-foundation.md)
-> — how exploitable your opponents are, beside MyEdge.**
+> the Overview, Phase 15 [LeagueSoftness v1](docs/phase-15-league-softness-foundation.md)
+> — how exploitable your opponents are, and **Phase 16 [full Edge Index
+> v1](docs/phase-16-edge-index-composite.md) — 0.5×MyEdge + 0.5×LeagueSoftness.**
 
 ## Quick start
 
@@ -220,6 +221,13 @@ Beside it, a **LeagueSoftness (v1)** panel scores how exploitable a team's *oppo
 abandoned-team proxy, opponent inactivity), served by
 `GET /api/leagues/{id}/league-softness`. Also **separate** from `edge_score`. See
 **[docs/phase-15-league-softness-foundation.md](docs/phase-15-league-softness-foundation.md)**.
+
+An **Edge Index (v1)** panel then combines the two into the full SPEC §6 composite
+`0.5 × MyEdge + 0.5 × LeagueSoftness` (with grade/verdict), served by
+`GET /api/leagues/{id}/edge-index`. Portfolio rows carry `edge_index_score/grade/verdict`
+alongside the existing `edge_score` — the board still shows `edge_score` for now, so the
+transition is explicit and non-breaking. Still **separate** from `edge_score`. See
+**[docs/phase-16-edge-index-composite.md](docs/phase-16-edge-index-composite.md)**.
 
 ## AI analysis (optional)
 

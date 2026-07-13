@@ -24,7 +24,19 @@
   Phase 12 v1 (all-play record + luck delta),
   Phase 13 v1 (lineup efficiency foundation),
   Phase 14 v1 (MyEdge component foundation),
-  Phase 15 v1 (LeagueSoftness component foundation) implemented.
+  Phase 15 v1 (LeagueSoftness component foundation),
+  Phase 16 v1 (full Edge Index composite) implemented.
+- Phase 16: metrics.py compute_edge_index_row = 0.5*my_edge_score + 0.5*league_softness_score
+  (SPEC §6), a SEPARATE composite from the persisted Phase 14/15 sub-scores. Component values
+  are the already-0–100 sub-scores (not percentiles); only present halves count, weights
+  renormalize (one half → 1.0), neither → pending. grade/verdict via existing grade_for/
+  verdict_for. Persisted team metrics (week NULL): edge_index_score + edge_index_component_
+  my_edge/league_softness, cleared when unavailable. read_edge_index + team_edge_index; GET
+  /api/leagues/{id}/edge-index (ordered by score desc, grade/verdict, is_me). PortfolioRow
+  gains edge_index_score/grade/verdict (board still shows edge_score; summary unchanged).
+  Overview shows an Edge Index v1 panel above MyEdge/LeagueSoftness. Does NOT change
+  edge_score/grade/verdict/playoff_odds or Phase 9–15 semantics (82.5 byte-identical). No
+  schema change, no db-reset. Contract: docs/phase-16-edge-index-composite.md.
 - Phase 15: metrics.py compute_league_softness is a SEPARATE per-team score (how exploitable
   a team's opponents are, SPEC §6.1): within-league percentiles of opponent_lineup_inefficiency
   (1-median opp lineup_efficiency), opponent_draft_indiscipline (-median opp draft_surplus),

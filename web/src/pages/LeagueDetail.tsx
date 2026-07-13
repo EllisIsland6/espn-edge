@@ -12,6 +12,7 @@ import {
   getLeagueAllPlay,
   getLeagueBrief,
   getLeagueDraft,
+  getLeagueEdgeIndex,
   getLeagueLineupEfficiency,
   getLeagueMatchups,
   getLeagueMyEdge,
@@ -23,6 +24,7 @@ import {
   type AiStatus,
   type AllPlayOut,
   type DraftPickOut,
+  type EdgeIndexOut,
   type LeagueSoftnessOut,
   type LineupEfficiencyOut,
   type MyEdgeOut,
@@ -268,11 +270,66 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
         </div>
       </Panel>
       </div>
+      <EdgeIndexPanel leagueId={leagueId} />
       <div className="grid gap-5 lg:grid-cols-2">
         <MyEdgePanel leagueId={leagueId} />
         <LeagueSoftnessPanel leagueId={leagueId} />
       </div>
     </div>
+  );
+}
+
+// Full Edge Index v1 (Phase 16): my team's 0.5·MyEdge + 0.5·LeagueSoftness composite.
+function EdgeIndexPanel({ leagueId }: { leagueId: number }) {
+  const [rows, setRows] = useState<EdgeIndexOut[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    getLeagueEdgeIndex(leagueId).then(setRows).catch((e) => setErr(String(e)));
+  }, [leagueId]);
+  if (err) return <ErrorNote message={err} />;
+  if (!rows) return <Spinner />;
+  const mine = rows.find((r) => r.is_me) ?? null;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">
+          Edge Index <span className="text-[10px] uppercase tracking-wide text-muted">v1</span>
+        </h3>
+        {mine && (
+          <div className="flex items-center gap-2">
+            <ValueChip primary={num(mine.edge_index_score, 0)} secondary="Edge Index" />
+            <GradePill grade={mine.grade} />
+            {mine.verdict && (
+              <span className="mono text-xs uppercase tracking-wide text-secondary">{mine.verdict}</span>
+            )}
+          </div>
+        )}
+      </div>
+      {mine ? (
+        <div className="mt-3 space-y-2">
+          {mine.components.map((c) => (
+            <div key={c.key}>
+              <div className="flex items-baseline justify-between text-[11px]">
+                <span className="text-secondary">{c.label}</span>
+                <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+              </div>
+              <ValueBar value={c.value} max={100} label={num(c.value, 0)} />
+            </div>
+          ))}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            The full SPEC §6 Edge Index: 0.5 × MyEdge + 0.5 × LeagueSoftness. A separate v1
+            composite — the board still shows the earlier Edge Score for now.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <EmptyState
+            title="Edge Index pending"
+            hint="Appears once MyEdge or LeagueSoftness has enough data."
+          />
+        </div>
+      )}
+    </Panel>
   );
 }
 

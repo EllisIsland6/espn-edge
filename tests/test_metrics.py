@@ -441,11 +441,11 @@ def test_recompute_is_idempotent(db_session):
     db_session.commit()
     metrics.recompute_league(db_session, lg)
     db_session.commit()
-    # No duplicate rows (partial unique index holds). 4 teams × 14 keys (edge_score +
+    # No duplicate rows (partial unique index holds). 4 teams × 17 keys (edge_score +
     # playoff_odds + 3 in-season components + 5 all-play/luck + my_edge_score + 1 MyEdge
-    # component + league_softness_score + 1 softness component (exploitable_weakness_share;
-    # the others are unavailable for this fixture)) = 56, stable across recomputes.
-    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 56
+    # component + league_softness_score + 1 softness component + edge_index_score + 2 Edge
+    # Index components) = 68, stable across recomputes.
+    assert db_session.scalar(select(func.count()).select_from(Metric).where(Metric.league_id == lg.id)) == 68
 
 
 # --------------------------------------------------------------------------- #
@@ -1342,3 +1342,88 @@ def test_api_league_softness_exposes_rows(softness_league_id):
         assert {"team_id", "team_name", "is_me", "league_softness_score", "components"} <= set(r)
         for c in r["components"]:
             assert {"key", "label", "weight", "percentile"} <= set(c)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 16: full Edge Index composite (0.5·MyEdge + 0.5·LeagueSoftness)
+# --------------------------------------------------------------------------- #
+def test_edge_index_both_halves():
+    r = metrics.compute_edge_index_row(1, 70.0, 60.0)
+    assert [c.key for c in r.components] == ["my_edge", "league_softness"]
+    assert all(c.weight == 0.5 for c in r.components)
+    assert r.components[0].value == 70.0 and r.components[1].value == 60.0
+    assert r.edge_index_score == 65.0  # 0.5*70 + 0.5*60
+    assert r.grade == grade_for(65.0) and r.verdict == verdict_for(65.0)
+
+
+def test_edge_index_missing_half_renormalizes():
+    r = metrics.compute_edge_index_row(1, 80.0, None)
+    assert [c.key for c in r.components] == ["my_edge"]
+    assert r.components[0].weight == 1.0 and r.edge_index_score == 80.0
+    r2 = metrics.compute_edge_index_row(1, None, 40.0)
+    assert [c.key for c in r2.components] == ["league_softness"]
+    assert r2.components[0].weight == 1.0 and r2.edge_index_score == 40.0
+
+
+def test_edge_index_pending_when_neither():
+    r = metrics.compute_edge_index_row(1, None, None)
+    assert r.edge_index_score is None and r.grade is None
+    assert r.verdict is None and r.components == []
+
+
+def test_edge_index_persists_and_clears(db_session):
+    lg = _make_inseason_league(db_session)  # both halves available (MyEdge luck + softness)
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+
+    rows = metrics.read_edge_index(db_session, lg.id)
+    scores = [r.edge_index_score for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    me = next(r for r in rows if r.team_id == lg.my_team_id)
+    assert [c.key for c in me.components] == ["my_edge", "league_softness"]
+    assert me.grade is not None and me.verdict is not None
+    # team_edge_index (portfolio helper) matches the persisted composite.
+    assert metrics.team_edge_index(db_session, lg.id, lg.my_team_id).edge_index_score == me.edge_index_score
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key == "edge_index_score"
+        )
+    ) == 4
+
+    # Remove both halves' inputs (flat PF → no softness; zero scores → no MyEdge luck).
+    for t in db_session.scalars(select(Team).where(Team.league_id == lg.id)):
+        t.points_for = 100.0
+    for m in db_session.scalars(select(Matchup).where(Matchup.league_id == lg.id)):
+        m.home_points = 0.0
+        m.away_points = 0.0
+    db_session.flush()
+    metrics.recompute_league(db_session, lg)
+    db_session.commit()
+    assert db_session.scalar(
+        select(func.count()).select_from(Metric).where(
+            Metric.league_id == lg.id, Metric.key.in_(list(metrics._EDGE_INDEX_ALL_KEYS))
+        )
+    ) == 0
+    assert metrics.read_edge_index(db_session, lg.id) == []
+
+
+def test_api_edge_index_exposes_rows(synced_league_id):
+    rows = client.get(f"/api/leagues/{synced_league_id}/edge-index").json()
+    assert rows, "expected Edge Index rows for a synced league"
+    scores = [r["edge_index_score"] for r in rows]
+    assert scores == sorted(scores, reverse=True)
+    assert any(r["is_me"] for r in rows)
+    fields = {"team_id", "team_name", "is_me", "edge_index_score", "grade", "verdict", "components"}
+    for r in rows:
+        assert fields <= set(r)
+        for c in r["components"]:
+            assert {"key", "label", "weight", "value"} <= set(c)
+
+
+def test_api_portfolio_exposes_edge_index(synced_league_id):
+    row = next(
+        r for r in client.get("/api/portfolio").json() if r["league_id"] == synced_league_id
+    )
+    assert {"edge_index_score", "edge_index_grade", "edge_index_verdict"} <= set(row)
+    # Existing edge_score display is unchanged (byte-identical).
+    assert row["edge_score"] == 82.5

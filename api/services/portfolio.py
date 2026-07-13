@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Account, League, Team
 from ..schemas import PortfolioRow, PortfolioSummary
-from .metrics import team_edge
+from .metrics import team_edge, team_edge_index
 
 
 def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
@@ -19,6 +19,7 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
         account = session.get(Account, lg.account_id) if lg.account_id else None
         me = session.scalar(select(Team).where(Team.league_id == lg.id, Team.is_me.is_(True)))
         edge = team_edge(session, lg.id, me.id if me else None)
+        ei = team_edge_index(session, lg.id, me.id if me else None)
         rows.append(
             PortfolioRow(
                 league_id=lg.id,
@@ -43,6 +44,9 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
                 grade=edge.grade,
                 playoff_odds=edge.playoff_odds,
                 verdict=edge.verdict,
+                edge_index_score=ei.edge_index_score,
+                edge_index_grade=ei.grade,
+                edge_index_verdict=ei.verdict,
             )
         )
     return rows

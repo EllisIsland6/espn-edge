@@ -18,10 +18,13 @@ from sqlalchemy.orm import Session
 from ..edge_config import (
     COMPONENT_ORDER,
     DRAFT_VALUE_DECAY,
+    EDGE_INDEX_ORDER,
     LEAGUE_SOFTNESS_ORDER,
     MY_EDGE_ORDER,
     component_label,
     component_weight,
+    edge_index_label,
+    edge_index_weight,
     grade_for,
     league_softness_label,
     league_softness_weight,
@@ -75,6 +78,13 @@ LEAGUE_SOFTNESS_COMPONENT_PREFIX = "league_softness_component_"
 _LEAGUE_SOFTNESS_ALL_KEYS = (
     LEAGUE_SOFTNESS_SCORE,
     *(LEAGUE_SOFTNESS_COMPONENT_PREFIX + k for k in LEAGUE_SOFTNESS_ORDER),
+)
+# Phase 16: full Edge Index v1 — composite of MyEdge + LeagueSoftness (not the edge_score).
+EDGE_INDEX_SCORE = "edge_index_score"
+EDGE_INDEX_COMPONENT_PREFIX = "edge_index_component_"
+_EDGE_INDEX_ALL_KEYS = (
+    EDGE_INDEX_SCORE,
+    *(EDGE_INDEX_COMPONENT_PREFIX + k for k in EDGE_INDEX_ORDER),
 )
 
 # Lifecycles with completed games (record-based edge is meaningful).
@@ -771,6 +781,55 @@ def _transaction_counts_by_team(session: Session, league_id: int) -> dict[int, i
     return {tid: c for tid, c in rows}
 
 
+# --------------------------------------------------------------------------- #
+# Phase 16: full Edge Index composite — 0.5 × MyEdge + 0.5 × LeagueSoftness
+# --------------------------------------------------------------------------- #
+@dataclass
+class EdgeIndexComponent:
+    key: str
+    label: str
+    weight: float  # renormalized across the halves present
+    value: float  # the already-0–100 sub-score (not a percentile)
+
+
+@dataclass
+class EdgeIndexRow:
+    team_id: int
+    edge_index_score: float | None
+    grade: str | None
+    verdict: str | None
+    components: list[EdgeIndexComponent]
+
+
+def _edge_index_components_for(present: list[tuple[str, float]]) -> list[EdgeIndexComponent]:
+    base_total = sum(edge_index_weight(k) for k, _ in present) or 1.0
+    return [
+        EdgeIndexComponent(
+            key=key, label=edge_index_label(key),
+            weight=edge_index_weight(key) / base_total, value=value,
+        )
+        for key, value in present
+    ]
+
+
+def compute_edge_index_row(
+    team_id: int, my_edge: float | None, league_softness: float | None
+) -> EdgeIndexRow:
+    """Edge Index v1 for one team: 0.5·MyEdge + 0.5·LeagueSoftness on the 0–100 sub-scores.
+    Only the present halves count (weights renormalized); neither present → pending.
+    grade/verdict use the existing edge thresholds."""
+    present: list[tuple[str, float]] = []
+    if my_edge is not None:
+        present.append(("my_edge", my_edge))
+    if league_softness is not None:
+        present.append(("league_softness", league_softness))
+    if not present:
+        return EdgeIndexRow(team_id, None, None, None, [])
+    comps = _edge_index_components_for(present)
+    score = round(sum(c.weight * c.value for c in comps), 1)
+    return EdgeIndexRow(team_id, score, grade_for(score), verdict_for(score), comps)
+
+
 def _standings_odds(teams: list[Team], spots: int) -> dict[int, float]:
     """Deterministic 1.0/0.0 by ESPN standing (which encodes league tiebreakers we
     don't model). Falls back to (wins, points_for) ranking if a standing is missing."""
@@ -993,6 +1052,21 @@ def recompute_league(
             _upsert_or_clear(
                 session, league.id, stat.team_id, LEAGUE_SOFTNESS_COMPONENT_PREFIX + key,
                 present_sf.get(key),
+            )
+        # Phase 16: Edge Index composite = 0.5·MyEdge + 0.5·LeagueSoftness. Reads the two
+        # sub-scores computed above; clears when neither half is present (separate from
+        # edge_score).
+        ei = compute_edge_index_row(
+            stat.team_id,
+            me.my_edge_score if me else None,
+            sf.league_softness_score if sf else None,
+        )
+        _upsert_or_clear(session, league.id, stat.team_id, EDGE_INDEX_SCORE, ei.edge_index_score)
+        present_ei = {c.key: c.value for c in ei.components}
+        for key in EDGE_INDEX_ORDER:
+            _upsert_or_clear(
+                session, league.id, stat.team_id, EDGE_INDEX_COMPONENT_PREFIX + key,
+                present_ei.get(key),
             )
     session.flush()
     return {"teams": len(stats), "scored": scored}
@@ -1246,3 +1320,60 @@ def read_league_softness(session: Session, league_id: int) -> list[SoftnessRow]:
         out.append(SoftnessRow(tid, score, _softness_components_for(present)))
     out.sort(key=lambda r: r.league_softness_score, reverse=True)
     return out
+
+
+def read_edge_index(session: Session, league_id: int) -> list[EdgeIndexRow]:
+    """Persisted Edge Index rows for a league (Phase 16), teams with a score only, ordered by
+    edge_index_score descending. Reconstructs component weights (renormalized across present
+    halves) + grade/verdict from the persisted score; reads metrics only, no recompute."""
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.in_(_EDGE_INDEX_ALL_KEYS),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for tid, key, val in rows:
+        by_team.setdefault(tid, {})[key] = val
+
+    out: list[EdgeIndexRow] = []
+    for tid, m in by_team.items():
+        score = m.get(EDGE_INDEX_SCORE)
+        if score is None:
+            continue
+        present = [
+            (key, m[EDGE_INDEX_COMPONENT_PREFIX + key])
+            for key in EDGE_INDEX_ORDER
+            if (EDGE_INDEX_COMPONENT_PREFIX + key) in m
+        ]
+        out.append(
+            EdgeIndexRow(
+                tid, score, grade_for(score), verdict_for(score),
+                _edge_index_components_for(present),
+            )
+        )
+    out.sort(key=lambda r: r.edge_index_score, reverse=True)
+    return out
+
+
+@dataclass
+class TeamEdgeIndex:
+    edge_index_score: float | None
+    grade: str | None
+    verdict: str | None
+
+
+def team_edge_index(session: Session, league_id: int, team_id: int | None) -> TeamEdgeIndex:
+    """Persisted Edge Index score + derived grade/verdict for one team (Phase 16 portfolio)."""
+    if team_id is None:
+        return TeamEdgeIndex(None, None, None)
+    score = session.scalar(
+        select(Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.team_id == team_id,
+            Metric.key == EDGE_INDEX_SCORE,
+            Metric.week.is_(None),
+        )
+    )
+    return TeamEdgeIndex(score, grade_for(score), verdict_for(score))

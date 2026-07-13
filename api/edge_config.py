@@ -126,6 +126,29 @@ def league_softness_weight(key: str) -> float:
 def league_softness_label(key: str) -> str:
     return LEAGUE_SOFTNESS_LABELS.get(key, key)
 
+
+# --- Phase 16: full Edge Index composite (SPEC §6) — a separate score ---------------
+# Edge Score (0–100) = 0.5 × MyEdge + 0.5 × LeagueSoftness. Values are the already-0–100
+# sub-scores; the composite renormalizes across whichever halves are present.
+EDGE_INDEX_WEIGHTS: dict[str, float] = {
+    "my_edge": 0.5,
+    "league_softness": 0.5,
+}
+EDGE_INDEX_LABELS: dict[str, str] = {
+    "my_edge": "MyEdge",
+    "league_softness": "LeagueSoftness",
+}
+EDGE_INDEX_ORDER: tuple[str, ...] = ("my_edge", "league_softness")
+
+
+def edge_index_weight(key: str) -> float:
+    """Base Edge Index half-weight (renormalized across present halves)."""
+    return EDGE_INDEX_WEIGHTS.get(key, 0.0)
+
+
+def edge_index_label(key: str) -> str:
+    return EDGE_INDEX_LABELS.get(key, key)
+
 # Verdict thresholds on the 0–100 edge_score (SPEC §6).
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0

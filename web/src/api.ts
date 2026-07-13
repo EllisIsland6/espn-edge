@@ -37,6 +37,11 @@ export interface PortfolioRow {
   grade: string | null;
   playoff_odds: number | null;
   verdict: string | null;
+  // Phase 16: full Edge Index composite, carried alongside edge_score (board still shows
+  // edge_score for now).
+  edge_index_score: number | null;
+  edge_index_grade: string | null;
+  edge_index_verdict: string | null;
 }
 
 export interface TeamOut {
@@ -114,6 +119,23 @@ export interface MatchupOut {
   home_points: number | null;
   away_points: number | null;
   is_playoff: boolean;
+}
+
+// Full Edge Index v1 (Phase 16): 0.5·MyEdge + 0.5·LeagueSoftness. Backend-computed.
+export interface EdgeIndexComponentOut {
+  key: string;
+  label: string;
+  weight: number;
+  value: number; // the 0–100 sub-score (not a percentile)
+}
+export interface EdgeIndexOut {
+  team_id: number;
+  team_name: string | null;
+  is_me: boolean;
+  edge_index_score: number;
+  grade: string | null;
+  verdict: string | null;
+  components: EdgeIndexComponentOut[];
 }
 
 // LeagueSoftness v1 (Phase 15): how exploitable a team's opponents are. Backend-computed.
@@ -312,6 +334,8 @@ export const getLeagueMyEdge = (id: number) =>
   get<MyEdgeOut[]>(`/api/leagues/${id}/my-edge`);
 export const getLeagueSoftness = (id: number) =>
   get<LeagueSoftnessOut[]>(`/api/leagues/${id}/league-softness`);
+export const getLeagueEdgeIndex = (id: number) =>
+  get<EdgeIndexOut[]>(`/api/leagues/${id}/edge-index`);
 export const getLeagueActivity = (id: number) =>
   get<TransactionOut[]>(`/api/leagues/${id}/activity`);
 

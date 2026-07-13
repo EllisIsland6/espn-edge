@@ -16,6 +16,8 @@ from ..schemas import (
     AllPlayOut,
     DraftPickOut,
     EdgeComponent,
+    EdgeIndexComponentOut,
+    EdgeIndexOut,
     LeagueOut,
     LeagueOverview,
     LeagueSoftnessComponentOut,
@@ -31,6 +33,7 @@ from ..schemas import (
 )
 from ..services.metrics import (
     read_all_play,
+    read_edge_index,
     read_league_softness,
     read_lineup_efficiency,
     read_my_edge,
@@ -186,6 +189,32 @@ def league_my_edge(league_id: int, session: Session = Depends(get_session)) -> l
             ],
         )
         for r in read_my_edge(session, league_id)
+    ]
+
+
+@router.get("/api/leagues/{league_id}/edge-index", response_model=list[EdgeIndexOut])
+def league_edge_index(
+    league_id: int, session: Session = Depends(get_session)
+) -> list[EdgeIndexOut]:
+    _get_league(session, league_id)
+    teams = {
+        t.id: t
+        for t in session.scalars(select(Team).where(Team.league_id == league_id))
+    }
+    return [
+        EdgeIndexOut(
+            team_id=r.team_id,
+            team_name=teams[r.team_id].name if r.team_id in teams else None,
+            is_me=bool(teams[r.team_id].is_me) if r.team_id in teams else False,
+            edge_index_score=r.edge_index_score,
+            grade=r.grade,
+            verdict=r.verdict,
+            components=[
+                EdgeIndexComponentOut(key=c.key, label=c.label, weight=c.weight, value=c.value)
+                for c in r.components
+            ],
+        )
+        for r in read_edge_index(session, league_id)
     ]
 
 

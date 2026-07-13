@@ -185,6 +185,27 @@ class MyEdgeComponentOut(BaseModel):
     percentile: float
 
 
+class EdgeIndexComponentOut(BaseModel):
+    """One half (0–100 sub-score) that feeds the Edge Index composite (Phase 16)."""
+
+    key: str
+    label: str
+    weight: float
+    value: float
+
+
+class EdgeIndexOut(BaseModel):
+    """A team's full Edge Index v1 composite (Phase 16)."""
+
+    team_id: int
+    team_name: str | None
+    is_me: bool
+    edge_index_score: float
+    grade: str | None
+    verdict: str | None
+    components: list[EdgeIndexComponentOut]
+
+
 class LeagueSoftnessComponentOut(BaseModel):
     """One within-league percentile that feeds LeagueSoftness (Phase 15)."""
 
@@ -264,6 +285,11 @@ class PortfolioRow(BaseModel):
     grade: str | None = None
     playoff_odds: float | None = None
     verdict: str | None = None
+    # Phase 16: full Edge Index composite, carried alongside edge_score (board still shows
+    # edge_score for now). Null until both/either half is available.
+    edge_index_score: float | None = None
+    edge_index_grade: str | None = None
+    edge_index_verdict: str | None = None
 
 
 class AiStatus(BaseModel):
