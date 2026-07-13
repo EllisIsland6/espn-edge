@@ -493,9 +493,16 @@ def test_api_overview_and_summary_expose_metrics(synced_league_id):
     assert ov["playoff_odds"] is not None and 0.0 <= ov["playoff_odds"] <= 1.0
 
     s = client.get("/api/portfolio/summary").json()
+    # Legacy edge_score aggregates unchanged.
     assert s["scored_count"] == 1
     assert s["advantaged_count"] == 1
     assert s["best_edge_score"] == 82.5 and s["worst_edge_score"] == 82.5
+    # Phase 17: Edge Index aggregates present (primary). The synced league scores an Edge
+    # Index for my team, so it's counted.
+    assert s["edge_index_scored_count"] == 1
+    assert "edge_index_advantaged_count" in s
+    assert s["best_edge_index_score"] is not None
+    assert s["best_edge_index_score"] == s["worst_edge_index_score"]  # single scored league
 
 
 # --------------------------------------------------------------------------- #

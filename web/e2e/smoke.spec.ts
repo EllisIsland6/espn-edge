@@ -11,6 +11,7 @@ const PORTFOLIO = [
     my_team_id: 1, my_team_name: "My Team", wins: 5, losses: 2, ties: 0,
     points_for: 900.5, points_against: 820.1, standing: 2,
     edge_score: 72.0, grade: "B", playoff_odds: 0.81, verdict: "advantaged",
+    edge_index_score: 68.0, edge_index_grade: "B", edge_index_verdict: "advantaged",
   },
   {
     league_id: 2, espn_league_id: "222", season: 2026, league_name: "Beta League",
@@ -19,13 +20,15 @@ const PORTFOLIO = [
     my_team_id: null, my_team_name: null, wins: null, losses: null, ties: null,
     points_for: null, points_against: null, standing: null,
     edge_score: null, grade: null, playoff_odds: null, verdict: null,
+    edge_index_score: null, edge_index_grade: null, edge_index_verdict: null,
   },
 ];
 
 const SUMMARY = {
-  total_leagues: 2, advantaged_count: 1, scored_count: 1,
-  aggregate_wins: 5, aggregate_losses: 2, aggregate_ties: 0,
-  best_edge_score: 72.0, worst_edge_score: 72.0,
+  total_leagues: 2, aggregate_wins: 5, aggregate_losses: 2, aggregate_ties: 0,
+  edge_index_scored_count: 1, edge_index_advantaged_count: 1,
+  best_edge_index_score: 68.0, worst_edge_index_score: 68.0,
+  advantaged_count: 1, scored_count: 1, best_edge_score: 72.0, worst_edge_score: 72.0,
 };
 
 const LEAGUE_1 = {
@@ -200,6 +203,16 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
   for (const label of ["CSV", "JSON", "XLSX"]) {
     await expect(page.getByRole("button", { name: label })).toBeVisible();
   }
+});
+
+test("portfolio board shows Edge Index as the primary score (Phase 17)", async ({ page }) => {
+  await page.goto("/");
+  // Alpha League's row chip shows the Edge Index composite (68), with the legacy score noted.
+  await expect(page.getByText("68", { exact: true })).toBeVisible(); // Edge Index chip value
+  await expect(page.getByText(/Edge Index · legacy 72/)).toBeVisible(); // row secondary label
+  // Right rail is now driven by Edge Index, with legacy kept clearly labeled.
+  await expect(page.getByText("Best / worst Edge Index")).toBeVisible();
+  await expect(page.getByText("Legacy Edge Score")).toBeVisible();
 });
 
 test("CSV export button points at the backend export endpoint", async ({ page }) => {

@@ -20,11 +20,13 @@ from ..schemas import DraftPickOut, LeagueOut, MatchupOut, TeamOut, TransactionO
 from .metrics import team_edge
 from .portfolio import build_portfolio_rows, build_summary
 
-# Column order shared by CSV + XLSX so the two never drift.
+# Column order shared by CSV + XLSX so the two never drift. Edge Index (Phase 16/17) is the
+# primary advantage score; legacy edge_score/grade/verdict are kept for compatibility.
 _ROW_FIELDS = [
     "league_id", "season", "league_name", "size", "account_label", "lifecycle",
     "my_team_name", "wins", "losses", "ties", "points_for", "points_against",
-    "standing", "edge_score", "grade", "verdict", "playoff_odds", "last_synced_at",
+    "standing", "edge_index_score", "edge_index_grade", "edge_index_verdict",
+    "edge_score", "grade", "verdict", "playoff_odds", "last_synced_at",
 ]
 
 

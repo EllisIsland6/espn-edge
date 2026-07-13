@@ -212,11 +212,17 @@ export interface AccountOut {
 
 export interface PortfolioSummary {
   total_leagues: number;
-  advantaged_count: number;
-  scored_count: number;
   aggregate_wins: number;
   aggregate_losses: number;
   aggregate_ties: number;
+  // Phase 16 Edge Index — primary advantage aggregates (Phase 17):
+  edge_index_scored_count: number;
+  edge_index_advantaged_count: number;
+  best_edge_index_score: number | null;
+  worst_edge_index_score: number | null;
+  // Legacy Phase 3 edge_score aggregates:
+  advantaged_count: number;
+  scored_count: number;
   best_edge_score: number | null;
   worst_edge_score: number | null;
 }

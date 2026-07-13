@@ -52,7 +52,9 @@ def test_export_csv(synced):
     rows = list(csv.DictReader(io.StringIO(r.text)))
     assert len(rows) == 1  # one league synced
     assert rows[0]["league_name"] == "Test Public League"
+    # Legacy edge_score columns AND the new Edge Index columns are both present (Phase 17).
     assert {"league_id", "wins", "edge_score", "playoff_odds"} <= set(rows[0].keys())
+    assert {"edge_index_score", "edge_index_grade", "edge_index_verdict"} <= set(rows[0].keys())
 
 
 def test_export_json(synced):
@@ -63,6 +65,12 @@ def test_export_json(synced):
     body = r.json()
     assert {"generated_at", "summary", "rows", "leagues"} <= set(body)
     assert body["summary"]["total_leagues"] == 1
+    # Summary carries both the Edge Index (primary) and legacy edge_score aggregates.
+    assert {
+        "edge_index_scored_count", "edge_index_advantaged_count",
+        "best_edge_index_score", "worst_edge_index_score",
+        "scored_count", "advantaged_count", "best_edge_score", "worst_edge_score",
+    } <= set(body["summary"])
     lg = body["leagues"][0]
     assert {"league", "teams", "draft", "matchups", "activity"} <= set(lg)
     assert len(lg["teams"]) == 4  # toy fixture has 4 teams

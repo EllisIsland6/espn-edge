@@ -25,7 +25,18 @@
   Phase 13 v1 (lineup efficiency foundation),
   Phase 14 v1 (MyEdge component foundation),
   Phase 15 v1 (LeagueSoftness component foundation),
-  Phase 16 v1 (full Edge Index composite) implemented.
+  Phase 16 v1 (full Edge Index composite),
+  Phase 17 v1 (Portfolio Board Edge Index transition) implemented.
+- Phase 17: Portfolio Board + summary + exports now treat Phase 16 edge_index_score as the
+  PRIMARY advantage score; legacy Phase 3 edge_score kept alongside. PortfolioSummary gains
+  edge_index_scored_count/edge_index_advantaged_count/best_edge_index_score/
+  worst_edge_index_score (build_summary), legacy scored_count/advantaged_count/best/worst_
+  edge_score unchanged. Board tiers/filters/accent/chip use edge_index_verdict/score/grade
+  (null → pending, no React fallback); legacy edge_score shown as a small secondary; right
+  rail driven by Edge Index with legacy clearly labeled. exports _ROW_FIELDS gains
+  edge_index_score/grade/verdict (CSV+XLSX; JSON already had them via the row model). NO
+  metric computation change (edge_score/edge_index_score/grade_for/verdict_for/sync/schema
+  untouched; 82.5 byte-identical). Contract: docs/phase-17-portfolio-edge-index-transition.md.
 - Phase 16: metrics.py compute_edge_index_row = 0.5*my_edge_score + 0.5*league_softness_score
   (SPEC §6), a SEPARATE composite from the persisted Phase 14/15 sub-scores. Component values
   are the already-0–100 sub-scores (not percentiles); only present halves count, weights

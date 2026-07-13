@@ -323,11 +323,16 @@ class PortfolioSummary(BaseModel):
     """Aggregate portfolio numbers, computed in the view layer (never in React)."""
 
     total_leagues: int
-    advantaged_count: int
-    scored_count: int
     aggregate_wins: int
     aggregate_losses: int
     aggregate_ties: int
-    # Phase 3 placeholders (null until any league has an edge score):
+    # Phase 16 Edge Index — the primary "advantage" aggregates (Phase 17):
+    edge_index_scored_count: int = 0
+    edge_index_advantaged_count: int = 0
+    best_edge_index_score: float | None = None
+    worst_edge_index_score: float | None = None
+    # Legacy Phase 3 edge_score aggregates (kept for backward compatibility):
+    advantaged_count: int
+    scored_count: int
     best_edge_score: float | None = None
     worst_edge_score: float | None = None

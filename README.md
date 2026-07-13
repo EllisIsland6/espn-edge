@@ -19,8 +19,10 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab, and
 > Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
 > the Overview, Phase 15 [LeagueSoftness v1](docs/phase-15-league-softness-foundation.md)
-> — how exploitable your opponents are, and **Phase 16 [full Edge Index
-> v1](docs/phase-16-edge-index-composite.md) — 0.5×MyEdge + 0.5×LeagueSoftness.**
+> — how exploitable your opponents are, Phase 16 [full Edge Index
+> v1](docs/phase-16-edge-index-composite.md) — 0.5×MyEdge + 0.5×LeagueSoftness, and
+> **Phase 17 [Portfolio Board Edge Index transition](docs/phase-17-portfolio-edge-index-transition.md)
+> — Edge Index is now the board's primary score (legacy `edge_score` kept alongside).**
 
 ## Quick start
 
@@ -224,10 +226,15 @@ abandoned-team proxy, opponent inactivity), served by
 
 An **Edge Index (v1)** panel then combines the two into the full SPEC §6 composite
 `0.5 × MyEdge + 0.5 × LeagueSoftness` (with grade/verdict), served by
-`GET /api/leagues/{id}/edge-index`. Portfolio rows carry `edge_index_score/grade/verdict`
-alongside the existing `edge_score` — the board still shows `edge_score` for now, so the
-transition is explicit and non-breaking. Still **separate** from `edge_score`. See
+`GET /api/leagues/{id}/edge-index`. See
 **[docs/phase-16-edge-index-composite.md](docs/phase-16-edge-index-composite.md)**.
+
+**Phase 17** promotes the Edge Index to the **Portfolio Board's primary score** — the tier,
+row chip, filter, and summary rail are now driven by `edge_index_score`/`grade`/`verdict`
+(and the summary's `edge_index_*` aggregates). The older Phase 3 `edge_score` is preserved as
+a clearly-labeled **legacy** value on the row and rail, and both appear in exports (CSV/XLSX
+gained `edge_index_*` columns; JSON already carried them). No metric computation changed. See
+**[docs/phase-17-portfolio-edge-index-transition.md](docs/phase-17-portfolio-edge-index-transition.md)**.
 
 ## AI analysis (optional)
 

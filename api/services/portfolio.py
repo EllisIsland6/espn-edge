@@ -53,14 +53,20 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
 
 
 def build_summary(rows: list[PortfolioRow]) -> PortfolioSummary:
+    # Primary (Phase 16 Edge Index composite) + legacy (Phase 3 edge_score) aggregates.
+    ei_scored = [r.edge_index_score for r in rows if r.edge_index_score is not None]
     scored = [r.edge_score for r in rows if r.edge_score is not None]
     return PortfolioSummary(
         total_leagues=len(rows),
-        advantaged_count=sum(1 for r in rows if r.verdict == "advantaged"),
-        scored_count=len(scored),
         aggregate_wins=sum(r.wins or 0 for r in rows),
         aggregate_losses=sum(r.losses or 0 for r in rows),
         aggregate_ties=sum(r.ties or 0 for r in rows),
+        edge_index_scored_count=len(ei_scored),
+        edge_index_advantaged_count=sum(1 for r in rows if r.edge_index_verdict == "advantaged"),
+        best_edge_index_score=max(ei_scored) if ei_scored else None,
+        worst_edge_index_score=min(ei_scored) if ei_scored else None,
+        advantaged_count=sum(1 for r in rows if r.verdict == "advantaged"),
+        scored_count=len(scored),
         best_edge_score=max(scored) if scored else None,
         worst_edge_score=min(scored) if scored else None,
     )

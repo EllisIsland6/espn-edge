@@ -83,7 +83,7 @@ export default function PortfolioBoard() {
         return false;
       }
       if (filter === "all" || filter === "by_account") return true;
-      return verdictOf(r.verdict) === filter;
+      return verdictOf(r.edge_index_verdict) === filter;
     });
   }, [rows, query, filter]);
 
@@ -235,7 +235,7 @@ function ControlBar({
 }
 
 function BoardRow({ row }: { row: PortfolioRow }) {
-  const verdict = verdictOf(row.verdict);
+  const verdict = verdictOf(row.edge_index_verdict);
   // Semantic navigation: a real <Link> (anchor) — keyboard-activatable via Enter,
   // focusable, and gets the global red :focus-visible ring. The row has no nested
   // interactive children, so wrapping the whole row is safe (no nested controls).
@@ -267,12 +267,20 @@ function BoardRow({ row }: { row: PortfolioRow }) {
       <Stat label="PA" value={num(row.points_against)} />
       {/* Standing */}
       <Stat label="STANDING" value={ordinal(row.standing)} />
-      {/* Playoff odds (Phase 3) */}
+      {/* Playoff odds */}
       <Stat label="PLAYOFF" value={row.playoff_odds == null ? DASH : `${Math.round(row.playoff_odds * 100)}%`} />
-      {/* Edge score chip + grade (Phase 3 → pending) */}
-      <div className="flex w-24 items-center justify-end gap-2">
-        <ValueChip primary={row.edge_score == null ? DASH : num(row.edge_score, 0)} muted={row.edge_score == null} />
-        <GradePill grade={row.grade} />
+      {/* Edge Index chip + grade (Phase 16 composite = primary; legacy edge_score below) */}
+      <div className="flex w-28 flex-col items-end gap-0.5">
+        <div className="flex items-center gap-2">
+          <ValueChip
+            primary={row.edge_index_score == null ? DASH : num(row.edge_index_score, 0)}
+            muted={row.edge_index_score == null}
+          />
+          <GradePill grade={row.edge_index_grade} />
+        </div>
+        <span className="mono text-[9px] uppercase tracking-wide text-muted">
+          Edge Index{row.edge_score != null && <> · legacy {num(row.edge_score, 0)}</>}
+        </span>
       </div>
       <div className="mono w-16 shrink-0 text-right text-[11px] text-muted">{relTime(row.last_synced_at)}</div>
     </Link>
@@ -309,12 +317,13 @@ function RightRail({
   onSyncAll: () => void;
 }) {
   const total = summary?.total_leagues ?? 0;
-  const advantaged = summary?.advantaged_count ?? 0;
-  const scored = summary?.scored_count ?? 0;
+  const advantaged = summary?.edge_index_advantaged_count ?? 0;
+  const scored = summary?.edge_index_scored_count ?? 0;
   const bestWorst =
-    summary && summary.best_edge_score != null && summary.worst_edge_score != null
-      ? `${num(summary.best_edge_score, 0)} / ${num(summary.worst_edge_score, 0)}`
+    summary && summary.best_edge_index_score != null && summary.worst_edge_index_score != null
+      ? `${num(summary.best_edge_index_score, 0)} / ${num(summary.worst_edge_index_score, 0)}`
       : DASH;
+  const legacyScored = summary?.scored_count ?? 0;
   return (
     <div className="hidden w-[320px] shrink-0 lg:block">
       <Panel className="sticky top-[4.75rem] p-4">
@@ -337,10 +346,19 @@ function RightRail({
           />
           <RailStat
             label="Edge Index"
-            value={scored ? `${scored} scored` : "pending — Phase 3"}
+            value={scored ? `${scored} scored` : "pending"}
             muted={!scored}
           />
-          <RailStat label="Best / worst edge" value={bestWorst} muted={bestWorst === DASH} />
+          <RailStat
+            label="Best / worst Edge Index"
+            value={bestWorst}
+            muted={bestWorst === DASH}
+          />
+          <RailStat
+            label="Legacy Edge Score"
+            value={legacyScored ? `${legacyScored} scored` : "—"}
+            muted={!legacyScored}
+          />
         </dl>
 
         <div className="mt-5">
@@ -349,8 +367,9 @@ function RightRail({
           </Button>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-muted">
-          Edge Score, grade, and playoff odds are a deterministic v1 (within-league); they
-          stay pending until a league drafts or plays. The fuller model (SPEC §6) is future.
+          Edge Index is the full SPEC §6 composite (0.5 × MyEdge + 0.5 × LeagueSoftness); it
+          stays pending until a league has enough drafted/played data. The legacy within-league
+          Edge Score is kept alongside for reference.
         </p>
       </Panel>
     </div>
@@ -386,7 +405,7 @@ function groupRows(rows: PortfolioRow[], filter: Filter): Group[] {
   }
   const by = new Map<Verdict, PortfolioRow[]>();
   for (const r of rows) {
-    const v = verdictOf(r.verdict);
+    const v = verdictOf(r.edge_index_verdict);
     (by.get(v) ?? by.set(v, []).get(v)!).push(r);
   }
   return TIER_ORDER.filter((v) => by.has(v)).map((v) => ({
