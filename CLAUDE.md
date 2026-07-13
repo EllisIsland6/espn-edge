@@ -26,7 +26,17 @@
   Phase 14 v1 (MyEdge component foundation),
   Phase 15 v1 (LeagueSoftness component foundation),
   Phase 16 v1 (full Edge Index composite),
-  Phase 17 v1 (Portfolio Board Edge Index transition) implemented.
+  Phase 17 v1 (Portfolio Board Edge Index transition),
+  Phase 18 v1 (AI grounding uses the Edge Index model) implemented.
+- Phase 18: ai_inputs.advantage_verdict_input + league_brief_input regrounded on Edge Index —
+  verdict facts carry edge_index_score/grade/verdict + components, my_edge_score + components,
+  league_softness_score + components, playoff_odds, and legacy_edge_score/grade/verdict
+  (renamed from edge_score; no bare edge_score key). Brief carries per-team edge_index_score/
+  verdict + legacy_edge_score (lean; no per-team component arrays). ai.py _TASK prompts for
+  league_brief + advantage_verdict lead with Edge Index, legacy is secondary. ai_config
+  SCHEMA_VERSION v1→v2 busts cached ai_reports (prompt text isn't in input_hash; facts changes
+  already bust it). No metric/schema/provider/model-id change; AI still optional (no key →
+  enabled:false); tests offline (fake LLM). Contract: docs/phase-18-ai-edge-index-grounding.md.
 - Phase 17: Portfolio Board + summary + exports now treat Phase 16 edge_index_score as the
   PRIMARY advantage score; legacy Phase 3 edge_score kept alongside. PortfolioSummary gains
   edge_index_scored_count/edge_index_advantaged_count/best_edge_index_score/

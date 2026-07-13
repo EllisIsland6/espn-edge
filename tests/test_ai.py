@@ -298,3 +298,67 @@ def test_api_returns_error_envelope_not_500_on_model_failure(synced_league_id, m
         assert body["error"] and "parsed" in body["error"]
     finally:
         FakeLlmClient.raise_ai_error = False
+
+
+# --------------------------------------------------------------------------- #
+# Phase 18: AI grounding uses the Edge Index model (offline)
+# --------------------------------------------------------------------------- #
+def test_advantage_verdict_input_uses_edge_index(synced_league_id):
+    session = SessionLocal()
+    try:
+        lg = session.get(League, synced_league_id)
+        me = session.get(Team, lg.my_team_id)
+        facts = ai_inputs.advantage_verdict_input(session, lg, me)["me"]
+        # Edge Index (primary) + MyEdge + LeagueSoftness breakdown present.
+        assert {
+            "edge_index_score", "edge_index_grade", "edge_index_verdict", "edge_index_components",
+            "my_edge_score", "my_edge_components",
+            "league_softness_score", "league_softness_components",
+            "playoff_odds",
+        } <= set(facts)
+        # Legacy renamed; no bare edge_score/grade/verdict keys that could confuse the model.
+        assert "legacy_edge_score" in facts and "legacy_grade" in facts
+        assert "edge_score" not in facts and "grade" not in facts and "verdict" not in facts
+        # The synced league scores an Edge Index for my team → components are populated.
+        assert facts["edge_index_score"] is not None
+        assert {c["key"] for c in facts["edge_index_components"]} == {"my_edge", "league_softness"}
+    finally:
+        session.close()
+
+
+def test_league_brief_input_uses_edge_index(synced_league_id):
+    session = SessionLocal()
+    try:
+        lg = session.get(League, synced_league_id)
+        facts = ai_inputs.league_brief_input(session, lg)
+        assert facts["teams"], "expected team facts"
+        for t in facts["teams"]:
+            assert "edge_index_score" in t and "legacy_edge_score" in t
+            assert "edge_score" not in t  # no bare legacy key
+    finally:
+        session.close()
+
+
+def test_ai_prompts_lead_with_edge_index():
+    from api.services.ai import _TASK
+
+    brief, verdict = _TASK["league_brief"], _TASK["advantage_verdict"]
+    # Both edge-driven prompts now lead with the Edge Index and mention legacy as secondary.
+    assert "edge_index_score" in brief and "legacy_edge_score" in brief
+    assert "edge_index_score" in verdict and "legacy_edge_score" in verdict
+    # No longer lead with the old within-league phrasing.
+    assert "from its edge_score/record/standing/points" not in verdict
+    assert "grounded in the teams' edge_scores" not in brief
+
+
+def test_schema_version_bumped_and_busts_cache(monkeypatch):
+    from api.ai_config import SCHEMA_VERSION
+    from api.services.ai import compute_input_hash
+
+    assert SCHEMA_VERSION == "v2"
+    facts = {"team": "me", "edge_index_score": 68.0}
+    v2 = compute_input_hash("advantage_verdict", "m", facts)
+    # The same facts under the old version hash to a different value → cache is busted.
+    monkeypatch.setattr("api.services.ai.SCHEMA_VERSION", "v1")
+    v1 = compute_input_hash("advantage_verdict", "m", facts)
+    assert v1 != v2

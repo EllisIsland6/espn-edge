@@ -102,13 +102,20 @@ _TASK: dict[str, str] = {
     ),
     "league_brief": (
         "Assess how exploitable this league is for the team with is_me=true. Set "
-        "difficulty_tier, write a short narrative grounded in the teams' edge_scores, "
-        "records, and autodraft flags, and give ~3 concrete exploit_plan bullets."
+        "difficulty_tier and write a short narrative grounded PRIMARILY in each team's "
+        "edge_index_score (the full SPEC §6 Edge Index) and edge_index_verdict, plus records "
+        "and autodraft flags; give ~3 concrete exploit_plan bullets. legacy_edge_score is a "
+        "deprecated within-league proxy — you may mention it only as secondary context, never "
+        "as the primary signal."
     ),
     "advantage_verdict": (
         "In plain English, explain whether the is_me team is advantaged in this league and "
-        "why, from its edge_score/record/standing/points. Set verdict_label, write one "
-        "paragraph, and give the single highest_leverage_move."
+        "why. Lead with edge_index_score (the full Edge Index = 0.5·MyEdge + 0.5·"
+        "LeagueSoftness) and edge_index_verdict, using my_edge_components and "
+        "league_softness_components to explain the drivers; also weigh record, standing, "
+        "points, and playoff_odds. legacy_edge_score is a deprecated within-league proxy — "
+        "mention it only as secondary context. Set verdict_label, write one paragraph, and "
+        "give the single highest_leverage_move."
     ),
     "weekly_recap": (
         "Write a short league newsletter recap of this week's matchups: a headline, a body, "

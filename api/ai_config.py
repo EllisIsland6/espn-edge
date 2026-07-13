@@ -13,7 +13,8 @@ STANDARD_MODEL = "claude-sonnet-5"
 BULK_MODEL = "claude-haiku-4-5"
 
 # Bump when an output schema or prompt changes so cached reports invalidate.
-SCHEMA_VERSION = "v1"
+# v2 (Phase 18): league_brief + advantage_verdict prompts re-grounded on the Edge Index.
+SCHEMA_VERSION = "v2"
 
 # Small outputs (≤120-word summaries + a few bullets) — modest cap.
 MAX_TOKENS = 2048

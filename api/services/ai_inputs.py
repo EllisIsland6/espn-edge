@@ -14,12 +14,34 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import DraftPick, League, Matchup, Player, Team
-from .metrics import team_edge
+from .metrics import read_edge_index, read_league_softness, read_my_edge, team_edge
 from .parse import classify_scoring
 
 
 def _scoring(league: League) -> str | None:
     return classify_scoring(league.scoring_json) if league.scoring_json else None
+
+
+# --- Phase 18: Edge Index grounding helpers --------------------------------
+def _find(rows: list, team_id: int):
+    """First row whose team_id matches, or None (metric readers omit pending teams)."""
+    return next((r for r in rows if r.team_id == team_id), None)
+
+
+def _value_components(comps) -> list[dict]:
+    """Serialize 0–100 sub-score components (Edge Index halves)."""
+    return [
+        {"key": c.key, "label": c.label, "weight": round(c.weight, 4), "value": c.value}
+        for c in comps
+    ]
+
+
+def _pct_components(comps) -> list[dict]:
+    """Serialize within-league percentile components (MyEdge / LeagueSoftness)."""
+    return [
+        {"key": c.key, "label": c.label, "weight": round(c.weight, 4), "percentile": c.percentile}
+        for c in comps
+    ]
 
 
 def _league_facts(league: League) -> dict:
@@ -90,9 +112,13 @@ def league_brief_input(session: Session, league: League) -> dict:
             select(Team).where(Team.league_id == league.id).order_by(Team.standing)
         )
     )
+    # Edge Index is the primary advantage signal (Phase 16/17); read once for the league.
+    # Keep the brief lean: scalar scores per team, not full component arrays.
+    ei_by_team = {r.team_id: r for r in read_edge_index(session, league.id)}
     team_facts = []
     for t in teams:
-        edge = team_edge(session, league.id, t.id)
+        edge = team_edge(session, league.id, t.id)  # legacy edge_score only
+        ei = ei_by_team.get(t.id)
         fp = _fingerprint(_picks_for_team(session, league.id, t.id))
         team_facts.append(
             {
@@ -102,7 +128,9 @@ def league_brief_input(session: Session, league: League) -> dict:
                 "points_for": round(t.points_for, 1),
                 "points_against": round(t.points_against, 1),
                 "standing": t.standing,
-                "edge_score": edge.edge_score,
+                "edge_index_score": ei.edge_index_score if ei else None,
+                "edge_index_verdict": ei.verdict if ei else None,
+                "legacy_edge_score": edge.edge_score,  # deprecated within-league proxy
                 "autodrafted": t.autodrafted,
                 "first6_by_pos": fp["first6_by_pos"],
             }
@@ -111,7 +139,10 @@ def league_brief_input(session: Session, league: League) -> dict:
 
 
 def advantage_verdict_input(session: Session, league: League, team: Team) -> dict:
-    edge = team_edge(session, league.id, team.id)
+    edge = team_edge(session, league.id, team.id)  # legacy edge_score + playoff_odds
+    ei = _find(read_edge_index(session, league.id), team.id)
+    mye = _find(read_my_edge(session, league.id), team.id)
+    sof = _find(read_league_softness(session, league.id), team.id)
     teams = list(session.scalars(select(Team).where(Team.league_id == league.id)))
     pf_rank = 1 + sum(1 for t in teams if t.points_for > team.points_for)
     return {
@@ -123,10 +154,20 @@ def advantage_verdict_input(session: Session, league: League, team: Team) -> dic
             "standing": team.standing,
             "points_for": round(team.points_for, 1),
             "points_against": round(team.points_against, 1),
-            "edge_score": edge.edge_score,
-            "grade": edge.grade,
-            "verdict": edge.verdict,
+            # Edge Index (Phase 16) — the PRIMARY advantage signal:
+            "edge_index_score": ei.edge_index_score if ei else None,
+            "edge_index_grade": ei.grade if ei else None,
+            "edge_index_verdict": ei.verdict if ei else None,
+            "edge_index_components": _value_components(ei.components) if ei else [],
+            "my_edge_score": mye.my_edge_score if mye else None,
+            "my_edge_components": _pct_components(mye.components) if mye else [],
+            "league_softness_score": sof.league_softness_score if sof else None,
+            "league_softness_components": _pct_components(sof.components) if sof else [],
             "playoff_odds": edge.playoff_odds,
+            # Legacy Phase 3 within-league proxy — secondary context only:
+            "legacy_edge_score": edge.edge_score,
+            "legacy_grade": edge.grade,
+            "legacy_verdict": edge.verdict,
         },
         "league_context": {"team_count": len(teams), "my_points_for_rank": pf_rank},
     }

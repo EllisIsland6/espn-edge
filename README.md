@@ -247,6 +247,12 @@ grounded on DB facts only, validated against pydantic schemas, and cached by inp
 `claude-sonnet-5`, bulk = `claude-haiku-4-5`). Full contract:
 **[docs/phase-4-ai.md](docs/phase-4-ai.md)**.
 
+**Phase 18** regrounds the league-brief and advantage-verdict prompts on the full **Edge
+Index** (with its MyEdge/LeagueSoftness components) as the primary advantage signal; the old
+`edge_score` is passed only as a clearly-named `legacy_edge_score` for secondary context. No
+metric computation changed. See
+**[docs/phase-18-ai-edge-index-grounding.md](docs/phase-18-ai-edge-index-grounding.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or
