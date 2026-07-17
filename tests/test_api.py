@@ -113,3 +113,161 @@ def test_delete_account_blocked_when_leagues_linked():
     assert "linked league" in r.json()["detail"]
     # account still present (not deleted)
     assert aid in [a["id"] for a in client.get("/api/accounts").json()]
+
+
+# ---- credential redaction (Security: redact account validation errors) -------
+# Unique canaries so any accidental reflection is unmistakable in the raw body.
+_SWID_CANARY = "SWID-CANARY-7f3a9e21"
+_S2_CANARY = "S2-CANARY-b41c88d0"
+_S2_CANARY_OLD = "S2-CANARY-OLD-1a2b3c"
+_S2_CANARY_NEW = "S2-CANARY-NEW-9z8y7x"
+
+
+def _assert_no_canaries(text: str, *canaries: str) -> None:
+    """Inspect the complete raw response/log text, not just parsed top-level keys."""
+    for canary in canaries:
+        assert canary not in text, f"credential canary {canary!r} leaked into: {text!r}"
+
+
+def test_add_account_success_has_no_credential_keys_or_values():
+    r = client.post(
+        "/api/accounts",
+        json={"label": "Canary1", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert "swid" not in body and "espn_s2" not in body
+    assert set(body) == {"id", "label", "status", "created_at"}
+    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+
+
+def test_list_accounts_never_exposes_stored_or_encrypted_credentials():
+    from api.db import SessionLocal
+    from api.models import Account
+
+    aid = client.post(
+        "/api/accounts",
+        json={"label": "Canary2", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+    ).json()["id"]
+    with SessionLocal() as s:
+        acct = s.get(Account, aid)
+        stored_swid = acct.swid  # braced/normalized form persisted server-side
+        encrypted_s2 = acct.espn_s2_encrypted  # Fernet ciphertext at rest
+
+    r = client.get("/api/accounts")
+    assert r.status_code == 200
+    for row in r.json():
+        assert "swid" not in row and "espn_s2" not in row
+    # No plaintext canary, no stored SWID, and no encrypted blob in the raw text.
+    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY, stored_swid, encrypted_s2)
+
+
+def test_reauth_success_has_no_old_or_new_credentials():
+    aid = client.post(
+        "/api/accounts",
+        json={"label": "Canary3", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY_OLD},
+    ).json()["id"]
+    r = client.post(
+        f"/api/accounts/{aid}/reauth",
+        json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY_NEW},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "swid" not in body and "espn_s2" not in body
+    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY_OLD, _S2_CANARY_NEW)
+
+
+def test_add_account_missing_label_does_not_echo_credentials():
+    r = client.post(
+        "/api/accounts", json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY}
+    )
+    assert r.status_code == 422
+    assert r.json() == {"detail": "invalid account request"}
+    # No submitted values and no sensitive field names in the sanitized body.
+    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+    assert "swid" not in r.text and "espn_s2" not in r.text
+
+
+def test_add_account_invalid_empty_credential_fields_does_not_echo():
+    # Empty swid violates min_length=1 → RequestValidationError before the router.
+    r = client.post(
+        "/api/accounts", json={"label": "L", "swid": "", "espn_s2": _S2_CANARY}
+    )
+    assert r.status_code == 422
+    assert r.json() == {"detail": "invalid account request"}
+    _assert_no_canaries(r.text, _S2_CANARY)
+
+
+def test_reauth_missing_fields_does_not_echo_credentials():
+    aid = client.post(
+        "/api/accounts", json={"label": "Canary4", "swid": "{Z-1}", "espn_s2": "s2"}
+    ).json()["id"]
+    r = client.post(f"/api/accounts/{aid}/reauth", json={"swid": _SWID_CANARY})
+    assert r.status_code == 422
+    assert r.json() == {"detail": "invalid account request"}
+    _assert_no_canaries(r.text, _SWID_CANARY)
+    assert "espn_s2" not in r.text
+
+
+def test_empty_normalized_swid_returns_safe_wording_no_value():
+    # Router-generated 400: neutral wording, never names SWID or echoes the value.
+    r = client.post(
+        "/api/accounts", json={"label": "L", "swid": "{}", "espn_s2": _S2_CANARY}
+    )
+    assert r.status_code == 400
+    assert r.json() == {"detail": "account identifier looks empty after normalization"}
+    assert "SWID" not in r.text and "swid" not in r.text
+    _assert_no_canaries(r.text, _S2_CANARY)
+
+
+def test_reauth_empty_normalized_swid_returns_safe_wording_no_value():
+    aid = client.post(
+        "/api/accounts", json={"label": "Canary5", "swid": "{Z-2}", "espn_s2": "s2"}
+    ).json()["id"]
+    r = client.post(
+        f"/api/accounts/{aid}/reauth", json={"swid": "{}", "espn_s2": _S2_CANARY}
+    )
+    assert r.status_code == 400
+    assert r.json() == {"detail": "account identifier looks empty after normalization"}
+    assert "SWID" not in r.text and "swid" not in r.text
+    _assert_no_canaries(r.text, _S2_CANARY)
+
+
+def test_reauth_unknown_account_is_safe_404():
+    r = client.post(
+        "/api/accounts/999999/reauth",
+        json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+    )
+    assert r.status_code == 404
+    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+
+
+def test_account_requests_never_emit_credentials_to_logs(caplog):
+    import logging
+
+    with caplog.at_level(logging.DEBUG):
+        client.post(
+            "/api/accounts",
+            json={"label": "LogCanary", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        )
+        client.post(  # malformed: triggers the sanitizing validation handler
+            "/api/accounts", json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY}
+        )
+        client.post(
+            "/api/accounts/999999/reauth",
+            json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        )
+    _assert_no_canaries(caplog.text, _SWID_CANARY, _S2_CANARY)
+
+
+def test_settings_defaults_api_host_to_localhost(monkeypatch):
+    """A fresh Settings with no .env / API_HOST override binds localhost only.
+
+    Isolated from the developer's real environment and .env so the default —
+    not a local override — is what is asserted.
+    """
+    from api.config import Settings
+
+    monkeypatch.delenv("API_HOST", raising=False)
+    settings = Settings(_env_file=None)  # ignore repo .env entirely
+    assert settings.api_host == "127.0.0.1"

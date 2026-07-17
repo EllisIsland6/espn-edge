@@ -24,7 +24,7 @@ def list_accounts(session: Session = Depends(get_session)) -> list[Account]:
 def add_account(payload: AccountCreate, session: Session = Depends(get_session)) -> Account:
     swid = normalize_swid_braced(payload.swid)
     if not swid:
-        raise HTTPException(400, "SWID looks empty after normalization")
+        raise HTTPException(400, "account identifier looks empty after normalization")
     account = Account(
         label=payload.label,
         swid=swid,
@@ -49,7 +49,7 @@ def reauth_account(
         raise HTTPException(404, "account not found")
     swid = normalize_swid_braced(payload.swid)
     if not swid:
-        raise HTTPException(400, "SWID looks empty after normalization")
+        raise HTTPException(400, "account identifier looks empty after normalization")
     account.swid = swid
     account.espn_s2_encrypted = encrypt(payload.espn_s2.strip())
     account.status = "active"
