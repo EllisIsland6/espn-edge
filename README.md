@@ -275,6 +275,14 @@ never reused as a cache hit; self / cross-league ids are rejected). **Advisory o
 never executes trades.** See
 **[docs/phase-21-trade-finder-ui.md](docs/phase-21-trade-finder-ui.md)**.
 
+**Phase 22** grounds Trade Finder on the best truthful roster data in the DB — the **latest
+lineup-slots week both teams share** (joined to `Player`, with `proj_ros`), or a labeled
+**drafted-roster fallback** — with deterministic positional surplus/deficit and explicit
+provenance/freshness (snapshot week, `snapshot_stale`, `projections_stale`, coverage). Every
+proposed player is validated against the supplied rosters (invalid ones dropped before
+storage); the UI shows a "Week N roster snapshot" / fallback chip. No ESPN-view or DB change.
+See **[docs/phase-22-trade-finder-grounding.md](docs/phase-22-trade-finder-grounding.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or

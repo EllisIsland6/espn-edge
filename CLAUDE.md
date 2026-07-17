@@ -30,7 +30,24 @@
   Phase 18 v1 (AI grounding uses the Edge Index model),
   Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers),
   Phase 20 v1 (weekly recap panel in the AI Brief),
-  Phase 21 v1 (Trade Finder panel in the AI Brief) implemented.
+  Phase 21 v1 (Trade Finder panel in the AI Brief),
+  Phase 22 v1 (Trade Finder grounding on roster snapshots) implemented.
+- Phase 22: ai_inputs.trade_finder_input regrounded — the latest lineup_slots week BOTH teams
+  share (joined Player, proj_ros; never mixes weeks; dedup by player id; keeps missing-Player
+  rows), else a labeled drafted_roster fallback (DraftPick⨝Player), else source="none". Facts
+  carry roster_snapshot{grounding_source,snapshot_week,fallback_reason,snapshot_stale,
+  projections_stale (conservative: not last_sync_ok),unsupported_slots} + per-team
+  projection_coverage + deterministic by_position surplus/deficit (reuses metrics
+  _starting_slot_counts read-only — metrics.py UNCHANGED, byte-identical; FLEX = top remaining
+  RB/WR/TE by proj; superflex/IDP reported unsupported, not FLEX; nulls never treated as 0).
+  ai.py: validate_trade_proposals + trade_name_tables drop proposals naming players not on the
+  supplied rosters (exact normalized match; canonical DB names; one player per item), wired via
+  a new optional post_validate hook on generate (other 4 kinds unaffected); trade_finder prompt
+  reworded. ai_config SCHEMA_VERSION v3→v4. Router passes post_validate + provenance in extra.
+  Frontend TradeFinderCard shows a provenance chip ("Week N roster snapshot"/"Drafted-roster
+  fallback"/stale/coverage) and swaps the draft-time caveat only for lineup_snapshot reports.
+  No DB/schema/ESPN-view/sync/metric change; production AnthropicLlmClient path intact; tests
+  offline (fake LLM). Advisory only. Contract: docs/phase-22-trade-finder-grounding.md.
 - Phase 21: trade_finder is now per-opponent + in the UI. routers/ai.py adds GET
   /api/leagues/{id}/ai/trade-finder?opponent_team_id=N and POST stores
   extra={"opponent_team_id","opponent_name"} in content_json; AiService.latest_for_opponent

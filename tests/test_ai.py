@@ -12,7 +12,17 @@ from api.config import get_settings
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
-from api.models import Account, AiReport, League, Matchup, Player, Team, Transaction
+from api.models import (
+    Account,
+    AiReport,
+    DraftPick,
+    League,
+    LineupSlot,
+    Matchup,
+    Player,
+    Team,
+    Transaction,
+)
 from api.services import ai_inputs
 from api.services.ai import AiError, AiService
 
@@ -28,6 +38,7 @@ class FakeLlmClient:
     calls = 0
     invalid = False  # when True, return a schema-invalid dict to exercise validation
     raise_ai_error = False  # when True, simulate what AnthropicLlmClient raises on failure
+    trade_override = None  # when set, the TradeFinder payload the fake returns (Phase 22)
 
     def __init__(self, api_key=None):
         pass
@@ -52,7 +63,9 @@ class FakeLlmClient:
                 "highest_leverage_move": "Work the waiver wire.",
             },
             ai_schemas.WeeklyRecap: {"headline": "Week", "body": "Recap.", "luck_notes": [], "waiver_highlights": []},
-            ai_schemas.TradeFinder: {"proposals": [], "note": "Advisory only."},
+            ai_schemas.TradeFinder: FakeLlmClient.trade_override
+            if (schema is ai_schemas.TradeFinder and FakeLlmClient.trade_override is not None)
+            else {"proposals": [], "note": "Advisory only."},
         }
         return canned[schema]
 
@@ -355,13 +368,13 @@ def test_schema_version_bumped_and_busts_cache(monkeypatch):
     from api.ai_config import SCHEMA_VERSION
     from api.services.ai import compute_input_hash
 
-    assert SCHEMA_VERSION == "v3"  # Phase 19 bump
+    assert SCHEMA_VERSION == "v4"  # Phase 22 bump
     facts = {"team": "me", "edge_index_score": 68.0}
-    v3 = compute_input_hash("advantage_verdict", "m", facts)
+    v4 = compute_input_hash("advantage_verdict", "m", facts)
     # The same facts under the previous version hash to a different value → cache is busted.
-    monkeypatch.setattr("api.services.ai.SCHEMA_VERSION", "v2")
-    v2 = compute_input_hash("advantage_verdict", "m", facts)
-    assert v2 != v3
+    monkeypatch.setattr("api.services.ai.SCHEMA_VERSION", "v3")
+    v3 = compute_input_hash("advantage_verdict", "m", facts)
+    assert v3 != v4
 
 
 # --------------------------------------------------------------------------- #
@@ -685,3 +698,220 @@ def test_latest_for_opponent_filters_by_opponent(db_session):
     assert svc.latest_for_opponent(lg.id, "trade_finder", 11).content_json["opponent_team_id"] == 11
     assert svc.latest_for_opponent(lg.id, "trade_finder", 22).content_json["opponent_team_id"] == 22
     assert svc.latest_for_opponent(lg.id, "trade_finder", 33) is None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 22: Trade Finder grounding on roster snapshots (offline)
+# --------------------------------------------------------------------------- #
+# lineupSlotCounts: QB1, RB2, WR2, TE1, FLEX1, D/ST1, K1, BE6, and an unsupported OP (superflex).
+_TRADE_SLOTS = {"0": 1, "2": 2, "4": 2, "6": 1, "23": 1, "16": 1, "17": 1, "20": 6, "7": 1}
+
+
+def _make_trade_league(session) -> tuple[League, Team, Team]:
+    lg = League(espn_league_id="770", season=2026, is_public=True, lifecycle="in_season",
+                size=4, playoff_team_count=2, lineup_slots_json=_TRADE_SLOTS, last_sync_ok=True)
+    session.add(lg)
+    session.flush()
+    t1 = Team(league_id=lg.id, espn_team_id=1, name="Mine", is_me=True)
+    t2 = Team(league_id=lg.id, espn_team_id=2, name="Rival", is_me=False)
+    session.add_all([t1, t2])
+    session.flush()
+    lg.my_team_id = t1.id
+    players = [
+        (101, "QB One", "QB", 20.0), (102, "RB One", "RB", 15.0), (103, "RB Two", "RB", 12.0),
+        (104, "RB Three", "RB", 10.0), (110, "RB Four", "RB", 9.0), (111, "RB Five", "RB", None),
+        (105, "WR One", "WR", 14.0), (107, "TE One", "TE", 9.0), (108, "K One", "K", 7.0),
+        (109, "DST One", "D/ST", 6.0),
+        (201, "QB Opp", "QB", 18.0), (202, "RB Opp", "RB", 13.0), (203, "WR OppA", "WR", 16.0),
+        (204, "WR OppB", "WR", 11.0), (205, "WR OppC", "WR", 9.0), (206, "TE Opp", "TE", 8.0),
+        (207, "K Opp", "K", 6.0), (208, "DST Opp", "D/ST", 5.0), (199, "RB Traded", "RB", 20.0),
+    ]
+    for pid, name, pos, proj in players:
+        session.add(Player(espn_player_id=pid, name=name, position=pos, proj_ros=proj))
+    session.flush()
+
+    def slot(pid, s, week, team, starter):
+        session.add(LineupSlot(league_id=lg.id, team_id=team.id, week=week, slot=s,
+                               espn_player_id=pid, points=None, is_starter=starter))
+
+    # T1 week 1 roster (starters + bench); duplicate p102 on bench (dedup), plus a missing-Player row.
+    for pid, s, st in [(101, "QB", True), (102, "RB", True), (103, "RB", True), (104, "FLEX", True),
+                       (110, "BE", False), (111, "BE", False), (105, "WR", True), (107, "TE", True),
+                       (108, "K", True), (109, "D/ST", True), (102, "BE", False), (777, "BE", False)]:
+        slot(pid, s, 1, t1, st)
+    # T1 also has a WEEK 2 snapshot with a traded-in RB (must NOT leak into the week-1 facts).
+    slot(199, "RB", 2, t1, True)
+    # T2 week 1 roster only (so latest common week is 1; newest league week is 2 → snapshot stale).
+    for pid, s, st in [(201, "QB", True), (202, "RB", True), (203, "WR", True), (204, "WR", True),
+                       (205, "BE", False), (206, "TE", True), (207, "K", True), (208, "D/ST", True)]:
+        slot(pid, s, 1, t2, st)
+    session.flush()
+    return lg, t1, t2
+
+
+def test_trade_finder_input_uses_latest_common_week_no_mixing(db_session):
+    lg, t1, t2 = _make_trade_league(db_session)
+    facts = ai_inputs.trade_finder_input(db_session, lg, t1, t2)
+    snap = facts["roster_snapshot"]
+    assert snap["grounding_source"] == "lineup_snapshot"
+    assert snap["snapshot_week"] == 1          # common week (T2 only has week 1)
+    assert snap["snapshot_stale"] is True       # newest league week is 2
+    assert snap["projections_stale"] is False   # last_sync_ok True
+    assert snap["unsupported_slots"] == ["OP"]  # superflex reported, not treated as FLEX
+    # No week-2 roster leaks in: the traded-in RB (week 2 only) must be absent.
+    names = {p["name"] for p in facts["me"]["players"]}
+    assert "RB Traded" not in names
+    # Dedup: p102 appears once and is marked a starter (its bench dup is collapsed).
+    p102 = [p for p in facts["me"]["players"] if p["espn_player_id"] == 102]
+    assert len(p102) == 1 and p102[0]["is_starter"] is True
+    # Missing Player row is kept (name None), not dropped or zeroed.
+    assert any(p["espn_player_id"] == 777 and p["name"] is None for p in facts["me"]["players"])
+    # Null projection stays null; coverage reflects it. The roster has 11 entries (10 named
+    # players + the missing-Player row); 9 carry a proj_ros → 9/11 ≈ 0.818.
+    assert any(p["espn_player_id"] == 111 and p["proj_ros"] is None for p in facts["me"]["players"])
+    assert len(facts["me"]["players"]) == 11
+    assert facts["me"]["projection_coverage"] == round(9 / 11, 3)
+
+
+def test_trade_finder_input_positional_surplus_deficit_hand_computed(db_session):
+    lg, t1, t2 = _make_trade_league(db_session)
+    by_pos = ai_inputs.trade_finder_input(db_session, lg, t1, t2)["me"]["by_position"]
+    rb = by_pos["RB"]
+    # 5 RBs (one null-proj), need 2 + 1 FLEX (RB Three, the best remaining) → 3 starters, surplus 2.
+    assert rb["count"] == 5 and rb["starting_need"] == 2 and rb["flex_share"] == 1
+    assert rb["surplus_count"] == 2 and rb["deficit"] == 0
+    assert rb["proj_total"] == 46.0                     # 15+12+10+9 (null excluded)
+    assert rb["surplus_proj"] == 9.0                    # depth beyond starters (null excluded)
+    wr = by_pos["WR"]
+    assert wr["count"] == 1 and wr["starting_need"] == 2 and wr["deficit"] == 1
+    assert wr["surplus_count"] == -1
+
+
+def test_trade_finder_input_drafted_fallback_and_pending(db_session):
+    # No lineup_slots anywhere → drafted-roster fallback, labeled honestly.
+    lg = League(espn_league_id="771", season=2026, is_public=True, lifecycle="drafted",
+                size=2, lineup_slots_json=_TRADE_SLOTS, last_sync_ok=True)
+    db_session.add(lg)
+    db_session.flush()
+    t1 = Team(league_id=lg.id, espn_team_id=1, name="A", is_me=True)
+    t2 = Team(league_id=lg.id, espn_team_id=2, name="B")
+    db_session.add_all([t1, t2])
+    db_session.flush()
+    db_session.add_all([Player(espn_player_id=301, name="Draftee", position="RB", proj_ros=11.0)])
+    db_session.flush()
+    db_session.add(DraftPick(league_id=lg.id, overall=1, team_id=t1.id, espn_player_id=301))
+    db_session.flush()
+    snap = ai_inputs.trade_finder_input(db_session, lg, t1, t2)["roster_snapshot"]
+    assert snap["grounding_source"] == "drafted_roster"
+    assert snap["snapshot_week"] is None and snap["fallback_reason"]
+
+    # No lineup AND no picks → insufficient data, no invented players.
+    t2b = db_session.get(Team, t2.id)
+    facts_none = ai_inputs.trade_finder_input(db_session, lg, t2b, t1)
+    # t2 has no picks → its roster is empty; my (t1) roster is the single draftee.
+    assert facts_none["me"]["players"] == []
+
+
+def test_trade_finder_input_projections_stale_when_sync_not_ok(db_session):
+    lg, t1, t2 = _make_trade_league(db_session)
+    lg.last_sync_ok = False  # last sync did not complete cleanly → freshness unconfirmed
+    db_session.flush()
+    assert ai_inputs.trade_finder_input(db_session, lg, t1, t2)["roster_snapshot"]["projections_stale"] is True
+
+
+def test_trade_finder_facts_change_when_roster_or_projection_changes(db_session):
+    from api.ai_config import STANDARD_MODEL
+    from api.services.ai import compute_input_hash
+
+    lg, t1, t2 = _make_trade_league(db_session)
+    base = compute_input_hash("trade_finder", STANDARD_MODEL,
+                              ai_inputs.trade_finder_input(db_session, lg, t1, t2))
+    # Change a projection value → facts (and hash) change → prior report would be stale.
+    db_session.get(Player, 105).proj_ros = 99.0
+    db_session.flush()
+    changed = compute_input_hash("trade_finder", STANDARD_MODEL,
+                                 ai_inputs.trade_finder_input(db_session, lg, t1, t2))
+    assert changed != base
+
+
+# --- Player-name validation (pure) -----------------------------------------
+def _facts_with_rosters(mine, theirs) -> dict:
+    return {
+        "me": {"players": [{"name": n} for n in mine]},
+        "opponent": {"players": [{"name": n} for n in theirs]},
+    }
+
+
+def test_validate_trade_proposals_keeps_valid_drops_invalid():
+    from api.services.ai import trade_name_tables, validate_trade_proposals
+
+    my, opp = trade_name_tables(_facts_with_rosters(["RB One", "WR One"], ["WR OppA", "QB Opp"]))
+    content = {"proposals": [
+        {"i_give": ["rb one"], "i_get": ["WR OppA"], "rationale": "ok (case/space normalized)"},
+        {"i_give": ["Ghost Player"], "i_get": ["WR OppA"], "rationale": "unknown give"},
+        {"i_give": ["RB One"], "i_get": ["My WR One"], "rationale": "i_get names my player"},
+        {"i_give": ["RB One + WR One"], "i_get": ["WR OppA"], "rationale": "combined string"},
+    ], "note": "n"}
+    out = validate_trade_proposals(content, my, opp)
+    assert len(out["proposals"]) == 1
+    # Canonical DB names are emitted, one player per list item.
+    assert out["proposals"][0]["i_give"] == ["RB One"] and out["proposals"][0]["i_get"] == ["WR OppA"]
+
+
+def test_validate_trade_proposals_all_invalid_returns_empty_with_note():
+    from api.services.ai import trade_name_tables, validate_trade_proposals
+
+    my, opp = trade_name_tables(_facts_with_rosters(["RB One"], ["WR OppA"]))
+    out = validate_trade_proposals(
+        {"proposals": [{"i_give": ["Nobody"], "i_get": ["WR OppA"], "rationale": "x"}], "note": "n"},
+        my, opp,
+    )
+    assert out["proposals"] == [] and "No grounded trade" in out["note"]
+
+
+# --- API: provenance + validation before persistence -----------------------
+@pytest.fixture
+def trade_league_id():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        lg, _t1, _t2 = _make_trade_league(session)
+        session.commit()
+        lid, opp_id = lg.id, _t2.id
+    finally:
+        session.close()
+    yield lid, opp_id
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+
+def test_api_trade_finder_persists_only_validated_players_and_provenance(trade_league_id, monkeypatch):
+    lid, opp_id = trade_league_id
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    # The model returns one valid + one invalid (unknown player) proposal.
+    FakeLlmClient.trade_override = {
+        "proposals": [
+            {"i_give": ["RB One"], "i_get": ["WR OppA"], "rationale": "RB depth for WR need."},
+            {"i_give": ["Made Up Guy"], "i_get": ["WR OppA"], "rationale": "invented"},
+        ],
+        "note": "advisory",
+    }
+    _enable_fake(monkeypatch)
+    try:
+        base = f"/api/leagues/{lid}/ai/trade-finder"
+        p = client.post(f"{base}?opponent_team_id={opp_id}").json()
+        # Only the valid proposal survives; the invented one is never stored/served.
+        assert len(p["content"]["proposals"]) == 1
+        assert p["content"]["proposals"][0]["i_give"] == ["RB One"]
+        # Provenance persisted alongside content.
+        assert p["content"]["grounding_source"] == "lineup_snapshot"
+        assert p["content"]["snapshot_week"] == 1
+        assert p["content"]["opponent_team_id"] == opp_id
+        # GET returns the same validated, provenance-tagged content.
+        g = client.get(f"{base}?opponent_team_id={opp_id}").json()
+        assert len(g["content"]["proposals"]) == 1
+    finally:
+        FakeLlmClient.trade_override = None

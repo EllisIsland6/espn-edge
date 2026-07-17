@@ -371,6 +371,8 @@ test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)
       enabled: true, kind: "trade_finder", model: "claude-sonnet-5", created_at: NOW, stale: false,
       content: {
         opponent_team_id: 2, opponent_name: "Rival",
+        grounding_source: "lineup_snapshot", snapshot_week: 4, snapshot_stale: false,
+        projections_stale: false, my_projection_coverage: 0.9,
         proposals: [
           { i_give: ["My RB2"], i_get: ["Their WR1"], rationale: "You have RB depth; they need a back." },
         ],
@@ -382,6 +384,7 @@ test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)
   await page.getByRole("button", { name: "AI Brief" }).click();
   await expect(page.getByRole("heading", { name: "Trade finder" })).toBeVisible();
   await expect(page.getByText("vs Rival")).toBeVisible();
+  await expect(page.getByText("Week 4 roster snapshot")).toBeVisible(); // Phase 22 provenance
   await expect(page.getByText("My RB2")).toBeVisible();
   await expect(page.getByText("Their WR1")).toBeVisible();
   await expect(page.getByText("You have RB depth; they need a back.")).toBeVisible();

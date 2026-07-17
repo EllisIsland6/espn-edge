@@ -74,5 +74,6 @@ cd web && npm run lint && npm run build && npm run e2e
 ```
 
 ## Future work
-- **Trade Finder grounding** (a separate phase): ground on current rosters (`lineup_slots` +
-  `proj_ros`) and positional surplus/deficit rather than draft-time counts.
+- ✅ **Done in Phase 22** — grounding now uses the latest shared `lineup_slots` snapshot +
+  `proj_ros` and deterministic positional surplus/deficit, with player-name validation. See
+  **[docs/phase-22-trade-finder-grounding.md](docs/phase-22-trade-finder-grounding.md)**.

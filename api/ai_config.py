@@ -15,7 +15,8 @@ BULK_MODEL = "claude-haiku-4-5"
 # Bump when an output schema or prompt changes so cached reports invalidate.
 # v2 (Phase 18): league_brief + advantage_verdict prompts re-grounded on the Edge Index.
 # v3 (Phase 19): weekly_recap regrounded on all-play/luck + waiver transactions.
-SCHEMA_VERSION = "v3"
+# v4 (Phase 22): trade_finder regrounded on roster snapshots + player-name validation.
+SCHEMA_VERSION = "v4"
 
 # Small outputs (≤120-word summaries + a few bullets) — modest cap.
 MAX_TOKENS = 2048

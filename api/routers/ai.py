@@ -23,7 +23,13 @@ from ..db import get_session
 from ..models import DraftPick, League, Team
 from ..schemas import AiReportEnvelope, AiReportList, AiStatus
 from ..services import ai_inputs
-from ..services.ai import AiError, AiService, compute_input_hash
+from ..services.ai import (
+    AiError,
+    AiService,
+    compute_input_hash,
+    trade_name_tables,
+    validate_trade_proposals,
+)
 
 router = APIRouter(tags=["ai"])
 
@@ -292,13 +298,26 @@ def generate_trade_finder(
     if not force and existing is not None and existing.input_hash == fresh:
         content, row = existing.content_json, existing
     else:
+        # Post-generation validation: drop proposals naming players absent from THESE rosters
+        # (Phase 22), plus provenance in extra for the UI. Never fabricates players.
+        my_names, opp_names = trade_name_tables(facts)
+        snap = facts["roster_snapshot"]
         try:
             # force=True skips generate's hash-only cache so a legacy row can't be served; the
             # store step overwrites-or-creates a report correctly tagged with this opponent.
             content = svc.generate(
                 kind=KIND_TRADE_FINDER, scope="team", league_id=league.id,
                 model=STANDARD_MODEL, facts=facts, force=True,
-                extra={"opponent_team_id": opponent.id, "opponent_name": opponent.name},
+                post_validate=lambda c: validate_trade_proposals(c, my_names, opp_names),
+                extra={
+                    "opponent_team_id": opponent.id, "opponent_name": opponent.name,
+                    "grounding_source": snap["grounding_source"],
+                    "snapshot_week": snap["snapshot_week"],
+                    "fallback_reason": snap["fallback_reason"],
+                    "snapshot_stale": snap["snapshot_stale"],
+                    "projections_stale": snap["projections_stale"],
+                    "my_projection_coverage": facts["me"]["projection_coverage"],
+                },
             )
         except AiError as exc:
             session.commit()

@@ -10,12 +10,18 @@ from __future__ import annotations
 
 from collections import Counter
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import DraftPick, League, Matchup, Player, Team, Transaction
+from ..models import DraftPick, League, LineupSlot, Matchup, Player, Team, Transaction
+from .espn_constants import slot_name
 from .metrics import (
+    _DEDICATED_SLOTS,
+    _FLEX_ELIGIBLE,
+    _KNOWN_POSITIONS,
+    _SUPPORTED_SLOTS,
     TeamStat,
+    _starting_slot_counts,
     compute_all_play,
     read_all_play,
     read_edge_index,
@@ -24,6 +30,9 @@ from .metrics import (
     team_edge,
 )
 from .parse import classify_scoring
+
+# Bench / reserve slot names — not "starting" positions, and not unsupported starters either.
+_BENCH_SLOT_NAMES: frozenset[str] = frozenset({"BE", "IR", "RES", "ER"})
 
 
 def _scoring(league: League) -> str | None:
@@ -318,19 +327,199 @@ def weekly_recap_input(session: Session, league: League, week: int) -> dict:
     }
 
 
-def _pos_counts(picks: list[dict]) -> dict:
-    return dict(Counter(p["pos"] for p in picks))
+# --- Phase 22: Trade Finder grounding on roster snapshots -------------------
+def _newest_lineup_week(session: Session, league_id: int) -> int | None:
+    return session.scalar(
+        select(func.max(LineupSlot.week)).where(LineupSlot.league_id == league_id)
+    )
+
+
+def _latest_common_lineup_week(session: Session, league_id: int, team_ids: list[int]) -> int | None:
+    """The latest week for which EVERY given team has a lineup snapshot. None if no shared week.
+    Using the common week guarantees both rosters are read from the same date (never mixed)."""
+    weeks: dict[int, set[int]] = {tid: set() for tid in team_ids}
+    rows = session.execute(
+        select(LineupSlot.team_id, LineupSlot.week)
+        .where(LineupSlot.league_id == league_id, LineupSlot.team_id.in_(team_ids))
+        .distinct()
+    ).all()
+    for tid, wk in rows:
+        if tid in weeks:
+            weeks[tid].add(wk)
+    if not all(weeks.values()):
+        return None
+    common = set.intersection(*weeks.values())
+    return max(common) if common else None
+
+
+def _dedup_by_player(entries: list[dict]) -> list[dict]:
+    """Dedup by espn_player_id (prefer a starter row); entries without an id are kept as-is
+    so a lineup row missing a Player join is never silently dropped."""
+    by_pid: dict[int, dict] = {}
+    no_id: list[dict] = []
+    for e in entries:
+        pid = e["espn_player_id"]
+        if pid is None:
+            no_id.append(e)
+        elif pid not in by_pid or (e["is_starter"] and not by_pid[pid]["is_starter"]):
+            by_pid[pid] = e
+    return list(by_pid.values()) + no_id
+
+
+def _roster_from_lineup(session: Session, league_id: int, team_id: int, week: int) -> list[dict]:
+    rows = session.execute(
+        select(
+            LineupSlot.espn_player_id, LineupSlot.slot, LineupSlot.is_starter,
+            Player.name, Player.position, Player.proj_ros,
+        )
+        .join(Player, Player.espn_player_id == LineupSlot.espn_player_id, isouter=True)
+        .where(
+            LineupSlot.league_id == league_id, LineupSlot.team_id == team_id,
+            LineupSlot.week == week,
+        )
+    ).all()
+    entries = [
+        {"espn_player_id": pid, "name": name, "position": pos, "slot": slot,
+         "is_starter": bool(starter), "proj_ros": proj}
+        for pid, slot, starter, name, pos, proj in rows
+    ]
+    return _dedup_by_player(entries)
+
+
+def _roster_from_draft(session: Session, league_id: int, team_id: int) -> list[dict]:
+    rows = session.execute(
+        select(DraftPick.espn_player_id, Player.name, Player.position, Player.proj_ros)
+        .join(Player, Player.espn_player_id == DraftPick.espn_player_id, isouter=True)
+        .where(
+            DraftPick.league_id == league_id, DraftPick.team_id == team_id,
+            DraftPick.espn_player_id.is_not(None),
+        )
+        .order_by(DraftPick.overall)
+    ).all()
+    entries = [
+        {"espn_player_id": pid, "name": name, "position": pos, "slot": None,
+         "is_starter": False, "proj_ros": proj}
+        for pid, name, pos, proj in rows
+    ]
+    return _dedup_by_player(entries)
+
+
+def _unsupported_starting_slots(lineup_slots_json: dict | None) -> list[str]:
+    """Starting-slot names present in the league that this v1 doesn't model (superflex/OP,
+    IDP, RB/WR, WR/TE ...). Bench/IR/reserve are excluded — they aren't starting slots."""
+    out: list[str] = []
+    if not lineup_slots_json:
+        return out
+    for sid_str, count in lineup_slots_json.items():
+        try:
+            name = slot_name(int(sid_str))
+        except (ValueError, TypeError):
+            continue
+        if count and name not in _SUPPORTED_SLOTS and name not in _BENCH_SLOT_NAMES:
+            out.append(name)
+    return sorted(set(out))
+
+
+def _projection_coverage(players: list[dict]) -> float | None:
+    if not players:
+        return None
+    covered = sum(1 for p in players if p["proj_ros"] is not None)
+    return round(covered / len(players), 3)
+
+
+def _positional_facts(players: list[dict], req: dict[str, int]) -> dict[str, dict]:
+    """Deterministic per-position depth vs the league's starting requirements. FLEX demand is
+    allocated to the highest projected RB/WR/TE remaining after each position's dedicated slots
+    (nulls sort last; ties broken by espn_player_id) — no LLM math."""
+    def _key(p: dict) -> tuple:
+        return (p["proj_ros"] is None, -(p["proj_ros"] or 0.0), p["espn_player_id"] or 0)
+
+    by_pos: dict[str, list[dict]] = {}
+    for p in players:
+        if p["position"] in _KNOWN_POSITIONS:
+            by_pos.setdefault(p["position"], []).append(p)
+    for lst in by_pos.values():
+        lst.sort(key=_key)
+
+    dedicated = {pos: req.get(pos, 0) for pos in _DEDICATED_SLOTS}
+    remaining: list[tuple[str, dict]] = []
+    for pos in _FLEX_ELIGIBLE:
+        for p in by_pos.get(pos, [])[dedicated.get(pos, 0):]:
+            remaining.append((pos, p))
+    remaining.sort(key=lambda pp: _key(pp[1]))
+    flex_share = dict.fromkeys(_FLEX_ELIGIBLE, 0)
+    for pos, _p in remaining[: req.get("FLEX", 0)]:
+        flex_share[pos] += 1
+
+    out: dict[str, dict] = {}
+    for pos in sorted(_KNOWN_POSITIONS):
+        lst = by_pos.get(pos, [])
+        need = dedicated.get(pos, 0)
+        fshare = flex_share.get(pos, 0)
+        starters = need + fshare
+        projs = [p["proj_ros"] for p in lst if p["proj_ros"] is not None]
+        depth_projs = [p["proj_ros"] for p in lst[starters:] if p["proj_ros"] is not None]
+        out[pos] = {
+            "count": len(lst),
+            "starting_need": need,
+            "flex_share": fshare,
+            "proj_total": round(sum(projs), 1) if projs else None,
+            "surplus_count": len(lst) - starters,
+            "surplus_proj": round(sum(depth_projs), 1) if depth_projs else None,
+            "deficit": max(0, need - len(lst)),
+        }
+    return out
+
+
+def _team_roster_facts(team: Team, players: list[dict], req: dict[str, int]) -> dict:
+    return {
+        "name": team.name,
+        "projection_coverage": _projection_coverage(players),
+        "players": players,
+        "by_position": _positional_facts(players, req),
+    }
 
 
 def trade_finder_input(session: Session, league: League, me: Team, opponent: Team) -> dict:
+    """Grounded facts (Phase 22): the latest lineup-slots week both teams share, or a labeled
+    drafted-roster fallback. Rosters are never mixed across weeks; projections are never
+    invented; provenance/freshness is explicit."""
+    team_ids = [me.id, opponent.id]
+    req = _starting_slot_counts(league.lineup_slots_json)
+    week = _latest_common_lineup_week(session, league.id, team_ids)
+
+    if week is not None:
+        source, fallback = "lineup_snapshot", None
+        me_players = _roster_from_lineup(session, league.id, me.id, week)
+        opp_players = _roster_from_lineup(session, league.id, opponent.id, week)
+        newest = _newest_lineup_week(session, league.id)
+        snapshot_stale = newest is not None and week < newest
+    else:
+        me_players = _roster_from_draft(session, league.id, me.id)
+        opp_players = _roster_from_draft(session, league.id, opponent.id)
+        snapshot_stale = False
+        if me_players or opp_players:
+            source = "drafted_roster"
+            fallback = "no shared lineup snapshot; drafted rosters may not reflect current teams"
+        else:
+            source = "none"
+            fallback = "no lineup snapshot and no drafted roster — insufficient data"
+
+    # Conservative freshness: only trust projections when the latest sync completed cleanly.
+    projections_stale = league.last_sync_ok is not True
+
     return {
         "league": _league_facts(league),
-        "me": {
-            "name": me.name,
-            "pos_counts": _pos_counts(_picks_for_team(session, league.id, me.id)),
+        "lifecycle": league.lifecycle,
+        "roster_snapshot": {
+            "grounding_source": source,
+            "snapshot_week": week,
+            "fallback_reason": fallback,
+            "snapshot_stale": snapshot_stale,
+            "projections_stale": projections_stale,
+            "unsupported_slots": _unsupported_starting_slots(league.lineup_slots_json),
         },
-        "opponent": {
-            "name": opponent.name,
-            "pos_counts": _pos_counts(_picks_for_team(session, league.id, opponent.id)),
-        },
+        "slot_requirements": req,
+        "me": _team_roster_facts(me, me_players, req),
+        "opponent": _team_roster_facts(opponent, opp_players, req),
     }

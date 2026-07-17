@@ -297,6 +297,13 @@ export interface TradeFinderContent {
   note: string;
   opponent_team_id?: number;
   opponent_name?: string;
+  // Provenance (Phase 22): where the roster facts came from + freshness.
+  grounding_source?: "lineup_snapshot" | "drafted_roster" | "none";
+  snapshot_week?: number | null;
+  fallback_reason?: string | null;
+  snapshot_stale?: boolean;
+  projections_stale?: boolean;
+  my_projection_coverage?: number | null;
 }
 
 export interface AiReportEnvelope<T = Record<string, unknown>> {

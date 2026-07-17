@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -127,8 +128,17 @@ _TASK: dict[str, str] = {
         "moves, players, or numbers not present in the facts."
     ),
     "trade_finder": (
-        "Given my positional counts vs the opponent's, propose 1-2 trades that address a "
-        "positional surplus of mine for a deficit (and vice versa). Advisory only."
+        "Propose 1-2 trades that swap a positional surplus of mine for a deficit (and vice "
+        "versa), using the deterministic by_position surplus/deficit and each roster's players. "
+        "HARD RULES: every i_give entry MUST be one exact player name from me.players, and every "
+        "i_get entry MUST be one exact player name from opponent.players — copy the names "
+        "verbatim. One player per list item; never combine names like 'A + B'. Never name a "
+        "player not in the supplied rosters. roster_snapshot tells you the grounding: with "
+        "grounding_source='lineup_snapshot' reason from that week's roster + proj_ros; with "
+        "'drafted_roster' note these are drafted players who may have since moved. If "
+        "projections_stale is true or projection_coverage is low, lean on positional depth "
+        "(counts) and lower your confidence rather than citing exact projected points. If there "
+        "is no sound trade, return an empty proposals list with a short note. Advisory only."
     ),
 }
 
@@ -140,6 +150,66 @@ def compute_input_hash(kind: str, model: str, facts: dict) -> str:
         default=str,
     )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+# --- Phase 22: trade-finder player-name validation -------------------------
+def _norm_name(name: object) -> str:
+    """Normalize a player name for harmless case/whitespace differences (exact match only —
+    no substring/fuzzy matching)."""
+    return " ".join(str(name).strip().lower().split()) if name else ""
+
+
+def trade_name_tables(facts: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """Normalized→canonical name maps for (my roster, opponent roster) from the supplied facts."""
+    def table(players: list[dict]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for p in players or []:
+            nm = p.get("name")
+            key = _norm_name(nm)
+            if key:
+                out.setdefault(key, nm)
+        return out
+
+    return table((facts.get("me") or {}).get("players")), table(
+        (facts.get("opponent") or {}).get("players")
+    )
+
+
+def _resolve_names(items: object, table: dict[str, str]) -> list[str] | None:
+    """Map each item to its canonical DB name via exact normalized match; None if any item
+    is empty, not a real player on the supplied roster, or a combined string (which never
+    matches a single canonical name)."""
+    if not isinstance(items, list) or not items:
+        return None
+    out: list[str] = []
+    for it in items:
+        key = _norm_name(it)
+        if not key or key not in table:
+            return None
+        out.append(table[key])
+    return out
+
+
+def validate_trade_proposals(
+    content: dict, my_names: dict[str, str], opp_names: dict[str, str]
+) -> dict:
+    """Drop any proposal whose i_give/i_get names a player not on the supplied rosters; keep the
+    valid ones (canonicalized). If none survive, return an empty proposals list + advisory note.
+    Never fabricates players."""
+    kept: list[dict] = []
+    for p in content.get("proposals") or []:
+        give = _resolve_names(p.get("i_give"), my_names)
+        get = _resolve_names(p.get("i_get"), opp_names)
+        if give is None or get is None:
+            continue
+        kept.append({**p, "i_give": give, "i_get": get})
+    if not kept:
+        return {
+            **content,
+            "proposals": [],
+            "note": "No grounded trade found from the supplied rosters.",
+        }
+    return {**content, "proposals": kept}
 
 
 class AiService:
@@ -221,8 +291,13 @@ class AiService:
         facts: dict,
         force: bool = False,
         extra: dict | None = None,
+        post_validate: Callable[[dict], dict] | None = None,
     ) -> dict:
-        """Return the report content dict (cached when inputs unchanged)."""
+        """Return the report content dict (cached when inputs unchanged).
+
+        `post_validate` (Phase 22, used only by trade_finder) runs on the schema-validated
+        content before persistence — e.g. to drop trade proposals naming players absent from
+        the supplied rosters. Other report kinds pass None and are unaffected."""
         if not self.enabled:
             raise AiDisabledError()
         schema = SCHEMA_BY_KIND[kind]
@@ -246,6 +321,8 @@ class AiService:
         except ValidationError as exc:
             raise AiError(f"model output failed {kind} schema validation") from exc
         content = validated.model_dump(mode="json")
+        if post_validate is not None:
+            content = post_validate(content)
         if extra:
             content = {**content, **extra}
 

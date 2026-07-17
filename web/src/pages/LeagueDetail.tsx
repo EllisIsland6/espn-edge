@@ -856,7 +856,36 @@ function AiTab({ leagueId }: { leagueId: number }) {
   );
 }
 
-// Trade finder (Phase 21): pick an opponent, generate/regenerate, render trade proposals.
+// Roster-snapshot provenance chip for the Trade Finder (Phase 22). Backend-provided values.
+function TradeProvenance({ c }: { c: TradeFinderContent }) {
+  const chips: { text: string; tone: string }[] = [];
+  if (c.grounding_source === "lineup_snapshot") {
+    chips.push({
+      text: c.snapshot_week != null ? `Week ${c.snapshot_week} roster snapshot` : "Roster snapshot",
+      tone: "text-secondary",
+    });
+    if (c.snapshot_stale) chips.push({ text: "older snapshot", tone: "text-gold" });
+  } else if (c.grounding_source === "drafted_roster") {
+    chips.push({ text: "Drafted-roster fallback", tone: "text-gold" });
+  } else if (c.grounding_source === "none") {
+    chips.push({ text: "No roster data", tone: "text-red" });
+  }
+  if (c.projections_stale) chips.push({ text: "projections unconfirmed", tone: "text-gold" });
+  if (typeof c.my_projection_coverage === "number" && c.my_projection_coverage < 0.5) {
+    chips.push({ text: "low projection coverage", tone: "text-muted" });
+  }
+  return (
+    <>
+      {chips.map((ch, i) => (
+        <span key={i} className={`mono rounded bg-rowhover px-1.5 py-0.5 text-[10px] ${ch.tone}`}>
+          {ch.text}
+        </span>
+      ))}
+    </>
+  );
+}
+
+// Trade finder (Phase 21/22): pick an opponent, generate/regenerate, render trade proposals.
 // Advisory only — the app never executes trades. React formats backend content only.
 function TradeFinderCard({ leagueId }: { leagueId: number }) {
   const [teams, setTeams] = useState<TeamOut[] | null>(null);
@@ -950,8 +979,11 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
         <div className="mt-3">
           {has && c ? (
             <div>
-              <div className="mono text-[11px] uppercase tracking-wide text-muted">
-                vs {c.opponent_name ?? opponents.find((t) => t.id === opp)?.name ?? "opponent"}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mono text-[11px] uppercase tracking-wide text-muted">
+                  vs {c.opponent_name ?? opponents.find((t) => t.id === opp)?.name ?? "opponent"}
+                </span>
+                <TradeProvenance c={c} />
               </div>
               {c.proposals.length === 0 ? (
                 <p className="mt-2 text-sm text-muted">No trade proposed.</p>
@@ -972,8 +1004,10 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
             <p className="text-sm text-muted">Not generated yet for this opponent.</p>
           )}
           <p className="mt-3 text-[11px] leading-relaxed text-muted">
-            Advisory only — the app never executes trades on ESPN. This v1 grounds ideas on
-            draft-time positional counts, which may not fully reflect current in-season rosters.
+            Advisory only — the app never executes trades on ESPN.
+            {has && c?.grounding_source === "lineup_snapshot"
+              ? " Grounded on each team's latest shared roster snapshot and projections."
+              : " This falls back to drafted-roster grounding, which may not reflect current rosters."}
           </p>
         </div>
       )}
