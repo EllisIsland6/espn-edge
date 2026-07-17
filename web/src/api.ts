@@ -287,6 +287,18 @@ export interface WeeklyRecapContent {
   week?: number;
 }
 
+export interface TradeProposal {
+  i_give: string[];
+  i_get: string[];
+  rationale: string;
+}
+export interface TradeFinderContent {
+  proposals: TradeProposal[];
+  note: string;
+  opponent_team_id?: number;
+  opponent_name?: string;
+}
+
 export interface AiReportEnvelope<T = Record<string, unknown>> {
   enabled: boolean;
   kind: string;
@@ -413,4 +425,13 @@ export const generateWeeklyRecap = (id: number, week: number, force = false) =>
   send<AiReportEnvelope<WeeklyRecapContent>>(
     "POST",
     `/api/leagues/${id}/ai/weekly-recap?week=${week}&force=${force}`,
+  );
+export const getTradeFinder = (id: number, opponentTeamId: number) =>
+  get<AiReportEnvelope<TradeFinderContent>>(
+    `/api/leagues/${id}/ai/trade-finder?opponent_team_id=${opponentTeamId}`,
+  );
+export const generateTradeFinder = (id: number, opponentTeamId: number, force = false) =>
+  send<AiReportEnvelope<TradeFinderContent>>(
+    "POST",
+    `/api/leagues/${id}/ai/trade-finder?opponent_team_id=${opponentTeamId}&force=${force}`,
   );

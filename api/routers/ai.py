@@ -233,7 +233,43 @@ def generate_weekly_recap(
     )
 
 
-# --- Trade finder ----------------------------------------------------------
+# --- Trade finder (per opponent; Phase 21) ---------------------------------
+def _valid_opponent(session: Session, league: League, opponent_team_id: int) -> Team | None:
+    """The opponent team iff it belongs to this league and is not the detected my-team.
+    Cross-league ids, unknown ids, and the user's own team all resolve to None."""
+    opponent = session.get(Team, opponent_team_id)
+    if opponent is None or opponent.league_id != league.id or opponent.is_me:
+        return None
+    return opponent
+
+
+_TRADE_BAD_TARGET = "need a detected 'my team' and a valid opponent team in this league"
+
+
+@router.get("/api/leagues/{league_id}/ai/trade-finder", response_model=AiReportEnvelope)
+def get_trade_finder(
+    league_id: int, opponent_team_id: int = Query(...), session: Session = Depends(get_session)
+) -> AiReportEnvelope:
+    league = _get_league(session, league_id)
+    svc = AiService(session)
+    if not svc.enabled:
+        return AiReportEnvelope(enabled=False, kind=KIND_TRADE_FINDER)
+    me = _my_team(session, league)
+    opponent = _valid_opponent(session, league, opponent_team_id)
+    if me is None or opponent is None:
+        return AiReportEnvelope(enabled=True, kind=KIND_TRADE_FINDER, error=_TRADE_BAD_TARGET)
+    # Only the report tagged for THIS opponent — legacy/unscoped reports are ignored.
+    row = svc.latest_for_opponent(league.id, KIND_TRADE_FINDER, opponent.id)
+    if row is None:
+        return AiReportEnvelope(enabled=True, kind=KIND_TRADE_FINDER, content=None)
+    facts = ai_inputs.trade_finder_input(session, league, me, opponent)
+    fresh = compute_input_hash(KIND_TRADE_FINDER, row.model or STANDARD_MODEL, facts)
+    return AiReportEnvelope(
+        enabled=True, kind=KIND_TRADE_FINDER, model=row.model,
+        content=row.content_json, created_at=row.created_at, stale=row.input_hash != fresh,
+    )
+
+
 @router.post("/api/leagues/{league_id}/ai/trade-finder", response_model=AiReportEnvelope)
 def generate_trade_finder(
     league_id: int, opponent_team_id: int = Query(...), force: bool = Query(False),
@@ -241,16 +277,35 @@ def generate_trade_finder(
 ) -> AiReportEnvelope:
     league = _get_league(session, league_id)
     svc = AiService(session)
+    if not svc.enabled:
+        return AiReportEnvelope(enabled=False, kind=KIND_TRADE_FINDER)
     me = _my_team(session, league)
-    opponent = session.get(Team, opponent_team_id)
-    if svc.enabled and (me is None or opponent is None):
-        return AiReportEnvelope(enabled=True, kind=KIND_TRADE_FINDER,
-                                error="need both a detected 'my team' and a valid opponent")
-    facts = (
-        ai_inputs.trade_finder_input(session, league, me, opponent)
-        if (svc.enabled and me and opponent) else {}
-    )
-    env = _single(svc, league, kind=KIND_TRADE_FINDER, scope="team",
-                  model=STANDARD_MODEL, facts=facts, generate=True, force=force)
+    opponent = _valid_opponent(session, league, opponent_team_id)
+    if me is None or opponent is None:
+        return AiReportEnvelope(enabled=True, kind=KIND_TRADE_FINDER, error=_TRADE_BAD_TARGET)
+
+    facts = ai_inputs.trade_finder_input(session, league, me, opponent)
+    fresh = compute_input_hash(KIND_TRADE_FINDER, STANDARD_MODEL, facts)
+    existing = svc.latest_for_opponent(league.id, KIND_TRADE_FINDER, opponent.id)
+    # Reuse ONLY a report already tagged for this opponent whose facts match — never a
+    # legacy/unscoped report that happens to share the input_hash (Phase 21 cache edge case).
+    if not force and existing is not None and existing.input_hash == fresh:
+        content, row = existing.content_json, existing
+    else:
+        try:
+            # force=True skips generate's hash-only cache so a legacy row can't be served; the
+            # store step overwrites-or-creates a report correctly tagged with this opponent.
+            content = svc.generate(
+                kind=KIND_TRADE_FINDER, scope="team", league_id=league.id,
+                model=STANDARD_MODEL, facts=facts, force=True,
+                extra={"opponent_team_id": opponent.id, "opponent_name": opponent.name},
+            )
+        except AiError as exc:
+            session.commit()
+            return AiReportEnvelope(enabled=True, kind=KIND_TRADE_FINDER, error=str(exc))
+        row = svc.latest_for_opponent(league.id, KIND_TRADE_FINDER, opponent.id)
     session.commit()
-    return env
+    return AiReportEnvelope(
+        enabled=True, kind=KIND_TRADE_FINDER, model=row.model if row else STANDARD_MODEL,
+        content=content, created_at=row.created_at if row else None, stale=False,
+    )

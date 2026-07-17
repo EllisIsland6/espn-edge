@@ -186,16 +186,29 @@ class AiService:
             )
         )
 
-    def latest_for_week(self, league_id: int, kind: str, week: int) -> AiReport | None:
-        """Newest stored report of `kind` whose content_json carries this `week` (Phase 20).
+    def _latest_where_content(
+        self, league_id: int, kind: str, key: str, value: object
+    ) -> AiReport | None:
+        """Newest stored report of `kind` whose content_json[key] == value (Phase 20/21).
 
-        Week is persisted in content_json (via generate's `extra`), so no schema column is
-        needed. all_reports is newest-first, so the first match is the newest for that week —
-        never another week's report the way plain `latest(kind)` would."""
+        The scope key (week / opponent_team_id) is persisted in content_json via generate's
+        `extra`, so no schema column is needed. all_reports is newest-first, so the first match
+        is the newest for that scope — never another scope's report the way plain `latest(kind)`
+        would. Legacy reports lacking the key are skipped (never returned for a scope)."""
         for row in self.all_reports(league_id, kind):
-            if (row.content_json or {}).get("week") == week:
+            if (row.content_json or {}).get(key) == value:
                 return row
         return None
+
+    def latest_for_week(self, league_id: int, kind: str, week: int) -> AiReport | None:
+        """Newest stored report for a specific week (Phase 20)."""
+        return self._latest_where_content(league_id, kind, "week", week)
+
+    def latest_for_opponent(
+        self, league_id: int, kind: str, opponent_team_id: int
+    ) -> AiReport | None:
+        """Newest stored report for a specific trade-finder opponent (Phase 21)."""
+        return self._latest_where_content(league_id, kind, "opponent_team_id", opponent_team_id)
 
     # ---- generation --------------------------------------------------------
     def generate(

@@ -267,6 +267,14 @@ right week (recaps carry their `week` in `content_json`; no DB schema change), a
 still uses the production Anthropic path only when a key is set. See
 **[docs/phase-20-weekly-recap-ui.md](docs/phase-20-weekly-recap-ui.md)**.
 
+**Phase 21** adds the **Trade Finder** card (the last backend-only AI kind) with an opponent
+picker and Generate/Regenerate, rendering each proposal's give/get/rationale and the advisory
+note. A per-opponent `GET .../ai/trade-finder?opponent_team_id=N` retrieves the right opponent
+(proposals carry `opponent_team_id` in `content_json`; legacy/unscoped reports are ignored and
+never reused as a cache hit; self / cross-league ids are rejected). **Advisory only — the app
+never executes trades.** See
+**[docs/phase-21-trade-finder-ui.md](docs/phase-21-trade-finder-ui.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or

@@ -18,8 +18,11 @@ import {
   getLeagueMyEdge,
   getLeagueOverview,
   getLeagueSoftness,
+  getLeagueTeams,
   getWeeklyRecap,
   generateWeeklyRecap,
+  getTradeFinder,
+  generateTradeFinder,
   syncLeague,
   type AdvantageVerdictContent,
   type AiReportEnvelope,
@@ -35,6 +38,7 @@ import {
   type LeagueOverview,
   type MatchupOut,
   type TeamOut,
+  type TradeFinderContent,
   type TransactionOut,
   type WeeklyRecapContent,
 } from "../api";
@@ -847,7 +851,139 @@ function AiTab({ leagueId }: { leagueId: number }) {
       </AiCard>
 
       <WeeklyRecapCard leagueId={leagueId} />
+      <TradeFinderCard leagueId={leagueId} />
     </div>
+  );
+}
+
+// Trade finder (Phase 21): pick an opponent, generate/regenerate, render trade proposals.
+// Advisory only — the app never executes trades. React formats backend content only.
+function TradeFinderCard({ leagueId }: { leagueId: number }) {
+  const [teams, setTeams] = useState<TeamOut[] | null>(null);
+  const [opp, setOpp] = useState<number | null>(null);
+  const [env, setEnv] = useState<AiReportEnvelope<TradeFinderContent> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    getLeagueTeams(leagueId)
+      .then((ts) => {
+        const opponents = ts.filter((t) => !t.is_me);
+        setTeams(ts);
+        setOpp(opponents.length ? opponents[0].id : null);
+      })
+      .catch((e) => setErr(String(e)));
+  }, [leagueId]);
+
+  useEffect(() => {
+    if (opp == null) {
+      setEnv(null);
+      return;
+    }
+    // Clear the previous opponent's result while the new one loads (no stale flash).
+    setEnv(null);
+    let active = true;
+    getTradeFinder(leagueId, opp)
+      .then((e) => { if (active) setEnv(e); })
+      .catch(() => { if (active) setEnv(null); });
+    return () => { active = false; };
+  }, [leagueId, opp]);
+
+  async function generate() {
+    if (opp == null) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setEnv(await generateTradeFinder(leagueId, opp, !!env?.content));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (teams == null) return <Panel className="p-4"><Spinner /></Panel>;
+  const opponents = teams.filter((t) => !t.is_me);
+  const hasMe = teams.some((t) => t.is_me);
+  const has = !!env?.content;
+  const c = env?.content;
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Trade finder</h3>
+        <div className="flex items-center gap-2">
+          {hasMe && opponents.length > 0 && (
+            <select
+              value={opp ?? ""}
+              onChange={(e) => setOpp(Number(e.target.value))}
+              className="max-w-[150px] truncate rounded-md border border-line bg-panel px-2 py-1 text-xs text-primary"
+            >
+              {opponents.map((t) => (
+                <option key={t.id} value={t.id}>{t.name ?? `Team ${t.espn_team_id}`}</option>
+              ))}
+            </select>
+          )}
+          {has && env?.stale && (
+            <span className="mono text-[10px] uppercase tracking-wide text-gold">inputs changed</span>
+          )}
+          <Button
+            variant={has ? "secondary" : "primary"}
+            onClick={generate}
+            disabled={busy || opp == null}
+          >
+            {busy ? "Generating…" : has ? "Regenerate" : "Generate"}
+          </Button>
+        </div>
+      </div>
+      {err && <div className="mt-2"><ErrorNote message={err} /></div>}
+      {env?.error && <div className="mt-2"><ErrorNote message={env.error} /></div>}
+      {!hasMe ? (
+        <div className="mt-3">
+          <EmptyState
+            title="No 'my team' detected"
+            hint="Trade ideas need your team in this league (add the owning account and re-sync)."
+          />
+        </div>
+      ) : opponents.length === 0 ? (
+        <div className="mt-3"><EmptyState title="No opponents to trade with yet" /></div>
+      ) : (
+        <div className="mt-3">
+          {has && c ? (
+            <div>
+              <div className="mono text-[11px] uppercase tracking-wide text-muted">
+                vs {c.opponent_name ?? opponents.find((t) => t.id === opp)?.name ?? "opponent"}
+              </div>
+              {c.proposals.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">No trade proposed.</p>
+              ) : (
+                <ul className="mt-2 space-y-3">
+                  {c.proposals.map((p, i) => (
+                    <li key={i} className="rounded-md border border-line p-2">
+                      <div className="text-xs"><span className="text-muted">I give: </span><span className="text-red">{p.i_give.join(", ") || "—"}</span></div>
+                      <div className="text-xs"><span className="text-muted">I get: </span><span className="text-green">{p.i_get.join(", ") || "—"}</span></div>
+                      <p className="mt-1 text-sm leading-relaxed text-secondary">{p.rationale}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {c.note && <p className="mt-2 text-[11px] italic text-muted">{c.note}</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-muted">Not generated yet for this opponent.</p>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted">
+            Advisory only — the app never executes trades on ESPN. This v1 grounds ideas on
+            draft-time positional counts, which may not fully reflect current in-season rosters.
+          </p>
+        </div>
+      )}
+      {has && env?.model && (
+        <div className="mono mt-3 text-[10px] text-muted">
+          {env.model}
+          {env.created_at ? ` · ${relTime(env.created_at)}` : ""}
+        </div>
+      )}
+    </Panel>
   );
 }
 

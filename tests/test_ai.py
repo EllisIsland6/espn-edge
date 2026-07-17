@@ -545,3 +545,143 @@ def test_latest_for_week_filters_by_week(db_session):
     assert svc.latest_for_week(lg.id, "weekly_recap", 1).content_json["week"] == 1
     assert svc.latest_for_week(lg.id, "weekly_recap", 2).content_json["week"] == 2
     assert svc.latest_for_week(lg.id, "weekly_recap", 3) is None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 21: trade finder per-opponent GET/POST (offline, fake LLM)
+# --------------------------------------------------------------------------- #
+def _opponent_internal_ids(league_id: int) -> dict[int, int]:
+    from sqlalchemy import select as _select
+
+    with SessionLocal() as s:
+        return {
+            t.espn_team_id: t.id
+            for t in s.scalars(_select(Team).where(Team.league_id == league_id))
+        }
+
+
+def test_api_trade_finder_get_returns_correct_opponent(synced_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    ids = _opponent_internal_ids(synced_league_id)
+    a, b = ids[2], ids[3]
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+
+    pa = client.post(f"{base}?opponent_team_id={a}").json()
+    pb = client.post(f"{base}?opponent_team_id={b}").json()
+    assert pa["content"]["opponent_team_id"] == a and pb["content"]["opponent_team_id"] == b
+
+    # GET must return the requested opponent — never another opponent's proposal.
+    ga = client.get(f"{base}?opponent_team_id={a}").json()
+    gb = client.get(f"{base}?opponent_team_id={b}").json()
+    assert ga["content"]["opponent_team_id"] == a and ga["content"]["opponent_name"]
+    assert gb["content"]["opponent_team_id"] == b
+
+
+def test_api_trade_finder_caches_per_opponent(synced_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    ids = _opponent_internal_ids(synced_league_id)
+    a, b = ids[2], ids[3]
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+
+    client.post(f"{base}?opponent_team_id={a}")
+    assert FakeLlmClient.calls == 1
+    client.post(f"{base}?opponent_team_id={a}")  # same opponent, no force → cache hit
+    assert FakeLlmClient.calls == 1
+    client.post(f"{base}?opponent_team_id={b}")  # different opponent → separate call
+    assert FakeLlmClient.calls == 2
+    client.post(f"{base}?opponent_team_id={a}&force=true")  # force regenerates
+    assert FakeLlmClient.calls == 3
+
+
+def test_api_trade_finder_ignores_legacy_unscoped_report(synced_league_id, monkeypatch):
+    from api.ai_config import KIND_TRADE_FINDER, STANDARD_MODEL
+    from api.services.ai import compute_input_hash
+    from api.services.ai_inputs import trade_finder_input
+
+    _enable_fake(monkeypatch)
+    ids = _opponent_internal_ids(synced_league_id)
+    a = ids[2]
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+
+    # Insert a pre-Phase-21 legacy report: same input_hash, but content lacks opponent_team_id.
+    with SessionLocal() as s:
+        lg = s.get(League, synced_league_id)
+        me = s.get(Team, lg.my_team_id)
+        opp = s.get(Team, a)
+        facts = trade_finder_input(s, lg, me, opp)
+        h = compute_input_hash(KIND_TRADE_FINDER, STANDARD_MODEL, facts)
+        s.add(AiReport(league_id=lg.id, kind=KIND_TRADE_FINDER, scope="team", input_hash=h,
+                       model=STANDARD_MODEL, content_json={"proposals": [], "note": "legacy"}))
+        s.commit()
+
+    # GET must not return the legacy/unscoped report for this opponent.
+    assert client.get(f"{base}?opponent_team_id={a}").json()["content"] is None
+
+    # POST must not reuse the legacy cache entry (same hash) → it generates a tagged report.
+    FakeLlmClient.calls = 0
+    p = client.post(f"{base}?opponent_team_id={a}").json()
+    assert FakeLlmClient.calls == 1
+    assert p["content"]["opponent_team_id"] == a and p["content"]["note"] != "legacy"
+
+
+def test_api_trade_finder_stale_is_per_opponent(synced_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    FakeLlmClient.invalid = False
+    _enable_fake(monkeypatch)
+    ids = _opponent_internal_ids(synced_league_id)
+    a, b = ids[2], ids[3]
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+
+    client.post(f"{base}?opponent_team_id={a}")
+    client.post(f"{base}?opponent_team_id={b}")
+    assert client.get(f"{base}?opponent_team_id={a}").json()["stale"] is False
+
+    # Change opponent A's facts (its name feeds trade_finder_input) → A's recap is stale, B not.
+    with SessionLocal() as s:
+        s.get(Team, a).name = "Renamed Rival"
+        s.commit()
+    assert client.get(f"{base}?opponent_team_id={a}").json()["stale"] is True
+    assert client.get(f"{base}?opponent_team_id={b}").json()["stale"] is False
+
+
+def test_api_trade_finder_rejects_self_and_cross_league(synced_league_id, monkeypatch):
+    FakeLlmClient.calls = 0
+    _enable_fake(monkeypatch)
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+    with SessionLocal() as s:
+        my_id = s.get(League, synced_league_id).my_team_id
+
+    # Own team as opponent → error, no content, no generation.
+    r_self = client.post(f"{base}?opponent_team_id={my_id}").json()
+    assert r_self["error"] and r_self["content"] is None
+    assert client.get(f"{base}?opponent_team_id={my_id}").json()["error"]
+    # Unknown / cross-league team id → error, no generation.
+    assert client.post(f"{base}?opponent_team_id=999999").json()["error"]
+    assert FakeLlmClient.calls == 0
+
+
+def test_api_trade_finder_disabled_without_key(synced_league_id, monkeypatch):
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "")
+    ids = _opponent_internal_ids(synced_league_id)
+    a = ids[2]
+    base = f"/api/leagues/{synced_league_id}/ai/trade-finder"
+    g = client.get(f"{base}?opponent_team_id={a}")
+    p = client.post(f"{base}?opponent_team_id={a}")
+    assert g.status_code == 200 and g.json()["enabled"] is False
+    assert p.status_code == 200 and p.json()["enabled"] is False
+
+
+def test_latest_for_opponent_filters_by_opponent(db_session):
+    lg = _league(db_session)
+    svc = AiService(db_session, client=FakeLlmClient())
+    svc.generate(kind="trade_finder", scope="team", league_id=lg.id, model="m",
+                 facts={"o": 1}, extra={"opponent_team_id": 11, "opponent_name": "A"})
+    svc.generate(kind="trade_finder", scope="team", league_id=lg.id, model="m",
+                 facts={"o": 2}, extra={"opponent_team_id": 22, "opponent_name": "B"})
+    assert svc.latest_for_opponent(lg.id, "trade_finder", 11).content_json["opponent_team_id"] == 11
+    assert svc.latest_for_opponent(lg.id, "trade_finder", 22).content_json["opponent_team_id"] == 22
+    assert svc.latest_for_opponent(lg.id, "trade_finder", 33) is None

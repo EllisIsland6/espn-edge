@@ -29,7 +29,23 @@
   Phase 17 v1 (Portfolio Board Edge Index transition),
   Phase 18 v1 (AI grounding uses the Edge Index model),
   Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers),
-  Phase 20 v1 (weekly recap panel in the AI Brief) implemented.
+  Phase 20 v1 (weekly recap panel in the AI Brief),
+  Phase 21 v1 (Trade Finder panel in the AI Brief) implemented.
+- Phase 21: trade_finder is now per-opponent + in the UI. routers/ai.py adds GET
+  /api/leagues/{id}/ai/trade-finder?opponent_team_id=N and POST stores
+  extra={"opponent_team_id","opponent_name"} in content_json; AiService.latest_for_opponent
+  (shares _latest_where_content with latest_for_week) filters by content_json.opponent_team_id
+  so GET/POST never return another opponent's report and never a legacy/unscoped one.
+  _valid_opponent rejects self/cross-league/unknown ids (error envelope, no generation).
+  Legacy-cache edge case handled: POST reuses only a report already tagged for this opponent
+  with a matching input_hash, else generate(force=True, extra=...) (skips the hash-only cache
+  so a legacy row sharing the hash can't be served; stores a tagged report). Frontend AI Brief
+  adds a TradeFinderCard (opponent picker from getLeagueTeams excluding is_me; clears prior
+  opponent's result while loading; renders give/get/rationale + advisory note; v1 draft-time
+  grounding caveat in copy). No DB/schema/SCHEMA_VERSION change, no grounding/facts/prompt/
+  ai_schemas change; production AnthropicLlmClient path intact; tests offline (fake LLM; new
+  Playwright AI-enabled trade-finder). Advisory only — never executes trades. Contract:
+  docs/phase-21-trade-finder-ui.md.
 - Phase 20: weekly recap is now per-week + in the UI. routers/ai.py adds GET
   /api/leagues/{id}/ai/weekly-recap?week=N and POST passes extra={"week":week} so the week is
   stored in content_json; AiService.latest_for_week filters by content_json.week so GET/POST

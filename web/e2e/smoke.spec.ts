@@ -169,6 +169,7 @@ async function mockApi(page: Page) {
   await page.route("**/api/leagues", (r) => json(r, [LEAGUE_1]));
   await page.route("**/api/accounts", (r) => json(r, []));
   await page.route("**/api/leagues/1/overview", (r) => json(r, OVERVIEW));
+  await page.route("**/api/leagues/1/teams", (r) => json(r, OVERVIEW.teams));
   await page.route("**/api/leagues/1/ai/league-brief", (r) => json(r, AI_DISABLED("league_brief")));
   await page.route("**/api/leagues/1/ai/advantage-verdict", (r) =>
     json(r, AI_DISABLED("advantage_verdict")));
@@ -359,6 +360,38 @@ test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)"
   await expect(page.getByText("Rival lost despite a top-3 all-play week")).toBeVisible();
   await expect(page.getByText("Waiver highlights")).toBeVisible();
   await expect(page.getByText("Main added Star Runningback ($17)")).toBeVisible();
+});
+
+test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)", async ({ page }) => {
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
+  // Opponent options come from the team list; trade-finder GET/POST return the proposal.
+  await page.route("**/api/leagues/1/ai/trade-finder**", (r) =>
+    json(r, {
+      enabled: true, kind: "trade_finder", model: "claude-sonnet-5", created_at: NOW, stale: false,
+      content: {
+        opponent_team_id: 2, opponent_name: "Rival",
+        proposals: [
+          { i_give: ["My RB2"], i_get: ["Their WR1"], rationale: "You have RB depth; they need a back." },
+        ],
+        note: "Advisory only — the app never executes trades on ESPN.",
+      },
+      error: null,
+    }));
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await expect(page.getByRole("heading", { name: "Trade finder" })).toBeVisible();
+  await expect(page.getByText("vs Rival")).toBeVisible();
+  await expect(page.getByText("My RB2")).toBeVisible();
+  await expect(page.getByText("Their WR1")).toBeVisible();
+  await expect(page.getByText("You have RB depth; they need a back.")).toBeVisible();
+  // exact: the model note is a prefix of the static advisory copy below it.
+  await expect(
+    page.getByText("Advisory only — the app never executes trades on ESPN.", { exact: true }),
+  ).toBeVisible();
+  // Exercise the POST path too (mock returns the same proposal).
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByText("You have RB depth; they need a back.")).toBeVisible();
 });
 
 test("status page renders health/AI/account/league counts without leaking secrets", async ({ page }) => {
