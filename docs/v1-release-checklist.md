@@ -34,8 +34,10 @@ PYTHONDONTWRITEBYTECODE=1 ANTHROPIC_API_KEY= ESPN_SWID= ESPN_S2= \
   .venv/bin/python -m pytest -p no:cacheprovider
 .venv/bin/python -m ruff check api tests
 
-# frontend — run in one subshell so the cd persists across all steps
+# frontend — one subshell so the cd persists; set -e so an earlier failure
+# aborts immediately instead of being masked by a later successful command.
 (
+  set -e
   cd web
   npm ci                    # must exit 0 (mirrors CI)
   npm run lint              # tsc --noEmit
@@ -44,9 +46,13 @@ PYTHONDONTWRITEBYTECODE=1 ANTHROPIC_API_KEY= ESPN_SWID= ESPN_S2= \
 )
 ```
 
+Without `set -e`, a subshell reports only its last command's exit status, so a
+failing `npm ci`/`lint`/`build` can be hidden by a passing later step and the gate
+falsely reads green. `set -e` makes the block abort on the first failure.
+
 Expected: **182 pytest passed**, ruff clean, tsc clean, build ok, **18 Playwright
-passed**. Do not run `npm audit fix` — existing audit advisories are out of scope
-(see §4 for the recorded audit ground truth).
+passed**. Do not run `npm audit fix` — dependency remediation is handled explicitly
+(see §4 for the verified audit ground truth).
 
 ## 3. Disposable fresh-install smoke
 From a **clean, disposable checkout** (temp dir or fresh clone) with:
@@ -73,15 +79,25 @@ git status --short                     # only the intended files changed
 - Confirm account API responses stay credential-safe (validation errors are redacted;
   `AccountOut` exposes only `id`, `label`, `status`, `created_at`).
 
-### Dependency-audit ground truth (recorded, not remediated)
-- Full `npm audit` (in `web/`) currently reports **2 vulnerabilities — 1 high and 1
-  moderate** — all in the **Vite/esbuild development toolchain** (dev server / build),
-  not shipped runtime code.
-- `npm audit --omit=dev` currently reports **0 production vulnerabilities**.
-- **Do not run `npm audit fix`** (or `--force`) as part of this release — a dependency
-  upgrade is out of scope here.
-- Accepting the development-server residual risk **or** authorizing a separate dependency
-  upgrade to clear these advisories each requires **explicit human approval**.
+### Dependency-audit ground truth (remediated)
+- Both `npm audit` (full, dev + prod) and `npm audit --omit=dev` (in `web/`) report
+  **0 vulnerabilities** — verified after the focused upgrade below.
+- **Context that prompted the fix:** the prior advisories (1 high Vite path-traversal /
+  `server.fs.deny` bypass, 1 moderate esbuild dev-server request exposure) sat in the
+  Vite/esbuild toolchain. Although npm marks them dev-only and they are absent from the
+  built browser bundle, **Vite is the dev server launched by `make dev` / `make web`**, so
+  it is part of the app's documented local execution path — not risk-free "dev noise."
+- **Remediation applied:** `vite` `^5.4.11` → `^6.4.3` (installs `vite@6.4.3`, which pulls
+  `esbuild@0.25.12`). This is the smallest peer-compatible upgrade: `@vitejs/plugin-react`
+  (peer `… || ^6 || ^7`) and `@tailwindcss/vite` (peer `… || ^6 || ^7 || ^8`) both already
+  support Vite 6, so **no plugin changes were needed**. `vite.config.ts` is unchanged and
+  still binds `host: "127.0.0.1"`.
+- **Rejected alternative:** npm's `audit fix` target `vite@8.1.5` is an **unsupported peer
+  combination** — no published `@vitejs/plugin-react` (through 5.1.0) supports Vite 8 — so
+  `npm audit fix --force` would break the build. Do not run it.
+- **Gate:** both `npm audit` and `npm audit --omit=dev` must report **no high or moderate
+  vulnerabilities**; any future dependency upgrade beyond this focused fix requires
+  **explicit human approval**.
 
 ## 5. Explicitly human-approved live ESPN smoke
 **Do not run without explicit human approval. Uses real cookies + network — not part of
