@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ESPN Edge", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ESPN Edge", version="1.0.0", lifespan=lifespan)
 
 # Vite dev server talks to the API cross-origin in dev only.
 _settings = get_settings()

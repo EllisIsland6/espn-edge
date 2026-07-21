@@ -5,9 +5,9 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0–9 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
-> League detail UI, deterministic Edge analytics, the optional backend-only AI layer,
-> Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
+> Status: **Phases 0–22 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
+> League detail UI, deterministic Edge analytics, the optional AI layer (surfaced through
+> in-app AI panels), Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
 > reliability (re-auth + sync diagnostics), Phase 8 beta-readiness polish (read-only
 > System Status page + a [live-smoke runbook](docs/live-smoke.md)), and **Phase 9 Edge
 > Score [component breakdown](docs/phase-9-edge-components.md) in League detail, and
@@ -22,7 +22,13 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 > — how exploitable your opponents are, Phase 16 [full Edge Index
 > v1](docs/phase-16-edge-index-composite.md) — 0.5×MyEdge + 0.5×LeagueSoftness, and
 > **Phase 17 [Portfolio Board Edge Index transition](docs/phase-17-portfolio-edge-index-transition.md)
-> — Edge Index is now the board's primary score (legacy `edge_score` kept alongside).**
+> — Edge Index is now the board's primary score (legacy `edge_score` kept alongside)**, Phase 18
+> [AI Edge Index grounding](docs/phase-18-ai-edge-index-grounding.md) (brief + verdict grounded on
+> the Edge Index model), Phase 19 [AI weekly-recap grounding](docs/phase-19-ai-weekly-recap-grounding.md)
+> (recap grounded on all-play, luck & waivers), Phase 20 [weekly-recap panel](docs/phase-20-weekly-recap-ui.md)
+> in the AI Brief, Phase 21 [Trade Finder panel](docs/phase-21-trade-finder-ui.md) (per-opponent, in-app),
+> and **Phase 22 [Trade Finder roster-snapshot grounding](docs/phase-22-trade-finder-grounding.md)
+> — grounded on the latest shared lineup snapshot with player-name validation.**
 
 ## Quick start
 
@@ -239,7 +245,7 @@ gained `edge_index_*` columns; JSON already carried them). No metric computation
 ## AI analysis (optional)
 
 The AI layer (draft recaps, league difficulty brief, advantage verdict, weekly recap,
-trade finder) is **backend-only and additive** — the app is fully functional without it.
+trade finder) is **optional and additive, surfaced through in-app AI panels** — the app is fully functional without it.
 Set `ANTHROPIC_API_KEY` in `.env` to enable it; with no key, AI panels show a "connect a
 key" empty state and the endpoints return `enabled:false` (never an error). Reports are
 grounded on DB facts only, validated against pydantic schemas, and cached by input hash
@@ -267,7 +273,7 @@ right week (recaps carry their `week` in `content_json`; no DB schema change), a
 still uses the production Anthropic path only when a key is set. See
 **[docs/phase-20-weekly-recap-ui.md](docs/phase-20-weekly-recap-ui.md)**.
 
-**Phase 21** adds the **Trade Finder** card (the last backend-only AI kind) with an opponent
+**Phase 21** adds the **Trade Finder** card (the final AI report kind) with an opponent
 picker and Generate/Regenerate, rendering each proposal's give/get/rationale and the advisory
 note. A per-opponent `GET .../ai/trade-finder?opponent_team_id=N` retrieves the right opponent
 (proposals carry `opponent_team_id` in `content_json`; legacy/unscoped reports are ignored and
