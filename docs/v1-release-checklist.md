@@ -22,27 +22,37 @@ approval** and are **not** executed as part of a normal release-candidate pass.
   frontend features, and dependency upgrades. None of these change to ship v1.0.0.
 
 ## 2. Offline automated gates
-All must pass locally with no network access, using the existing fakes/mocks:
+All must pass locally, using the existing fakes/mocks. Note on network:
+- The **automated tests** make no live ESPN or Anthropic calls — they run on
+  fixtures/fakes (`tests/fixtures/`, `FakeLlmClient`) and Playwright `/api` mocks.
+- **Dependency installation** (`npm ci`) may reach the npm registry or its local
+  cache; that is the only step that may use the network.
 
 ```bash
-# backend — offline; empty creds prove no live ESPN/Anthropic dependency
+# backend — empty creds prove no live ESPN/Anthropic dependency
 PYTHONDONTWRITEBYTECODE=1 ANTHROPIC_API_KEY= ESPN_SWID= ESPN_S2= \
   .venv/bin/python -m pytest -p no:cacheprovider
 .venv/bin/python -m ruff check api tests
 
-# frontend — npm ci must exit 0 (mirrors CI); the rest are the standard gates
-cd web && npm ci
-cd web && npm run lint      # tsc --noEmit
-cd web && npm run build
-cd web && npm run e2e       # Playwright smoke; mocks /api, no ESPN/Anthropic
+# frontend — run in one subshell so the cd persists across all steps
+(
+  cd web
+  npm ci                    # must exit 0 (mirrors CI)
+  npm run lint              # tsc --noEmit
+  npm run build
+  npm run e2e               # Playwright smoke; mocks /api, no ESPN/Anthropic
+)
 ```
 
 Expected: **182 pytest passed**, ruff clean, tsc clean, build ok, **18 Playwright
-passed**. Do not run `npm audit fix` — existing audit advisories are out of scope.
+passed**. Do not run `npm audit fix` — existing audit advisories are out of scope
+(see §4 for the recorded audit ground truth).
 
 ## 3. Disposable fresh-install smoke
-From a **clean, disposable checkout** (temp dir or fresh clone) with **no** `.env` and
-**no** `data/`:
+From a **clean, disposable checkout** (temp dir or fresh clone) with:
+- **no** `.env`,
+- **no** runtime `data/edge.db*` files, and
+- **no** raw-cache payloads beyond the tracked `data/raw_cache/.gitkeep`:
 
 1. `make setup` (installs api + web deps, writes `.env` with a generated `FERNET_KEY`).
 2. `make dev` (uvicorn on `127.0.0.1:8000` + Vite on `127.0.0.1:5173`).
@@ -62,6 +72,16 @@ git status --short                     # only the intended files changed
   `localhost`/`127.0.0.1` on the web port.
 - Confirm account API responses stay credential-safe (validation errors are redacted;
   `AccountOut` exposes only `id`, `label`, `status`, `created_at`).
+
+### Dependency-audit ground truth (recorded, not remediated)
+- Full `npm audit` (in `web/`) currently reports **2 vulnerabilities — 1 high and 1
+  moderate** — all in the **Vite/esbuild development toolchain** (dev server / build),
+  not shipped runtime code.
+- `npm audit --omit=dev` currently reports **0 production vulnerabilities**.
+- **Do not run `npm audit fix`** (or `--force`) as part of this release — a dependency
+  upgrade is out of scope here.
+- Accepting the development-server residual risk **or** authorizing a separate dependency
+  upgrade to clear these advisories each requires **explicit human approval**.
 
 ## 5. Explicitly human-approved live ESPN smoke
 **Do not run without explicit human approval. Uses real cookies + network — not part of
