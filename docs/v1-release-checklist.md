@@ -15,11 +15,14 @@ approval** and are **not** executed as part of a normal release-candidate pass.
 - **Purpose:** validate that the committed tree is a shippable v1.0.0 for the local,
   single-user use case, with truthful docs and coherent `1.0.0` version metadata.
 - **In scope:** documentation accuracy, project-version metadata, offline gates,
-  disposable fresh-install verification, and (separately, human-approved) bounded live
-  smokes.
+  disposable fresh-install verification, (separately, human-approved) bounded live
+  smokes, and the **explicitly human-authorized, focused Vite 5→6 security remediation**
+  documented in §4 (`vite ^5.4.11 → ^6.4.3`, clearing the Vite/esbuild advisories).
 - **Out of scope for the release candidate:** analytics/metrics/formulas, schemas,
   models, migrations, sync, ESPN client/parsing/cache/auth, AI prompts/models/grounding,
-  frontend features, and dependency upgrades. None of these change to ship v1.0.0.
+  and frontend features — these remain **unchanged** to ship v1.0.0. **Further dependency
+  upgrades** beyond the authorized §4 remediation also remain out of scope and require
+  **explicit human approval**.
 
 ## 2. Offline automated gates
 All must pass locally, using the existing fakes/mocks. Note on network:
