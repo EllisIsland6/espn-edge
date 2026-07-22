@@ -69,6 +69,21 @@ body {
   outline-offset: 2px;
 }
 
+@keyframes ai-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-reveal {
+  animation: ai-reveal 280ms ease-out both;
+}
+
 /* Respect reduced-motion; no animation beyond 150ms hover/opacity otherwise. */
 @media (prefers-reduced-motion: reduce) {
   * {

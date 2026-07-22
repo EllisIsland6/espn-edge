@@ -14,6 +14,20 @@ export async function getHealth(): Promise<Health> {
 
 // --- Phase 2 read-only view types (mirror api/schemas.py) ------------------
 // Metric fields are null until Phase 3 computes them; the UI must not compute.
+export interface MetricMomentum {
+  status: "pending" | "first_sync" | "up" | "down" | "flat";
+  delta: number | null;
+  streak_direction: "up" | "down" | null;
+  streak_count: number;
+  history_count: number;
+}
+
+export interface Achievement {
+  key: string;
+  label: string;
+  detail: string;
+}
+
 export interface PortfolioRow {
   league_id: number;
   espn_league_id: string;
@@ -37,11 +51,13 @@ export interface PortfolioRow {
   grade: string | null;
   playoff_odds: number | null;
   verdict: string | null;
-  // Phase 16: full Edge Index composite, carried alongside edge_score (board still shows
-  // edge_score for now).
+  // Phase 16: full Edge Index composite, carried alongside legacy edge_score and used
+  // as the Portfolio Board's primary ranking.
   edge_index_score: number | null;
   edge_index_grade: string | null;
   edge_index_verdict: string | null;
+  edge_index_momentum: MetricMomentum;
+  achievements: Achievement[];
 }
 
 export interface TeamOut {
@@ -95,6 +111,8 @@ export interface LeagueOverview {
   verdict: string | null;
   playoff_odds: number | null;
   components: EdgeComponent[];
+  momentum: MetricMomentum;
+  achievements: Achievement[];
 }
 
 export interface DraftPickOut {
@@ -247,6 +265,7 @@ export interface SyncSummary {
   draft_picks: number | null;
   matchups: number | null;
   transactions: number | null;
+  metric_snapshots: number | null;
   my_team_espn_id: number | null;
   needs_reauth: boolean | null;
   errors: string[];

@@ -20,17 +20,15 @@ import {
   type Verdict,
 } from "../lib/format";
 import { syncSummaryMessage } from "../lib/sync";
+import { AchievementRow, MomentumBadges, ScoreRing } from "../components/Gamification";
 import {
   Button,
   EmptyState,
   ErrorNote,
-  GradePill,
   LifecycleBadge,
   Panel,
   SizePill,
   Spinner,
-  TierDivider,
-  ValueChip,
   WarningNote,
 } from "../components/ui";
 
@@ -152,7 +150,7 @@ export default function PortfolioBoard() {
               groups.map((g) => (
                 <div key={g.key}>
                   {g.kind === "tier" ? (
-                    <TierDivider verdict={g.verdict} count={g.rows.length} />
+                    <GradeTierDivider grade={g.grade} count={g.rows.length} />
                   ) : (
                     <AccountDivider label={g.label} count={g.rows.length} />
                   )}
@@ -198,12 +196,12 @@ function ControlBar({
           </button>
         ))}
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search leagues / accounts"
-          className="w-56 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-primary placeholder:text-muted focus:border-red/60"
+          className="min-w-0 flex-1 basis-56 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-primary placeholder:text-muted focus:border-red/60 sm:flex-none"
         />
         <div className="flex items-center overflow-hidden rounded-md border border-line">
           <span className="mono px-2 text-[10px] uppercase tracking-wide text-muted">Export</span>
@@ -242,7 +240,7 @@ function BoardRow({ row }: { row: PortfolioRow }) {
   return (
     <Link
       to={`/league/${row.league_id}`}
-      className="relative flex h-16 items-center gap-4 border-t border-line pl-5 pr-4 no-underline first:border-t-0 hover:bg-rowhover focus-visible:bg-rowhover"
+      className="relative flex min-h-24 items-center gap-3 border-t border-line py-3 pl-5 pr-4 no-underline first:border-t-0 hover:bg-rowhover focus-visible:bg-rowhover"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${VERDICT_ACCENT[verdict]}`} />
       {/* League + account */}
@@ -252,37 +250,42 @@ function BoardRow({ row }: { row: PortfolioRow }) {
           <SizePill size={row.size} />
           <LifecycleBadge lifecycle={row.lifecycle} label={LIFECYCLE_LABEL[row.lifecycle] ?? row.lifecycle} />
         </div>
-        <div className="mono mt-0.5 flex items-center gap-2 text-[11px] text-muted">
+        <div className="mono mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
           <span>{row.account_label ?? "—"}</span>
           <span>·</span>
           <span>{row.my_team_name ?? "team not detected"}</span>
           <span>·</span>
           <span>{row.season}</span>
         </div>
+        <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-2">
+          <AchievementRow achievements={row.achievements} testId={`achievements-${row.league_id}`} />
+          {row.edge_score != null && (
+            <span className="mono text-[9px] uppercase text-muted">
+              Legacy Edge Score {num(row.edge_score, 0)}
+            </span>
+          )}
+        </div>
       </div>
       {/* Record */}
-      <Stat label="W-L-T" value={record(row.wins, row.losses, row.ties)} />
+      <div className="hidden sm:block"><Stat label="W-L-T" value={record(row.wins, row.losses, row.ties)} /></div>
       {/* PF / PA */}
-      <Stat label="PF" value={num(row.points_for)} />
-      <Stat label="PA" value={num(row.points_against)} />
+      <div className="hidden xl:block"><Stat label="PF" value={num(row.points_for)} /></div>
+      <div className="hidden xl:block"><Stat label="PA" value={num(row.points_against)} /></div>
       {/* Standing */}
-      <Stat label="STANDING" value={ordinal(row.standing)} />
+      <div className="hidden lg:block"><Stat label="STANDING" value={ordinal(row.standing)} /></div>
       {/* Playoff odds */}
-      <Stat label="PLAYOFF" value={row.playoff_odds == null ? DASH : `${Math.round(row.playoff_odds * 100)}%`} />
-      {/* Edge Index chip + grade (Phase 16 composite = primary; legacy edge_score below) */}
-      <div className="flex w-28 flex-col items-end gap-0.5">
-        <div className="flex items-center gap-2">
-          <ValueChip
-            primary={row.edge_index_score == null ? DASH : num(row.edge_index_score, 0)}
-            muted={row.edge_index_score == null}
-          />
-          <GradePill grade={row.edge_index_grade} />
-        </div>
-        <span className="mono text-[9px] uppercase tracking-wide text-muted">
-          Edge Index{row.edge_score != null && <> · legacy {num(row.edge_score, 0)}</>}
-        </span>
+      <div className="hidden lg:block"><Stat label="PLAYOFF" value={row.playoff_odds == null ? DASH : `${Math.round(row.playoff_odds * 100)}%`} /></div>
+      <div className="flex w-24 shrink-0 flex-col items-center gap-1">
+        <ScoreRing
+          value={row.edge_index_score}
+          grade={row.edge_index_grade}
+          label="Edge Index"
+          size="sm"
+          testId={`score-ring-${row.league_id}`}
+        />
+        <MomentumBadges momentum={row.edge_index_momentum} testId={`momentum-${row.league_id}`} />
       </div>
-      <div className="mono w-16 shrink-0 text-right text-[11px] text-muted">{relTime(row.last_synced_at)}</div>
+      <div className="mono hidden w-16 shrink-0 text-right text-[11px] text-muted sm:block">{relTime(row.last_synced_at)}</div>
     </Link>
   );
 }
@@ -300,6 +303,27 @@ function AccountDivider({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center gap-3 px-4 pt-5 pb-2">
       <span className="mono text-[11px] uppercase tracking-[0.18em] text-secondary">{label}</span>
+      <span className="h-px flex-1 bg-line" />
+      <span className="mono text-[11px] text-muted">{count}</span>
+    </div>
+  );
+}
+
+const GRADE_TIER_TONE: Record<GradeTier, string> = {
+  A: "text-grade-a",
+  B: "text-grade-b",
+  C: "text-grade-c",
+  D: "text-grade-df",
+  F: "text-grade-df",
+  PENDING: "text-muted",
+};
+
+function GradeTierDivider({ grade, count }: { grade: GradeTier; count: number }) {
+  return (
+    <div className="flex items-center gap-3 px-4 pt-5 pb-2" data-testid={`grade-tier-${grade.toLowerCase()}`}>
+      <span className={`mono text-[11px] uppercase tracking-[0.18em] ${GRADE_TIER_TONE[grade]}`}>
+        {grade === "PENDING" ? "Pending" : `${grade} tier`}
+      </span>
       <span className="h-px flex-1 bg-line" />
       <span className="mono text-[11px] text-muted">{count}</span>
     </div>
@@ -387,10 +411,26 @@ function RailStat({ label, value, muted = false }: { label: string; value: strin
 
 // --- grouping ---------------------------------------------------------------
 type Group =
-  | { kind: "tier"; key: string; verdict: Verdict; rows: PortfolioRow[] }
+  | { kind: "tier"; key: string; grade: GradeTier; rows: PortfolioRow[] }
   | { kind: "account"; key: string; label: string; rows: PortfolioRow[] };
 
-const TIER_ORDER: Verdict[] = ["advantaged", "neutral", "disadvantaged", "pending"];
+type GradeTier = "A" | "B" | "C" | "D" | "F" | "PENDING";
+const TIER_ORDER: GradeTier[] = ["A", "B", "C", "D", "F", "PENDING"];
+
+function gradeTier(grade: string | null): GradeTier {
+  const letter = grade?.trim().toUpperCase().charAt(0);
+  return letter === "A" || letter === "B" || letter === "C" || letter === "D" || letter === "F"
+    ? letter
+    : "PENDING";
+}
+
+function compareRows(a: PortfolioRow, b: PortfolioRow): number {
+  const score = (b.edge_index_score ?? Number.NEGATIVE_INFINITY) -
+    (a.edge_index_score ?? Number.NEGATIVE_INFINITY);
+  if (score !== 0) return score;
+  const name = (a.league_name ?? "").localeCompare(b.league_name ?? "");
+  return name || a.league_id - b.league_id;
+}
 
 function groupRows(rows: PortfolioRow[], filter: Filter): Group[] {
   if (filter === "by_account") {
@@ -401,17 +441,17 @@ function groupRows(rows: PortfolioRow[], filter: Filter): Group[] {
     }
     return [...by.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([label, rs]) => ({ kind: "account", key: label, label, rows: rs }));
+      .map(([label, rs]) => ({ kind: "account", key: label, label, rows: rs.sort(compareRows) }));
   }
-  const by = new Map<Verdict, PortfolioRow[]>();
+  const by = new Map<GradeTier, PortfolioRow[]>();
   for (const r of rows) {
-    const v = verdictOf(r.edge_index_verdict);
-    (by.get(v) ?? by.set(v, []).get(v)!).push(r);
+    const grade = gradeTier(r.edge_index_grade);
+    (by.get(grade) ?? by.set(grade, []).get(grade)!).push(r);
   }
-  return TIER_ORDER.filter((v) => by.has(v)).map((v) => ({
+  return TIER_ORDER.filter((grade) => by.has(grade)).map((grade) => ({
     kind: "tier",
-    key: v,
-    verdict: v,
-    rows: by.get(v)!,
+    key: grade,
+    grade,
+    rows: by.get(grade)!.sort(compareRows),
   }));
 }

@@ -12,6 +12,13 @@ const PORTFOLIO = [
     points_for: 900.5, points_against: 820.1, standing: 2,
     edge_score: 72.0, grade: "B", playoff_odds: 0.81, verdict: "advantaged",
     edge_index_score: 68.0, edge_index_grade: "B", edge_index_verdict: "advantaged",
+    edge_index_momentum: {
+      status: "up", delta: 4.5, streak_direction: "up", streak_count: 2, history_count: 3,
+    },
+    achievements: [
+      { key: "sync_healthy", label: "Sync healthy", detail: "Most recent sync completed" },
+      { key: "all_play_edge", label: "All-play 60%+", detail: "All-play win rate is 66.7%" },
+    ],
   },
   {
     league_id: 2, espn_league_id: "222", season: 2026, league_name: "Beta League",
@@ -21,6 +28,10 @@ const PORTFOLIO = [
     points_for: null, points_against: null, standing: null,
     edge_score: null, grade: null, playoff_odds: null, verdict: null,
     edge_index_score: null, edge_index_grade: null, edge_index_verdict: null,
+    edge_index_momentum: {
+      status: "pending", delta: null, streak_direction: null, streak_count: 0, history_count: 0,
+    },
+    achievements: [],
   },
 ];
 
@@ -54,6 +65,12 @@ const OVERVIEW = {
     },
   ],
   edge_score: 72.0, grade: "B", verdict: "advantaged", playoff_odds: 0.81,
+  momentum: {
+    status: "up", delta: 3.0, streak_direction: "up", streak_count: 2, history_count: 3,
+  },
+  achievements: [
+    { key: "sync_healthy", label: "Sync healthy", detail: "Most recent sync completed" },
+  ],
   components: [
     { key: "win_pct", label: "Win %", weight: 0.4, percentile: 75.0 },
     { key: "points_for", label: "Points for", weight: 0.3, percentile: 87.5 },
@@ -226,12 +243,124 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
 
 test("portfolio board shows Edge Index as the primary score (Phase 17)", async ({ page }) => {
   await page.goto("/");
-  // Alpha League's row chip shows the Edge Index composite (68), with the legacy score noted.
-  await expect(page.getByText("68", { exact: true })).toBeVisible(); // Edge Index chip value
-  await expect(page.getByText(/Edge Index · legacy 72/)).toBeVisible(); // row secondary label
+  // Alpha League's ring shows the Edge Index composite (68), with the legacy score noted.
+  const ring = page.getByTestId("score-ring-1");
+  await expect(ring).toHaveAttribute("data-state", "scored");
+  await expect(ring).toHaveAttribute("data-motion", "animated");
+  await expect(page.getByTestId("score-ring-1-progress")).toHaveCSS("transition-duration", "0.65s");
+  await expect(ring.getByText("68", { exact: true })).toBeVisible();
+  await expect(page.getByText("Legacy Edge Score 72", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("achievements-1")).toHaveAttribute("aria-label", "Achievements");
+  await expect(page.getByTestId("achievements-1").getByLabel("Sync healthy")).toBeVisible();
   // Right rail is now driven by Edge Index, with legacy kept clearly labeled.
   await expect(page.getByText("Best / worst Edge Index")).toBeVisible();
-  await expect(page.getByText("Legacy Edge Score")).toBeVisible();
+  await expect(page.getByText("Legacy Edge Score", { exact: true })).toBeVisible();
+});
+
+test("score rings distinguish a real zero, pending, and first sync", async ({ page }) => {
+  await page.route("**/api/portfolio", (r) =>
+    json(r, [
+      {
+        ...PORTFOLIO[0],
+        edge_index_score: 0,
+        edge_index_grade: "F",
+        edge_index_momentum: {
+          status: "first_sync", delta: null, streak_direction: null, streak_count: 0, history_count: 1,
+        },
+        achievements: [],
+      },
+      PORTFOLIO[1],
+    ]));
+
+  await page.goto("/");
+  const zero = page.getByTestId("score-ring-1");
+  const pending = page.getByTestId("score-ring-2");
+  await expect(zero).toHaveAttribute("data-state", "scored");
+  await expect(zero.getByText("0", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("momentum-1")).toContainText("first sync");
+  await expect(page.getByTestId("momentum-1")).not.toContainText("up");
+  await expect(pending).toHaveAttribute("data-state", "pending");
+  await expect(pending.getByText("Pending", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("momentum-2")).toContainText("pending");
+  await expect(page.getByTestId("achievements-1")).toHaveCount(0);
+  await expect(page.getByTestId("achievements-2")).toHaveCount(0);
+});
+
+test("momentum chips render up, down, flat, and meaningful streak states", async ({ page }) => {
+  const momentumRows = [
+    {
+      ...PORTFOLIO[0], league_id: 11, league_name: "Up League",
+      edge_index_momentum: {
+        status: "up", delta: 4.5, streak_direction: "up", streak_count: 2, history_count: 3,
+      },
+    },
+    {
+      ...PORTFOLIO[0], league_id: 12, league_name: "Down League",
+      edge_index_momentum: {
+        status: "down", delta: -2.0, streak_direction: "down", streak_count: 1, history_count: 2,
+      },
+    },
+    {
+      ...PORTFOLIO[0], league_id: 13, league_name: "Flat League",
+      edge_index_momentum: {
+        status: "flat", delta: 0, streak_direction: null, streak_count: 0, history_count: 2,
+      },
+    },
+  ];
+  await page.route("**/api/portfolio", (r) => json(r, momentumRows));
+
+  await page.goto("/");
+  await expect(page.getByTestId("momentum-11")).toContainText("▲ +4.5");
+  await expect(page.getByTestId("momentum-11")).toContainText("2 up");
+  await expect(page.getByTestId("momentum-12")).toContainText("▼ -2.0");
+  await expect(page.getByTestId("momentum-12")).not.toContainText("1 down");
+  await expect(page.getByTestId("momentum-13")).toContainText("no change");
+});
+
+test("grade tiering handles one league, stable ties, and zero leagues", async ({ page }) => {
+  let rows = [{ ...PORTFOLIO[0], league_name: "Only League" }];
+  await page.route("**/api/portfolio", (r) => json(r, rows));
+
+  await page.goto("/");
+  await expect(page.getByTestId("grade-tier-b")).toContainText("B tier");
+  await expect(page.locator('[data-testid^="grade-tier-"]')).toHaveCount(1);
+
+  rows = [
+    { ...PORTFOLIO[0], league_id: 21, league_name: "Zulu League" },
+    { ...PORTFOLIO[0], league_id: 22, league_name: "Alpha League" },
+  ];
+  await page.reload();
+  await expect(page.locator('a[href^="/league/"]')).toHaveCount(2);
+  await expect(page.locator('a[href^="/league/"]').nth(0)).toContainText("Alpha League");
+  await expect(page.locator('a[href^="/league/"]').nth(1)).toContainText("Zulu League");
+
+  rows = [];
+  await page.reload();
+  await expect(page.getByText("No leagues yet")).toBeVisible();
+  await expect(page.locator('[data-testid^="grade-tier-"]')).toHaveCount(0);
+});
+
+test("reduced motion skips ring and AI content animations", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "offline", bulk_model: "offline" }));
+  await page.route("**/api/leagues/1/ai/league-brief", (r) =>
+    json(r, {
+      enabled: true, kind: "league_brief", model: "offline", created_at: NOW, stale: false,
+      content: { difficulty_tier: "Tough", narrative: "Offline brief.", exploit_plan: ["Stay active"] },
+      error: null,
+    }));
+
+  await page.goto("/");
+  const ring = page.getByTestId("score-ring-1");
+  await expect(ring).toHaveAttribute("data-motion", "reduced");
+  await expect(page.getByTestId("score-ring-1-progress")).toHaveCSS("transition-duration", "0s");
+
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  const reveal = page.getByTestId("ai-content-reveal");
+  await expect(reveal).toHaveAttribute("data-motion", "reduced");
+  await expect(reveal).toHaveCSS("animation-name", "none");
 });
 
 test("CSV export button points at the backend export endpoint", async ({ page }) => {
@@ -249,6 +378,7 @@ test("manage tab renders the account and league forms", async ({ page }) => {
   await page.getByRole("link", { name: "Manage" }).click();
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add league" })).toBeVisible();
+  await expect(page.getByTestId("league-achievements-1").getByLabel("Sync healthy")).toBeVisible();
 });
 
 test("manage discovers, selects, imports, and syncs account leagues", async ({ page }) => {
@@ -444,6 +574,11 @@ test("league detail renders standings from mocked API data", async ({ page }) =>
 
 test("league detail Overview renders edge component breakdown bars", async ({ page }) => {
   await page.goto("/league/1");
+  const ring = page.getByTestId("overview-score-ring");
+  await expect(ring).toHaveAttribute("data-state", "scored");
+  await expect(ring.getByText("72", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("overview-momentum")).toContainText("▲ +3.0");
+  await expect(page.getByTestId("overview-achievements").getByLabel("Sync healthy")).toBeVisible();
   // Component labels + bar percentiles from the mocked overview payload (Phase 9).
   await expect(page.getByText("Components (within-league percentile)")).toBeVisible();
   await expect(page.getByText("Win %", { exact: true })).toBeVisible();
@@ -519,6 +654,37 @@ test("draft board shows player name, position, and ADP (not raw IDs)", async ({ 
   );
 });
 
+test("draft board shows a compact per-team grade strip", async ({ page }) => {
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "offline", bulk_model: "offline" }));
+  await page.route("**/api/leagues/1/ai/draft-recaps", (r) =>
+    json(r, {
+      enabled: true,
+      kind: "draft_recap",
+      reports: [
+        {
+          espn_team_id: 1, team_name: "My Team", strategy_label: "Balanced",
+          secondary_label: null, grade: "A-", confidence: "high", summary: "Strong value.",
+          key_values: [], key_reaches: [],
+        },
+        {
+          espn_team_id: 2, team_name: "Rival", strategy_label: "Zero RB",
+          secondary_label: null, grade: "B+", confidence: "medium", summary: "Solid start.",
+          key_values: [], key_reaches: [],
+        },
+      ],
+    }));
+
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Draft Board" }).click();
+  const strip = page.getByTestId("draft-grade-strip");
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText("My Team");
+  await expect(strip).toContainText("A-");
+  await expect(strip).toContainText("Rival");
+  await expect(strip).toContainText("B+");
+});
+
 test("activity renders ESPN portraits with resolved player names", async ({ page }) => {
   await page.goto("/league/1");
   await page.getByRole("button", { name: "Activity" }).click();
@@ -573,6 +739,58 @@ test("AI-disabled state renders the connect-a-key panel without crashing", async
   await page.goto("/league/1");
   await page.getByRole("button", { name: "AI Brief" }).click();
   await expect(page.getByText("AI analysis is off")).toBeVisible();
+});
+
+test("AI brief reveal fires once for each genuine generation", async ({ page }) => {
+  let generation = 0;
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "offline", bulk_model: "offline" }));
+  await page.route("**/api/leagues/1/ai/league-brief**", (route) => {
+    if (route.request().method() === "GET") {
+      return json(route, AI_DISABLED("league_brief"));
+    }
+    generation += 1;
+    return json(route, {
+      enabled: true,
+      kind: "league_brief",
+      model: "offline",
+      created_at: `2026-07-09T12:00:0${generation}Z`,
+      stale: false,
+      content: {
+        difficulty_tier: generation === 1 ? "Tough" : "Balanced",
+        narrative: `Offline generation ${generation}`,
+        exploit_plan: ["Use persisted facts"],
+      },
+      error: null,
+    });
+  });
+
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await page.evaluate(() => {
+    const state = window as Window & { __aiRevealCount?: number };
+    state.__aiRevealCount = 0;
+    document.addEventListener("animationstart", (event) => {
+      if ((event as AnimationEvent).animationName === "ai-reveal") {
+        state.__aiRevealCount = (state.__aiRevealCount ?? 0) + 1;
+      }
+    });
+  });
+  const card = page.getByRole("heading", { name: "League difficulty brief" }).locator("..").locator("..");
+
+  await card.getByRole("button", { name: "Generate", exact: true }).click();
+  await expect(card.getByText("Offline generation 1")).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(1);
+  await page.waitForTimeout(350);
+  expect(await page.evaluate(() =>
+    (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(1);
+
+  await card.getByRole("button", { name: "Regenerate", exact: true }).click();
+  await expect(card.getByText("Offline generation 2")).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(2);
+  expect(generation).toBe(2);
 });
 
 test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)", async ({ page }) => {

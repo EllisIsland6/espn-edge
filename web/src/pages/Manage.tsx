@@ -13,6 +13,7 @@ import {
   type DiscoveredLeague,
   type LeagueOut,
 } from "../api";
+import { AchievementRow } from "../components/Gamification";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
 import { syncSummaryMessage } from "../lib/sync";
@@ -569,6 +570,16 @@ function LeagueList({
             >
               last sync failed
             </span>
+          )}
+          {l.last_sync_ok === true && (
+            <AchievementRow
+              achievements={[{
+                key: "sync_healthy",
+                label: "Sync healthy",
+                detail: "Most recent sync completed",
+              }]}
+              testId={`league-achievements-${l.id}`}
+            />
           )}
           <Button
             onClick={async () => {

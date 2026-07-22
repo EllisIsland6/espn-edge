@@ -44,6 +44,12 @@ import {
   type WeeklyRecapContent,
 } from "../api";
 import { DataTable } from "../components/DataTable";
+import {
+  AchievementRow,
+  ContentReveal,
+  MomentumBadges,
+  ScoreRing,
+} from "../components/Gamification";
 import { PlayerIdentity, PlayerMentionText } from "../components/PlayerIdentity";
 import {
   Button,
@@ -177,7 +183,7 @@ export default function LeagueDetail() {
             {ov.scoring}
           </span>
         )}
-        <div className="mono ml-auto flex items-center gap-3 text-[11px] text-muted">
+        <div className="mono flex w-full flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted lg:ml-auto lg:w-auto">
           <span>{ov.account_label ?? "public"}</span>
           <span>· {lg.season}</span>
           <span>· synced {relTime(lg.last_synced_at)}</span>
@@ -202,12 +208,12 @@ export default function LeagueDetail() {
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-1 border-b border-line">
+      <div className="mt-4 flex flex-nowrap gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${
+            className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${
               tab === t.key
                 ? "border-red text-primary"
                 : "border-transparent text-secondary hover:text-primary"
@@ -272,22 +278,28 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
       <Panel className="p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Edge breakdown</h3>
-          <GradePill grade={ov.grade} />
         </div>
-        <div className="mt-3 flex items-center gap-3">
-          <ValueChip
-            primary={ov.edge_score == null ? DASH : num(ov.edge_score, 0)}
-            secondary="Edge Score"
-            muted={ov.edge_score == null}
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          <ScoreRing
+            value={ov.edge_score}
+            grade={ov.grade}
+            label="Edge Score"
+            testId="overview-score-ring"
           />
-          <ValueChip
-            primary={ov.playoff_odds == null ? DASH : `${Math.round(ov.playoff_odds * 100)}%`}
-            secondary="Playoff odds"
-            muted={ov.playoff_odds == null}
-          />
-          {ov.verdict && (
-            <span className="mono text-xs uppercase tracking-wide text-secondary">{ov.verdict}</span>
-          )}
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+            <MomentumBadges momentum={ov.momentum} testId="overview-momentum" />
+            <AchievementRow achievements={ov.achievements} testId="overview-achievements" />
+            <div className="flex flex-wrap items-center gap-3">
+              <ValueChip
+                primary={ov.playoff_odds == null ? DASH : `${Math.round(ov.playoff_odds * 100)}%`}
+                secondary="Playoff odds"
+                muted={ov.playoff_odds == null}
+              />
+              {ov.verdict && (
+                <span className="mono text-xs uppercase tracking-wide text-secondary">{ov.verdict}</span>
+              )}
+            </div>
+          </div>
         </div>
         <div className="mt-4">
           {ov.components.length > 0 ? (
@@ -311,8 +323,8 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
                 ))}
               </div>
               <p className="mt-3 text-[11px] leading-relaxed text-muted">
-                Edge Score is the weighted mean of these percentiles. The fuller
-                LeagueSoftness + MyEdge model (SPEC §6) is future work.
+                Edge Score is the weighted mean of these within-league percentiles.
+                The fuller Edge Index composite appears below and drives Portfolio ranking.
               </p>
             </>
           ) : (
@@ -322,7 +334,7 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
                   ? "Edge Score pending — league hasn't drafted"
                   : "Edge Score pending — not enough data yet"
               }
-              hint="Within-league v1 score; full LeagueSoftness + MyEdge breakdown (SPEC §6) is future."
+              hint="Within-league score; the Edge Index below appears once its inputs are available."
             />
           )}
         </div>
@@ -375,8 +387,8 @@ function EdgeIndexPanel({ leagueId }: { leagueId: number }) {
             </div>
           ))}
           <p className="mt-3 text-[11px] leading-relaxed text-muted">
-            The full SPEC §6 Edge Index: 0.5 × MyEdge + 0.5 × LeagueSoftness. A separate v1
-            composite — the board still shows the earlier Edge Score for now.
+            The full SPEC §6 Edge Index: 0.5 × MyEdge + 0.5 × LeagueSoftness. This v1
+            composite is the primary Portfolio ranking; Edge Score remains available for reference.
           </p>
         </div>
       ) : (
@@ -591,25 +603,41 @@ function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerR
       ) : !reports || reports.length === 0 ? (
         <p className="mt-3 text-sm text-muted">No recaps yet — click Generate all.</p>
       ) : (
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {reports.map((r) => (
-            <div key={r.espn_team_id} className="rounded-lg border border-line bg-row p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-primary">{r.team_name ?? `Team ${r.espn_team_id}`}</span>
+        <div className="mt-3">
+          <div
+            className="flex gap-2 overflow-x-auto border-y border-line py-2"
+            data-testid="draft-grade-strip"
+            aria-label="Draft grade summary"
+          >
+            {reports.map((r) => (
+              <div key={r.espn_team_id} className="flex shrink-0 items-center gap-2 border-r border-line pr-2 last:border-r-0">
+                <span className="max-w-32 truncate text-xs text-secondary">
+                  {r.team_name ?? `Team ${r.espn_team_id}`}
+                </span>
                 <GradePill grade={r.grade} />
               </div>
-              <div className="mono mt-1 flex flex-wrap items-center gap-1 text-[11px] text-secondary">
-                <span className="rounded bg-rowhover px-1.5 py-0.5">{r.strategy_label}</span>
-                {r.secondary_label && (
-                  <span className="rounded bg-rowhover px-1.5 py-0.5 text-muted">{r.secondary_label}</span>
-                )}
-                <span className="text-muted">· {r.confidence} confidence</span>
+            ))}
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {reports.map((r) => (
+              <div key={r.espn_team_id} className="rounded-lg border border-line bg-row p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-primary">{r.team_name ?? `Team ${r.espn_team_id}`}</span>
+                  <GradePill grade={r.grade} />
+                </div>
+                <div className="mono mt-1 flex flex-wrap items-center gap-1 text-[11px] text-secondary">
+                  <span className="rounded bg-rowhover px-1.5 py-0.5">{r.strategy_label}</span>
+                  {r.secondary_label && (
+                    <span className="rounded bg-rowhover px-1.5 py-0.5 text-muted">{r.secondary_label}</span>
+                  )}
+                  <span className="text-muted">· {r.confidence} confidence</span>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-secondary">
+                  <PlayerMentionText text={r.summary} players={players} />
+                </p>
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-secondary">
-                <PlayerMentionText text={r.summary} players={players} />
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </Panel>
@@ -1325,7 +1353,18 @@ function AiCard({
         </div>
       </div>
       {env?.error && <div className="mt-2"><ErrorNote message={env.error} /></div>}
-      <div className="mt-3">{has ? children : <p className="text-sm text-muted">Not generated yet.</p>}</div>
+      <div className="mt-3">
+        {has ? (
+          <ContentReveal
+            token={`${env?.created_at ?? ""}:${JSON.stringify(env?.content)}`}
+            testId="ai-content-reveal"
+          >
+            {children}
+          </ContentReveal>
+        ) : (
+          <p className="text-sm text-muted">Not generated yet.</p>
+        )}
+      </div>
       {has && env?.model && (
         <div className="mono mt-3 text-[10px] text-muted">
           {env.model}
