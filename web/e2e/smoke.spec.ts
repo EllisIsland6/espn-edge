@@ -267,15 +267,18 @@ test("manage discovers, selects, imports, and syncs account leagues", async ({ p
     last_sync_ok: null,
   };
   let addPayload: unknown = null;
+  let discoveryCalls = 0;
   let syncCalls = 0;
 
   await page.route("**/api/accounts", (r) => json(r, [account]));
-  await page.route("**/api/leagues/discover/1", (r) =>
-    json(r, [
+  await page.route("**/api/leagues/discover/1", (r) => {
+    discoveryCalls += 1;
+    return json(r, [
       { espn_league_id: "111", name: "Alpha League", season: 2026, team_id: 1 },
       { espn_league_id: "333", name: "Gamma League", season: 2026, team_id: 3 },
       { espn_league_id: "333", name: "Gamma League", season: 2026, team_id: 3 },
-    ]));
+    ]);
+  });
   await page.route("**/api/leagues", (r) => {
     if (r.request().method() === "POST") {
       addPayload = r.request().postDataJSON();
@@ -294,6 +297,7 @@ test("manage discovers, selects, imports, and syncs account leagues", async ({ p
 
   await page.goto("/manage");
   await page.getByRole("button", { name: "Discover leagues" }).click();
+  await expect.poll(() => discoveryCalls).toBe(1);
   const discovery = page.getByTestId("league-discovery-1");
   await expect(discovery.getByText("Alpha League")).toBeVisible();
   await expect(discovery.getByText("Gamma League")).toBeVisible();
@@ -305,7 +309,17 @@ test("manage discovers, selects, imports, and syncs account leagues", async ({ p
   await expect(page.getByRole("button", { name: "Import & sync 0" })).toBeDisabled();
   await gamma.check();
   await discovery.getByRole("button", { name: "Refresh" }).click();
+  await expect.poll(() => discoveryCalls).toBe(2);
   await expect(discovery.getByText("Gamma League")).toHaveCount(1);
+  await expect(discovery.getByText("Added", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Alpha League" })).toBeDisabled();
+  await expect(gamma).toBeChecked();
+  await discovery.getByRole("button", { name: "Refresh" }).click();
+  await expect.poll(() => discoveryCalls).toBe(3);
+  await expect(discovery.getByText("Gamma League")).toHaveCount(1);
+  await expect(discovery.getByText("Added", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Alpha League" })).toBeDisabled();
+  await expect(gamma).toBeChecked();
   await page.getByRole("button", { name: "Import & sync 1" }).click();
 
   await expect(page.getByText("Processed 1 league.")).toBeVisible();
@@ -512,6 +526,29 @@ test("activity renders ESPN portraits with resolved player names", async ({ page
   await expect(page.getByText("Ace Receiver")).toBeVisible();
   await expect(page.getByRole("img", { name: "Star Runningback ESPN portrait" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Ace Receiver ESPN portrait" })).toBeVisible();
+});
+
+test("portrait failure keeps the player initials visible", async ({ page }) => {
+  let portraitRequests = 0;
+  await page.route("**/api/players/*/portrait", (route) => {
+    portraitRequests += 1;
+    return route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "portrait unavailable" }),
+    });
+  });
+
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Draft Board" }).click();
+
+  const avatar = page.getByTitle("Star Runningback");
+  const image = avatar.locator('img[alt="Star Runningback ESPN portrait"]');
+  await expect(image).toBeAttached();
+  await expect(image).toHaveCSS("display", "none");
+  await expect(avatar).toBeVisible();
+  await expect(avatar).toContainText("SR");
+  expect(portraitRequests).toBeGreaterThan(0);
 });
 
 test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) => {
