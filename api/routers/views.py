@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..models import Account, DraftPick, League, Matchup, Player, Team, Transaction
 from ..schemas import (
+    AchievementOut,
     AllPlayOut,
     DraftPickOut,
     EdgeComponent,
@@ -24,6 +25,7 @@ from ..schemas import (
     LeagueSoftnessOut,
     LineupEfficiencyOut,
     MatchupOut,
+    MetricMomentumOut,
     MyEdgeComponentOut,
     MyEdgeOut,
     PortfolioRow,
@@ -40,6 +42,7 @@ from ..services.metrics import (
     team_components,
     team_edge,
 )
+from ..services.momentum import EDGE_SCORE, metric_momentum, team_achievements
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
 
@@ -85,6 +88,10 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
     )
     edge = team_edge(session, league.id, league.my_team_id)
     components = team_components(session, league.id, league.my_team_id)
+    momentum = metric_momentum(
+        session, league.id, league.my_team_id, EDGE_SCORE, edge.edge_score
+    )
+    achievements = team_achievements(session, league, league.my_team_id)
     return LeagueOverview(
         league=LeagueOut.model_validate(league),
         account_label=account.label if account else None,
@@ -94,6 +101,8 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
         grade=edge.grade,
         verdict=edge.verdict,
         playoff_odds=edge.playoff_odds,
+        momentum=MetricMomentumOut(**vars(momentum)),
+        achievements=[AchievementOut(**vars(item)) for item in achievements],
         components=[EdgeComponent.model_validate(c) for c in components],
     )
 

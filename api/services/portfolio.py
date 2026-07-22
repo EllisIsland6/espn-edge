@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Account, League, Team
-from ..schemas import PortfolioRow, PortfolioSummary
+from ..schemas import AchievementOut, MetricMomentumOut, PortfolioRow, PortfolioSummary
 from .metrics import team_edge, team_edge_index
+from .momentum import EDGE_INDEX_SCORE, metric_momentum, team_achievements
 
 
 def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
@@ -20,6 +21,14 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
         me = session.scalar(select(Team).where(Team.league_id == lg.id, Team.is_me.is_(True)))
         edge = team_edge(session, lg.id, me.id if me else None)
         ei = team_edge_index(session, lg.id, me.id if me else None)
+        momentum = metric_momentum(
+            session,
+            lg.id,
+            me.id if me else None,
+            EDGE_INDEX_SCORE,
+            ei.edge_index_score,
+        )
+        achievements = team_achievements(session, lg, me.id if me else None)
         rows.append(
             PortfolioRow(
                 league_id=lg.id,
@@ -47,6 +56,8 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
                 edge_index_score=ei.edge_index_score,
                 edge_index_grade=ei.grade,
                 edge_index_verdict=ei.verdict,
+                edge_index_momentum=MetricMomentumOut(**vars(momentum)),
+                achievements=[AchievementOut(**vars(item)) for item in achievements],
             )
         )
     return rows

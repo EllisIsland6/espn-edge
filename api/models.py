@@ -249,6 +249,38 @@ class Metric(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class MetricSnapshot(Base):
+    """One fantasy-period closing value for a tracked team metric.
+
+    Repeated syncs within the same period update the same row. That makes the
+    history useful for week-over-week momentum without manufacturing duplicate
+    zero-deltas when a user clicks Sync twice on unchanged ESPN data.
+    """
+
+    __tablename__ = "metric_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "league_id", "team_id", "key", "period", name="uq_metric_snapshot_period"
+        ),
+        Index(
+            "ix_metric_snapshot_lookup",
+            "league_id", "team_id", "key", "period",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    period: Mapped[int] = mapped_column(Integer, nullable=False)
+    value_float: Mapped[float] = mapped_column(Float, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+
+
 class AiReport(Base):
     __tablename__ = "ai_reports"
 

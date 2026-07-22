@@ -9,6 +9,7 @@ from api.models import (
     League,
     LineupSlot,
     Matchup,
+    MetricSnapshot,
     Player,
     Team,
     Transaction,
@@ -114,6 +115,10 @@ def test_sync_is_idempotent(db_session, league_fixture, players_fixture):
     svc = SyncService(db_session, espn=FakeEspn(league_fixture, players_fixture))
     svc.sync_league(lg)
     db_session.commit()
+    snapshot_count = db_session.scalar(
+        select(func.count()).select_from(MetricSnapshot).where(MetricSnapshot.league_id == lg.id)
+    )
+    assert snapshot_count and snapshot_count > 0
     svc.sync_league(lg)
     db_session.commit()
 
@@ -140,6 +145,52 @@ def test_sync_is_idempotent(db_session, league_fixture, players_fixture):
         )
         == 3
     )
+    assert (
+        db_session.scalar(
+            select(func.count()).select_from(MetricSnapshot).where(
+                MetricSnapshot.league_id == lg.id
+            )
+        )
+        == snapshot_count
+    )
+
+
+def test_interrupted_snapshot_write_is_nonfatal_and_next_sync_recovers(
+    db_session, league_fixture, players_fixture, monkeypatch
+):
+    from api.services import momentum
+
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    original = momentum._write_snapshot
+    failed = False
+
+    def interrupt_once(*args, **kwargs):
+        nonlocal failed
+        original(*args, **kwargs)
+        if not failed:
+            failed = True
+            raise RuntimeError("simulated snapshot interruption")
+
+    monkeypatch.setattr(momentum, "_write_snapshot", interrupt_once)
+    first = SyncService(
+        db_session, espn=FakeEspn(league_fixture, players_fixture)
+    ).sync_league(lg)
+    db_session.commit()
+    assert "snapshots_failed" in first["errors"]
+    assert db_session.scalar(
+        select(func.count()).select_from(MetricSnapshot).where(MetricSnapshot.league_id == lg.id)
+    ) == 0
+
+    monkeypatch.setattr(momentum, "_write_snapshot", original)
+    second = SyncService(
+        db_session, espn=FakeEspn(league_fixture, players_fixture)
+    ).sync_league(lg)
+    db_session.commit()
+    assert second["errors"] == []
+    assert db_session.scalar(
+        select(func.count()).select_from(MetricSnapshot).where(MetricSnapshot.league_id == lg.id)
+    ) > 0
 
 
 def test_bad_cookie_flips_account_to_needs_reauth(db_session, league_fixture, players_fixture):
@@ -204,6 +255,9 @@ def test_partial_failure_records_safe_diagnostic(db_session, league_fixture, pla
     # The diagnostic never carries the account's secrets.
     assert "some-espn-s2-value" not in lg.last_sync_error
     assert acct.swid not in lg.last_sync_error
+    assert db_session.scalar(
+        select(func.count()).select_from(MetricSnapshot).where(MetricSnapshot.league_id == lg.id)
+    ) == 0
 
 
 def test_sync_stamps_draft_adp_and_value_delta(db_session, league_fixture, players_fixture):

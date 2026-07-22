@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,6 +84,7 @@ class SyncSummary(BaseModel):
     transactions: int | None = None
     players: int | None = None
     completed_weeks: list[int] | None = None
+    metric_snapshots: int | None = None
     my_team_espn_id: int | None = None
     needs_reauth: bool | None = None
     errors: list[str] = []
@@ -251,6 +253,20 @@ class LineupEfficiencyOut(BaseModel):
     points_left_on_bench_avg: float
 
 
+class MetricMomentumOut(BaseModel):
+    status: Literal["pending", "first_sync", "up", "down", "flat"]
+    delta: float | None
+    streak_direction: Literal["up", "down"] | None
+    streak_count: int
+    history_count: int
+
+
+class AchievementOut(BaseModel):
+    key: str
+    label: str
+    detail: str
+
+
 class LeagueOverview(BaseModel):
     league: LeagueOut
     account_label: str | None
@@ -261,6 +277,8 @@ class LeagueOverview(BaseModel):
     grade: str | None = None
     verdict: str | None = None
     playoff_odds: float | None = None
+    momentum: MetricMomentumOut
+    achievements: list[AchievementOut] = Field(default_factory=list)
     # Phase 9: the weighted components behind edge_score (empty when pending).
     components: list[EdgeComponent] = []
 
@@ -295,6 +313,8 @@ class PortfolioRow(BaseModel):
     edge_index_score: float | None = None
     edge_index_grade: str | None = None
     edge_index_verdict: str | None = None
+    edge_index_momentum: MetricMomentumOut
+    achievements: list[AchievementOut] = Field(default_factory=list)
 
 
 class AiStatus(BaseModel):

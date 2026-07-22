@@ -28,7 +28,7 @@ from ..models import (
     Team,
     Transaction,
 )
-from . import metrics, parse
+from . import metrics, momentum, parse
 from .cache import DBRawCache
 from .espn import EspnAuthError, EspnError, EspnService, cookies_for_account
 
@@ -227,6 +227,7 @@ class SyncService:
         self.session.flush()  # lifecycle drives the analytics branch below
         # Recompute Edge metrics from the just-synced DB state (Phase 3, SPEC §6).
         # Deterministic + isolated; recompute-on-sync is the invalidation strategy.
+        metrics_ok = False
         try:
             # Pass completed weeks so the playoff sim treats current-week partial
             # scores as remaining games, not completed samples (Phase 5 review).
@@ -237,9 +238,25 @@ class SyncService:
                 completed_weeks=set(completed_weeks),
             )
             result["metrics"] = metrics_result
+            metrics_ok = True
         except Exception as exc:  # analytics must never break a sync
             result["errors"].append(f"metrics_failed: {exc}")
             log.warning("league %s: metrics recompute failed: %s", league.espn_league_id, exc)
+
+        # Record closing score values only after a fully clean data + metrics sync.
+        # The service uses one bucket per completed fantasy week (0 = preseason),
+        # and an inner savepoint guarantees an interrupted batch leaves no partial
+        # history. Snapshot failures remain non-fatal to the broader sync.
+        if metrics_ok and not result["errors"]:
+            try:
+                result["metric_snapshots"] = momentum.record_metric_snapshots(
+                    self.session,
+                    league.id,
+                    max(completed_weeks, default=0),
+                )
+            except Exception:
+                result["errors"].append("snapshots_failed")
+                log.warning("league %s: metric snapshot write failed", league.espn_league_id)
         league.last_synced_at = datetime.now(UTC)
         result["lifecycle"] = league.lifecycle
         if result["errors"]:

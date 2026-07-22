@@ -59,6 +59,14 @@ def test_portfolio(league_id):
     assert row["edge_score"] == 82.5
     assert row["grade"] == "A" and row["verdict"] == "advantaged"
     assert row["playoff_odds"] is not None
+    assert row["edge_index_momentum"] == {
+        "status": "first_sync",
+        "delta": None,
+        "streak_direction": None,
+        "streak_count": 0,
+        "history_count": 1,
+    }
+    assert "sync_healthy" in {item["key"] for item in row["achievements"]}
 
 
 def test_portfolio_summary(league_id):
@@ -101,6 +109,9 @@ def test_league_overview(league_id):
     assert me["name"] == "Alpha"
     # Phase 3: overview exposes my team's computed edge.
     assert body["edge_score"] == 82.5 and body["grade"] == "A" and body["verdict"] == "advantaged"
+    assert body["momentum"]["status"] == "first_sync"
+    assert body["momentum"]["history_count"] == 1
+    assert "sync_healthy" in {item["key"] for item in body["achievements"]}
 
 
 def test_league_subresources(league_id):
