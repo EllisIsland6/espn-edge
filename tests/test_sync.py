@@ -119,10 +119,16 @@ def test_sync_is_idempotent(db_session, league_fixture, players_fixture):
         select(func.count()).select_from(MetricSnapshot).where(MetricSnapshot.league_id == lg.id)
     )
     assert snapshot_count and snapshot_count > 0
+    first_batches = set(
+        db_session.scalars(
+            select(MetricSnapshot.batch_id).where(MetricSnapshot.league_id == lg.id)
+        )
+    )
+    assert len(first_batches) == 1
     svc.sync_league(lg)
     db_session.commit()
 
-    # Counts unchanged after a second sync (no duplication).
+    # Source tables remain idempotent; clean-sync snapshot events are append-only.
     assert (
         db_session.scalar(select(func.count()).select_from(Team).where(Team.league_id == lg.id))
         == 4
@@ -151,8 +157,15 @@ def test_sync_is_idempotent(db_session, league_fixture, players_fixture):
                 MetricSnapshot.league_id == lg.id
             )
         )
-        == snapshot_count
+        == snapshot_count * 2
     )
+    assert len(
+        set(
+            db_session.scalars(
+                select(MetricSnapshot.batch_id).where(MetricSnapshot.league_id == lg.id)
+            )
+        )
+    ) == 2
 
 
 def test_interrupted_snapshot_write_is_nonfatal_and_next_sync_recovers(

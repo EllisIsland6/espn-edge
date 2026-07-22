@@ -242,12 +242,43 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
 });
 
 test("portfolio board shows Edge Index as the primary score (Phase 17)", async ({ page }) => {
+  await page.addInitScript(() => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextId = 0;
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      nextId += 1;
+      callbacks.set(nextId, callback);
+      return nextId;
+    };
+    window.cancelAnimationFrame = (id: number) => callbacks.delete(id);
+    (window as typeof window & { __flushScoreRingFrame: () => void }).__flushScoreRingFrame = () => {
+      const frame = [...callbacks.values()];
+      callbacks.clear();
+      frame.forEach((callback) => callback(performance.now()));
+    };
+  });
   await page.goto("/");
   // Alpha League's ring shows the Edge Index composite (68), with the legacy score noted.
   const ring = page.getByTestId("score-ring-1");
   await expect(ring).toHaveAttribute("data-state", "scored");
   await expect(ring).toHaveAttribute("data-motion", "animated");
-  await expect(page.getByTestId("score-ring-1-progress")).toHaveCSS("transition-duration", "0.65s");
+  await expect(ring).toHaveAttribute("data-value", String(PORTFOLIO[0].edge_index_score));
+  const progress = page.getByTestId("score-ring-1-progress");
+  await expect(progress).toHaveCSS("transition-duration", "0.65s");
+  const circumference = Number(await progress.getAttribute("stroke-dasharray"));
+  const emptyOffset = Number(await progress.getAttribute("stroke-dashoffset"));
+  expect(emptyOffset).toBeCloseTo(circumference, 3);
+
+  await page.evaluate(() =>
+    (window as typeof window & { __flushScoreRingFrame: () => void }).__flushScoreRingFrame());
+  await page.evaluate(() =>
+    (window as typeof window & { __flushScoreRingFrame: () => void }).__flushScoreRingFrame());
+  await expect.poll(async () =>
+    Number(await progress.getAttribute("stroke-dashoffset"))).toBeCloseTo(
+      circumference * (1 - Number(PORTFOLIO[0].edge_index_score) / 100),
+      3,
+    );
+  expect(Number(await progress.getAttribute("stroke-dashoffset"))).toBeLessThan(emptyOffset);
   await expect(ring.getByText("68", { exact: true })).toBeVisible();
   await expect(page.getByText("Legacy Edge Score 72", { exact: true })).toBeVisible();
   await expect(page.getByTestId("achievements-1")).toHaveAttribute("aria-label", "Achievements");
@@ -576,7 +607,12 @@ test("league detail Overview renders edge component breakdown bars", async ({ pa
   await page.goto("/league/1");
   const ring = page.getByTestId("overview-score-ring");
   await expect(ring).toHaveAttribute("data-state", "scored");
-  await expect(ring.getByText("72", { exact: true })).toBeVisible();
+  await expect(ring).toHaveAttribute("data-value", String(OVERVIEW.edge_score));
+  await expect(ring).toHaveAttribute(
+    "aria-label",
+    `Edge Score ${Math.round(OVERVIEW.edge_score)} grade ${OVERVIEW.grade}`,
+  );
+  await expect(ring.getByText(String(Math.round(OVERVIEW.edge_score)), { exact: true })).toBeVisible();
   await expect(page.getByTestId("overview-momentum")).toContainText("▲ +3.0");
   await expect(page.getByTestId("overview-achievements").getByLabel("Sync healthy")).toBeVisible();
   // Component labels + bar percentiles from the mocked overview payload (Phase 9).
@@ -683,6 +719,10 @@ test("draft board shows a compact per-team grade strip", async ({ page }) => {
   await expect(strip).toContainText("A-");
   await expect(strip).toContainText("Rival");
   await expect(strip).toContainText("B+");
+  for (const [teamId, grade] of [[1, "A-"], [2, "B+"]] as const) {
+    await expect(page.getByTestId(`draft-grade-strip-${teamId}`).getByText(grade, { exact: true })).toBeVisible();
+    await expect(page.getByTestId(`draft-recap-card-${teamId}`).getByText(grade, { exact: true })).toBeVisible();
+  }
 });
 
 test("activity renders ESPN portraits with resolved player names", async ({ page }) => {
@@ -791,6 +831,54 @@ test("AI brief reveal fires once for each genuine generation", async ({ page }) 
   await expect.poll(() => page.evaluate(() =>
     (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(2);
   expect(generation).toBe(2);
+});
+
+test("AI cached content does not reveal again after a tab round-trip", async ({ page }) => {
+  const cached = {
+    enabled: true,
+    kind: "league_brief",
+    model: "offline",
+    created_at: NOW,
+    stale: false,
+    content: {
+      difficulty_tier: "Tough",
+      narrative: "One cached offline brief.",
+      exploit_plan: ["Use persisted facts"],
+    },
+    error: null,
+  };
+  await page.route("**/api/ai/status", (r) =>
+    json(r, { enabled: true, standard_model: "offline", bulk_model: "offline" }));
+  await page.route("**/api/leagues/1/ai/league-brief", async (r) => {
+    // Let status and the sibling verdict settle first so a replay cannot be
+    // hidden by a later unrelated render removing the animation class.
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    return json(r, cached);
+  });
+
+  await page.goto("/league/1");
+  await page.evaluate(() => {
+    const state = window as Window & { __aiRevealCount?: number };
+    state.__aiRevealCount = 0;
+    document.addEventListener("animationstart", (event) => {
+      if ((event as AnimationEvent).animationName === "ai-reveal") {
+        state.__aiRevealCount = (state.__aiRevealCount ?? 0) + 1;
+      }
+    });
+  });
+
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await expect(page.getByText("One cached offline brief.")).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(1);
+
+  await page.getByRole("button", { name: "Overview" }).click();
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await expect(page.getByText("One cached offline brief.")).toBeVisible();
+  await expect(page.getByTestId("ai-content-reveal")).toHaveAttribute("data-reveal", "seen");
+  await page.waitForTimeout(350);
+  expect(await page.evaluate(() =>
+    (window as Window & { __aiRevealCount?: number }).__aiRevealCount)).toBe(1);
 });
 
 test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)", async ({ page }) => {

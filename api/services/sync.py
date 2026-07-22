@@ -243,10 +243,9 @@ class SyncService:
             result["errors"].append(f"metrics_failed: {exc}")
             log.warning("league %s: metrics recompute failed: %s", league.espn_league_id, exc)
 
-        # Record closing score values only after a fully clean data + metrics sync.
-        # The service uses one bucket per completed fantasy week (0 = preseason),
-        # and an inner savepoint guarantees an interrupted batch leaves no partial
-        # history. Snapshot failures remain non-fatal to the broader sync.
+        # Append one score event per fully clean data + metrics sync. Momentum
+        # later selects the newest event per completed fantasy week (0 =
+        # preseason), while the savepoint keeps each batch atomic.
         if metrics_ok and not result["errors"]:
             try:
                 result["metric_snapshots"] = momentum.record_metric_snapshots(

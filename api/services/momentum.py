@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -48,35 +49,23 @@ def _write_snapshot(
     *,
     league_id: int,
     team_id: int,
+    batch_id: str,
     key: str,
     period: int,
     value: float,
     recorded_at: datetime,
 ) -> None:
-    row = session.scalar(
-        select(MetricSnapshot).where(
-            MetricSnapshot.league_id == league_id,
-            MetricSnapshot.team_id == team_id,
-            MetricSnapshot.key == key,
-            MetricSnapshot.period == period,
+    session.add(
+        MetricSnapshot(
+            league_id=league_id,
+            team_id=team_id,
+            batch_id=batch_id,
+            key=key,
+            period=period,
+            value_float=value,
+            recorded_at=recorded_at,
         )
     )
-    if row is None:
-        session.add(
-            MetricSnapshot(
-                league_id=league_id,
-                team_id=team_id,
-                key=key,
-                period=period,
-                value_float=value,
-                recorded_at=recorded_at,
-            )
-        )
-    else:
-        # One closing value per fantasy period. A same-week resync updates the
-        # bucket instead of creating misleading duplicate history.
-        row.value_float = value
-        row.recorded_at = recorded_at
 
 
 def record_metric_snapshots(
@@ -85,14 +74,16 @@ def record_metric_snapshots(
     period: int,
     *,
     recorded_at: datetime | None = None,
+    batch_id: str | None = None,
 ) -> int:
-    """Record current tracked metrics atomically, returning values written.
+    """Append current tracked metrics atomically, returning values written.
 
     The nested transaction is intentional: if any one row fails, the whole
     snapshot batch rolls back while the caller may still finish the broader
     sync and report a non-fatal snapshot error.
     """
     now = recorded_at or datetime.now(UTC)
+    sync_batch = batch_id or uuid4().hex
     session.flush()
     values = list(
         session.execute(
@@ -111,6 +102,7 @@ def record_metric_snapshots(
                 session,
                 league_id=league_id,
                 team_id=team_id,
+                batch_id=sync_batch,
                 key=key,
                 period=period,
                 value=float(value),
@@ -135,7 +127,7 @@ def metric_momentum(
     """
     if team_id is None or current_value is None:
         return Momentum("pending", None, None, 0, 0)
-    rows = list(
+    events = list(
         session.scalars(
             select(MetricSnapshot)
             .where(
@@ -143,9 +135,19 @@ def metric_momentum(
                 MetricSnapshot.team_id == team_id,
                 MetricSnapshot.key == key,
             )
-            .order_by(MetricSnapshot.period.desc(), MetricSnapshot.recorded_at.desc())
+            .order_by(
+                MetricSnapshot.period.desc(),
+                MetricSnapshot.recorded_at.desc(),
+                MetricSnapshot.id.desc(),
+            )
         )
     )
+    rows: list[MetricSnapshot] = []
+    seen_periods: set[int] = set()
+    for event in events:
+        if event.period not in seen_periods:
+            rows.append(event)
+            seen_periods.add(event.period)
     if len(rows) < 2:
         return Momentum("first_sync", None, None, 0, len(rows))
 

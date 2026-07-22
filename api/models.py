@@ -250,21 +250,16 @@ class Metric(Base):
 
 
 class MetricSnapshot(Base):
-    """One fantasy-period closing value for a tracked team metric.
-
-    Repeated syncs within the same period update the same row. That makes the
-    history useful for week-over-week momentum without manufacturing duplicate
-    zero-deltas when a user clicks Sync twice on unchanged ESPN data.
-    """
+    """One append-only metric value from a clean sync batch."""
 
     __tablename__ = "metric_snapshots"
     __table_args__ = (
         UniqueConstraint(
-            "league_id", "team_id", "key", "period", name="uq_metric_snapshot_period"
+            "league_id", "batch_id", "team_id", "key", name="uq_metric_snapshot_batch"
         ),
         Index(
             "ix_metric_snapshot_lookup",
-            "league_id", "team_id", "key", "period",
+            "league_id", "team_id", "key", "period", "recorded_at",
         ),
     )
 
@@ -275,6 +270,7 @@ class MetricSnapshot(Base):
     team_id: Mapped[int] = mapped_column(
         ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
     )
+    batch_id: Mapped[str] = mapped_column(String, nullable=False)
     key: Mapped[str] = mapped_column(String, nullable=False)
     period: Mapped[int] = mapped_column(Integer, nullable=False)
     value_float: Mapped[float] = mapped_column(Float, nullable=False)

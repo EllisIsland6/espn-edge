@@ -181,6 +181,12 @@ make db-reset     # deletes data/edge.db (+ WAL/SHM)
 > Phase 7 added two nullable `leagues` columns (`last_sync_ok`, `last_sync_error`).
 > Upgrading an existing DB requires a `make db-reset` before the first run.
 
+> The experimental gamification schema was corrected to add append-only
+> `metric_snapshots.batch_id` and replace its old per-period uniqueness constraint.
+> `create_all` cannot alter an existing table. If the app created
+> `metric_snapshots` at commits `2d6d16d` or `673bf6e`, stop `make dev`, run
+> `make db-reset`, restart with `make dev`, then re-add/discover leagues and sync.
+
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child rows
 cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The
 raw JSON cache in `data/raw_cache/`/`raw_cache` table makes re-syncing cheap.

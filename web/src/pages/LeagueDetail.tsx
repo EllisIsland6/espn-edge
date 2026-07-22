@@ -1,5 +1,5 @@
 import type { ColumnDef } from "@tanstack/react-table";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   generateAdvantageVerdict,
@@ -136,6 +136,7 @@ export default function LeagueDetail() {
   const [syncing, setSyncing] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const seenAiRevealTokens = useRef(new Set<string>());
 
   useEffect(() => {
     setOv(null);
@@ -230,7 +231,9 @@ export default function LeagueDetail() {
         {tab === "teams" && <TeamsTab teams={ov.teams} leagueId={leagueId} myTeamId={lg.my_team_id} />}
         {tab === "matchups" && <MatchupsTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "activity" && <ActivityTab leagueId={leagueId} teamName={teamName} />}
-        {tab === "ai" && <AiTab leagueId={leagueId} />}
+        {tab === "ai" && (
+          <AiTab leagueId={leagueId} seenRevealTokens={seenAiRevealTokens.current} />
+        )}
       </div>
     </div>
   );
@@ -610,7 +613,11 @@ function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerR
             aria-label="Draft grade summary"
           >
             {reports.map((r) => (
-              <div key={r.espn_team_id} className="flex shrink-0 items-center gap-2 border-r border-line pr-2 last:border-r-0">
+              <div
+                key={r.espn_team_id}
+                className="flex shrink-0 items-center gap-2 border-r border-line pr-2 last:border-r-0"
+                data-testid={`draft-grade-strip-${r.espn_team_id}`}
+              >
                 <span className="max-w-32 truncate text-xs text-secondary">
                   {r.team_name ?? `Team ${r.espn_team_id}`}
                 </span>
@@ -620,7 +627,11 @@ function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerR
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {reports.map((r) => (
-              <div key={r.espn_team_id} className="rounded-lg border border-line bg-row p-3">
+              <div
+                key={r.espn_team_id}
+                className="rounded-lg border border-line bg-row p-3"
+                data-testid={`draft-recap-card-${r.espn_team_id}`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-primary">{r.team_name ?? `Team ${r.espn_team_id}`}</span>
                   <GradePill grade={r.grade} />
@@ -895,7 +906,13 @@ function AiKeyOff() {
   );
 }
 
-function AiTab({ leagueId }: { leagueId: number }) {
+function AiTab({
+  leagueId,
+  seenRevealTokens,
+}: {
+  leagueId: number;
+  seenRevealTokens: Set<string>;
+}) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [brief, setBrief] = useState<AiReportEnvelope<LeagueBriefContent> | null>(null);
   const [verdict, setVerdict] = useState<AiReportEnvelope<AdvantageVerdictContent> | null>(null);
@@ -932,6 +949,8 @@ function AiTab({ leagueId }: { leagueId: number }) {
         env={brief}
         busy={busy === "brief"}
         onGenerate={() => generate("brief")}
+        revealScope={`${leagueId}:brief`}
+        seenRevealTokens={seenRevealTokens}
       >
         {brief?.content && (
           <div>
@@ -954,6 +973,8 @@ function AiTab({ leagueId }: { leagueId: number }) {
         env={verdict}
         busy={busy === "verdict"}
         onGenerate={() => generate("verdict")}
+        revealScope={`${leagueId}:verdict`}
+        seenRevealTokens={seenRevealTokens}
       >
         {verdict?.content && (
           <div>
@@ -1330,15 +1351,20 @@ function AiCard({
   env,
   busy,
   onGenerate,
+  revealScope,
+  seenRevealTokens,
   children,
 }: {
   title: string;
   env: AiReportEnvelope<unknown> | null;
   busy: boolean;
   onGenerate: () => void;
+  revealScope: string;
+  seenRevealTokens: Set<string>;
   children?: ReactNode;
 }) {
   const has = !!env?.content;
+  const revealToken = `${revealScope}:${env?.created_at ?? ""}:${JSON.stringify(env?.content)}`;
   return (
     <Panel className="p-4">
       <div className="flex items-center justify-between gap-2">
@@ -1356,7 +1382,9 @@ function AiCard({
       <div className="mt-3">
         {has ? (
           <ContentReveal
-            token={`${env?.created_at ?? ""}:${JSON.stringify(env?.content)}`}
+            key={revealToken}
+            token={revealToken}
+            seenTokens={seenRevealTokens}
             testId="ai-content-reveal"
           >
             {children}

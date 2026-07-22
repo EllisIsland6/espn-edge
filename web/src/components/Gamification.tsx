@@ -59,6 +59,7 @@ export function ScoreRing({
       data-testid={testId}
       data-state={pending ? "pending" : "scored"}
       data-motion={reduced ? "reduced" : "animated"}
+      data-value={value ?? ""}
       aria-label={pending ? `${label} pending` : `${label} ${Math.round(value)} grade ${grade ?? "pending"}`}
     >
       <div className="relative" style={{ width: pixels, height: pixels }}>
@@ -178,20 +179,28 @@ export function AchievementRow({
 
 export function ContentReveal({
   token,
+  seenTokens,
   children,
   testId,
 }: {
   token: string;
+  seenTokens: Set<string>;
   children: ReactNode;
   testId?: string;
 }) {
   const reduced = usePrefersReducedMotion();
+  const [isNew] = useState(() => !seenTokens.has(token));
+
+  useEffect(() => {
+    seenTokens.add(token);
+  }, [seenTokens, token]);
+
   return (
     <div
-      key={token}
-      className={reduced ? "" : "ai-reveal"}
+      className={!reduced && isNew ? "ai-reveal" : ""}
       data-testid={testId}
       data-motion={reduced ? "reduced" : "animated"}
+      data-reveal={isNew ? "new" : "seen"}
     >
       {children}
     </div>

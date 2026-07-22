@@ -39,26 +39,50 @@ def _metric(session, league: League, team: Team, key: str, value: float) -> Metr
     return row
 
 
-def test_period_snapshots_update_same_week_and_preserve_real_flat_week(db_session):
+def test_same_period_syncs_append_but_momentum_uses_latest_event(db_session):
     league, team = _league_team(db_session)
     edge = _metric(db_session, league, team, momentum.EDGE_SCORE, 50.0)
     index = _metric(db_session, league, team, momentum.EDGE_INDEX_SCORE, 60.0)
     t0 = datetime(2026, 9, 8, tzinfo=UTC)
 
-    assert momentum.record_metric_snapshots(db_session, league.id, 1, recorded_at=t0) == 2
+    assert momentum.record_metric_snapshots(
+        db_session, league.id, 1, recorded_at=t0, batch_id="sync-a"
+    ) == 2
     edge.value_float = 55.0
     index.value_float = 65.0
     assert momentum.record_metric_snapshots(
-        db_session, league.id, 1, recorded_at=t0 + timedelta(hours=1)
+        db_session,
+        league.id,
+        1,
+        recorded_at=t0 + timedelta(hours=1),
+        batch_id="sync-b",
     ) == 2
     same_week = list(db_session.scalars(select(MetricSnapshot)))
-    assert len(same_week) == 2
-    assert {row.value_float for row in same_week} == {55.0, 65.0}
-    expected_recorded = (t0 + timedelta(hours=1)).replace(tzinfo=None)
-    assert all(row.recorded_at == expected_recorded for row in same_week)
+    assert len(same_week) == 4
+    assert {(row.batch_id, row.value_float) for row in same_week} == {
+        ("sync-a", 50.0),
+        ("sync-a", 60.0),
+        ("sync-b", 55.0),
+        ("sync-b", 65.0),
+    }
+    assert {row.recorded_at for row in same_week} == {
+        t0.replace(tzinfo=None),
+        (t0 + timedelta(hours=1)).replace(tzinfo=None),
+    }
+    same_period = momentum.metric_momentum(
+        db_session, league.id, team.id, momentum.EDGE_INDEX_SCORE, index.value_float
+    )
+    assert same_period.status == "first_sync"
+    assert same_period.history_count == 1
 
     # A later fantasy period with the same closing score is a genuine flat week.
-    momentum.record_metric_snapshots(db_session, league.id, 2, recorded_at=t0 + timedelta(days=7))
+    momentum.record_metric_snapshots(
+        db_session,
+        league.id,
+        2,
+        recorded_at=t0 + timedelta(days=7),
+        batch_id="sync-c",
+    )
     flat = momentum.metric_momentum(
         db_session, league.id, team.id, momentum.EDGE_INDEX_SCORE, index.value_float
     )
@@ -197,6 +221,7 @@ def test_snapshot_schema_cannot_store_account_credentials(db_session):
         "id",
         "league_id",
         "team_id",
+        "batch_id",
         "key",
         "period",
         "value_float",
