@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import init_db
-from .routers import accounts, ai, exports, health, leagues, views
+from .routers import accounts, ai, exports, health, leagues, player_images, views
 
 
 @asynccontextmanager
@@ -69,6 +69,7 @@ app.include_router(health.router)
 app.include_router(accounts.router)
 app.include_router(leagues.router)
 app.include_router(views.router)
+app.include_router(player_images.router)
 app.include_router(ai.router)
 app.include_router(exports.router)
 

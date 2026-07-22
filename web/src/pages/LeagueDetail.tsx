@@ -37,12 +37,14 @@ import {
   type LeagueBriefContent,
   type LeagueOverview,
   type MatchupOut,
+  type PlayerReference,
   type TeamOut,
   type TradeFinderContent,
   type TransactionOut,
   type WeeklyRecapContent,
 } from "../api";
 import { DataTable } from "../components/DataTable";
+import { PlayerIdentity, PlayerMentionText } from "../components/PlayerIdentity";
 import {
   Button,
   EmptyState,
@@ -50,7 +52,6 @@ import {
   GradePill,
   LifecycleBadge,
   Panel,
-  PositionPill,
   SizePill,
   Spinner,
   ValueBar,
@@ -69,6 +70,56 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "activity", label: "Activity" },
   { key: "ai", label: "AI Brief" },
 ];
+
+function playerReference(
+  espnPlayerId: number | null,
+  name: string | null,
+  position: string | null,
+): PlayerReference {
+  return {
+    espn_player_id: espnPlayerId,
+    name: name ?? (espnPlayerId != null ? `#${espnPlayerId}` : "Unknown player"),
+    position,
+  };
+}
+
+function uniquePlayerReferences(players: PlayerReference[]): PlayerReference[] {
+  return Array.from(
+    new Map(
+      players.map((player) => [
+        player.espn_player_id != null ? `id:${player.espn_player_id}` : `name:${player.name}`,
+        player,
+      ]),
+    ).values(),
+  );
+}
+
+function transactionPlayerReferences(transactions: TransactionOut[]): PlayerReference[] {
+  return uniquePlayerReferences(
+    transactions.flatMap((transaction) => {
+      const players: PlayerReference[] = [];
+      if (transaction.player_in != null || transaction.player_in_name) {
+        players.push(
+          playerReference(
+            transaction.player_in,
+            transaction.player_in_name,
+            transaction.player_in_position,
+          ),
+        );
+      }
+      if (transaction.player_out != null || transaction.player_out_name) {
+        players.push(
+          playerReference(
+            transaction.player_out,
+            transaction.player_out_name,
+            transaction.player_out_position,
+          ),
+        );
+      }
+      return players;
+    }),
+  );
+}
 
 export default function LeagueDetail() {
   const { id } = useParams();
@@ -463,12 +514,9 @@ function DraftTab({
       cell: (c) => {
         const p = c.row.original;
         return (
-          <span className="flex items-center gap-2">
-            <PositionPill pos={p.player_position} />
-            <span className="text-primary">
-              {p.player_name ?? (p.espn_player_id != null ? `#${p.espn_player_id}` : DASH)}
-            </span>
-          </span>
+          <PlayerIdentity
+            player={playerReference(p.espn_player_id, p.player_name, p.player_position)}
+          />
         );
       },
     },
@@ -477,9 +525,12 @@ function DraftTab({
     { accessorKey: "autodraft", header: "Auto", cell: (c) => (c.getValue<boolean>() ? <span className="text-muted">auto</span> : "") },
     { id: "value", header: "Δ vs ADP", accessorFn: (p) => p.value_delta ?? 0, cell: (c) => <span className="mono text-muted">{c.row.original.value_delta == null ? DASH : num(c.row.original.value_delta)}</span> },
   ];
+  const players = uniquePlayerReferences(
+    picks.map((pick) => playerReference(pick.espn_player_id, pick.player_name, pick.player_position)),
+  );
   return (
     <div className="space-y-5">
-      <DraftRecaps leagueId={leagueId} />
+      <DraftRecaps leagueId={leagueId} players={players} />
       <Panel className="overflow-hidden p-1">
         <DataTable
           data={picks}
@@ -497,7 +548,7 @@ function DraftTab({
 }
 
 // --- AI draft recaps (per team) --------------------------------------------
-function DraftRecaps({ leagueId }: { leagueId: number }) {
+function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerReference[] }) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [reports, setReports] = useState<DraftRecapContent[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -554,7 +605,9 @@ function DraftRecaps({ leagueId }: { leagueId: number }) {
                 )}
                 <span className="text-muted">· {r.confidence} confidence</span>
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-secondary">{r.summary}</p>
+              <p className="mt-2 text-sm leading-relaxed text-secondary">
+                <PlayerMentionText text={r.summary} players={players} />
+              </p>
             </div>
           ))}
         </div>
@@ -752,8 +805,44 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
     { accessorKey: "week", header: "Wk", cell: (c) => <span className="mono text-secondary">{c.getValue<number | null>() ?? DASH}</span> },
     { id: "team", header: "Team", accessorFn: (t) => teamLabel(teamName, t.team_id), cell: (c) => teamLabel(teamName, c.row.original.team_id) },
     { accessorKey: "type", header: "Type", cell: (c) => <span className="mono text-secondary">{c.getValue<string | null>() ?? DASH}</span> },
-    { accessorKey: "player_in", header: "In", cell: (c) => <span className="mono text-green">{c.getValue<number | null>() ?? ""}</span> },
-    { accessorKey: "player_out", header: "Out", cell: (c) => <span className="mono text-muted">{c.getValue<number | null>() ?? ""}</span> },
+    {
+      id: "player_in",
+      header: "In",
+      accessorFn: (transaction) => transaction.player_in_name ?? transaction.player_in ?? "",
+      cell: (c) => {
+        const transaction = c.row.original;
+        if (transaction.player_in == null && !transaction.player_in_name) return null;
+        return (
+          <PlayerIdentity
+            player={playerReference(
+              transaction.player_in,
+              transaction.player_in_name,
+              transaction.player_in_position,
+            )}
+            tone="text-green"
+          />
+        );
+      },
+    },
+    {
+      id: "player_out",
+      header: "Out",
+      accessorFn: (transaction) => transaction.player_out_name ?? transaction.player_out ?? "",
+      cell: (c) => {
+        const transaction = c.row.original;
+        if (transaction.player_out == null && !transaction.player_out_name) return null;
+        return (
+          <PlayerIdentity
+            player={playerReference(
+              transaction.player_out,
+              transaction.player_out_name,
+              transaction.player_out_position,
+            )}
+            tone="text-muted"
+          />
+        );
+      },
+    },
     { accessorKey: "bid", header: "Bid", cell: (c) => <span className="mono">{c.getValue<number | null>() ?? DASH}</span> },
   ];
   return (
@@ -990,15 +1079,66 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
               ) : (
                 <ul className="mt-2 space-y-3">
                   {c.proposals.map((p, i) => (
-                    <li key={i} className="rounded-md border border-line p-2">
-                      <div className="text-xs"><span className="text-muted">I give: </span><span className="text-red">{p.i_give.join(", ") || "—"}</span></div>
-                      <div className="text-xs"><span className="text-muted">I get: </span><span className="text-green">{p.i_get.join(", ") || "—"}</span></div>
-                      <p className="mt-1 text-sm leading-relaxed text-secondary">{p.rationale}</p>
+                    <li key={i} className="rounded-md border border-line p-3">
+                      {(() => {
+                        const give = p.i_give_players?.length
+                          ? p.i_give_players
+                          : p.i_give.map((name) => playerReference(null, name, null));
+                        const get = p.i_get_players?.length
+                          ? p.i_get_players
+                          : p.i_get.map((name) => playerReference(null, name, null));
+                        const proposalPlayers = uniquePlayerReferences([...give, ...get]);
+                        return (
+                          <>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <div className="text-[11px] uppercase tracking-wide text-muted">I give</div>
+                                <div className="mt-1 space-y-2">
+                                  {give.map((player) => (
+                                    <PlayerIdentity
+                                      key={player.espn_player_id ?? player.name}
+                                      player={player}
+                                      tone="text-red"
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] uppercase tracking-wide text-muted">I get</div>
+                                <div className="mt-1 space-y-2">
+                                  {get.map((player) => (
+                                    <PlayerIdentity
+                                      key={player.espn_player_id ?? player.name}
+                                      player={player}
+                                      tone="text-green"
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                            <p className="mt-3 text-sm leading-relaxed text-secondary">
+                              <PlayerMentionText text={p.rationale} players={proposalPlayers} />
+                            </p>
+                          </>
+                        );
+                      })()}
                     </li>
                   ))}
                 </ul>
               )}
-              {c.note && <p className="mt-2 text-[11px] italic text-muted">{c.note}</p>}
+              {c.note && (
+                <p className="mt-2 text-[11px] italic text-muted">
+                  <PlayerMentionText
+                    text={c.note}
+                    players={uniquePlayerReferences(
+                      c.proposals.flatMap((proposal) => [
+                        ...(proposal.i_give_players ?? []),
+                        ...(proposal.i_get_players ?? []),
+                      ]),
+                    )}
+                  />
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted">Not generated yet for this opponent.</p>
@@ -1027,10 +1167,14 @@ function WeeklyRecapCard({ leagueId }: { leagueId: number }) {
   const [weeks, setWeeks] = useState<number[] | null>(null);
   const [week, setWeek] = useState<number | null>(null);
   const [env, setEnv] = useState<AiReportEnvelope<WeeklyRecapContent> | null>(null);
+  const [players, setPlayers] = useState<PlayerReference[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    getLeagueActivity(leagueId)
+      .then((transactions) => setPlayers(transactionPlayerReferences(transactions)))
+      .catch(() => setPlayers([]));
     getLeagueMatchups(leagueId)
       .then((ms) => {
         const done = [
@@ -1111,13 +1255,19 @@ function WeeklyRecapCard({ leagueId }: { leagueId: number }) {
         <div className="mt-3">
           {has && c ? (
             <div>
-              <div className="text-sm font-semibold text-primary">{c.headline}</div>
-              <p className="mt-1 text-sm leading-relaxed text-secondary">{c.body}</p>
+              <div className="text-sm font-semibold text-primary">
+                <PlayerMentionText text={c.headline} players={players} />
+              </div>
+              <p className="mt-1 text-sm leading-relaxed text-secondary">
+                <PlayerMentionText text={c.body} players={players} />
+              </p>
               {c.luck_notes.length > 0 && (
                 <>
                   <div className="mt-2 text-xs uppercase tracking-wide text-muted">Luck notes</div>
                   <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">
-                    {c.luck_notes.map((n, i) => <li key={i}>{n}</li>)}
+                    {c.luck_notes.map((n, i) => (
+                      <li key={i}><PlayerMentionText text={n} players={players} /></li>
+                    ))}
                   </ul>
                 </>
               )}
@@ -1125,7 +1275,9 @@ function WeeklyRecapCard({ leagueId }: { leagueId: number }) {
                 <>
                   <div className="mt-2 text-xs uppercase tracking-wide text-muted">Waiver highlights</div>
                   <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-secondary">
-                    {c.waiver_highlights.map((n, i) => <li key={i}>{n}</li>)}
+                    {c.waiver_highlights.map((n, i) => (
+                      <li key={i}><PlayerMentionText text={n} players={players} /></li>
+                    ))}
                   </ul>
                 </>
               )}

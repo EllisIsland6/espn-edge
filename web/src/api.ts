@@ -199,6 +199,10 @@ export interface TransactionOut {
   week: number | null;
   player_in: number | null;
   player_out: number | null;
+  player_in_name: string | null;
+  player_in_position: string | null;
+  player_out_name: string | null;
+  player_out_position: string | null;
   bid: number | null;
   executed_at: string | null;
 }
@@ -243,6 +247,7 @@ export interface SyncSummary {
   draft_picks: number | null;
   matchups: number | null;
   transactions: number | null;
+  my_team_espn_id: number | null;
   needs_reauth: boolean | null;
   errors: string[];
 }
@@ -290,7 +295,14 @@ export interface WeeklyRecapContent {
 export interface TradeProposal {
   i_give: string[];
   i_get: string[];
+  i_give_players?: PlayerReference[];
+  i_get_players?: PlayerReference[];
   rationale: string;
+}
+export interface PlayerReference {
+  espn_player_id: number | null;
+  name: string;
+  position: string | null;
 }
 export interface TradeFinderContent {
   proposals: TradeProposal[];

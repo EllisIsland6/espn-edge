@@ -155,6 +155,15 @@ const DRAFT = [
   },
 ];
 
+const ACTIVITY = [
+  {
+    team_id: 1, type: "waiver", week: 1,
+    player_in: 1001, player_in_name: "Star Runningback", player_in_position: "RB",
+    player_out: 1002, player_out_name: "Ace Receiver", player_out_position: "WR",
+    bid: 17, executed_at: NOW,
+  },
+];
+
 function json(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 }
@@ -162,6 +171,14 @@ function json(route: Route, data: unknown) {
 async function mockApi(page: Page) {
   // Fallback first (lowest priority) so no request ever escapes to a real backend.
   await page.route("**/api/**", (r) => json(r, {}));
+  // Player portraits are same-origin and backend-proxied in production. Fulfill the local
+  // route here so the browser suite remains fully offline and deterministic.
+  await page.route("**/api/players/*/portrait", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#d9dde5"/></svg>',
+    }));
   await page.route("**/api/ai/status", (r) =>
     json(r, { enabled: false, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
   await page.route("**/api/portfolio", (r) => json(r, PORTFOLIO));
@@ -176,6 +193,7 @@ async function mockApi(page: Page) {
   await page.route("**/api/leagues/1/ai/draft-recaps", (r) =>
     json(r, { enabled: false, kind: "draft_recap", reports: [] }));
   await page.route("**/api/leagues/1/draft", (r) => json(r, DRAFT));
+  await page.route("**/api/leagues/1/activity", (r) => json(r, ACTIVITY));
   await page.route("**/api/leagues/1/matchups", (r) => json(r, MATCHUPS));
   await page.route("**/api/leagues/1/all-play", (r) => json(r, ALL_PLAY));
   await page.route("**/api/leagues/1/lineup-efficiency", (r) => json(r, LINEUP_EFFICIENCY));
@@ -231,6 +249,175 @@ test("manage tab renders the account and league forms", async ({ page }) => {
   await page.getByRole("link", { name: "Manage" }).click();
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add league" })).toBeVisible();
+});
+
+test("manage discovers, selects, imports, and syncs account leagues", async ({ page }) => {
+  const account = {
+    id: 1, label: "Main", status: "active", created_at: NOW,
+  };
+  const existing = { ...LEAGUE_1, espn_league_id: "111", name: "Alpha League" };
+  const imported = {
+    ...LEAGUE_1,
+    id: 2,
+    espn_league_id: "333",
+    name: "Gamma League",
+    lifecycle: "pre_draft",
+    my_team_id: null,
+    last_synced_at: null,
+    last_sync_ok: null,
+  };
+  let addPayload: unknown = null;
+  let syncCalls = 0;
+
+  await page.route("**/api/accounts", (r) => json(r, [account]));
+  await page.route("**/api/leagues/discover/1", (r) =>
+    json(r, [
+      { espn_league_id: "111", name: "Alpha League", season: 2026, team_id: 1 },
+      { espn_league_id: "333", name: "Gamma League", season: 2026, team_id: 3 },
+      { espn_league_id: "333", name: "Gamma League", season: 2026, team_id: 3 },
+    ]));
+  await page.route("**/api/leagues", (r) => {
+    if (r.request().method() === "POST") {
+      addPayload = r.request().postDataJSON();
+      return json(r, imported);
+    }
+    return json(r, [existing]);
+  });
+  await page.route("**/api/leagues/2/sync", (r) => {
+    syncCalls += 1;
+    return json(r, {
+      league_id: "333", season: 2026, name: "Gamma League", lifecycle: "pre_draft",
+      teams: 10, draft_picks: 0, matchups: 0, transactions: 0,
+      my_team_espn_id: 3, needs_reauth: false, errors: [],
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Discover leagues" }).click();
+  const discovery = page.getByTestId("league-discovery-1");
+  await expect(discovery.getByText("Alpha League")).toBeVisible();
+  await expect(discovery.getByText("Gamma League")).toBeVisible();
+  await expect(discovery.getByText("Added", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Select Alpha League" })).toBeDisabled();
+  const gamma = page.getByRole("checkbox", { name: "Select Gamma League" });
+  await expect(gamma).toBeChecked();
+  await gamma.uncheck();
+  await expect(page.getByRole("button", { name: "Import & sync 0" })).toBeDisabled();
+  await gamma.check();
+  await discovery.getByRole("button", { name: "Refresh" }).click();
+  await expect(discovery.getByText("Gamma League")).toHaveCount(1);
+  await page.getByRole("button", { name: "Import & sync 1" }).click();
+
+  await expect(page.getByText("Processed 1 league.")).toBeVisible();
+  const results = page.getByTestId("league-import-results-1");
+  await expect(results.getByText("Success", { exact: true })).toBeVisible();
+  await expect(results.getByText("Gamma League", { exact: true })).toBeVisible();
+  expect(addPayload).toEqual({ league_ref: "333", account_id: 1, season: 2026 });
+  expect(syncCalls).toBe(1);
+});
+
+test("manage continues a batch after failure and reports every league result", async ({ page }) => {
+  const account = { id: 1, label: "Main", status: "active", created_at: NOW };
+  const importedIds: Record<string, number> = { "201": 2, "202": 3, "203": 4 };
+  const syncOrder: number[] = [];
+
+  await page.route("**/api/accounts", (r) => json(r, [account]));
+  await page.route("**/api/leagues/discover/1", (r) =>
+    json(r, [
+      { espn_league_id: "201", name: "Success League", season: 2026, team_id: 1 },
+      { espn_league_id: "202", name: "Interrupted League", season: 2026, team_id: 2 },
+      { espn_league_id: "203", name: "Ambiguous League", season: 2026, team_id: 3 },
+    ]));
+  await page.route("**/api/leagues", (route) => {
+    if (route.request().method() !== "POST") return json(route, []);
+    const payload = route.request().postDataJSON() as { league_ref: string };
+    return json(route, {
+      ...LEAGUE_1,
+      id: importedIds[payload.league_ref],
+      espn_league_id: payload.league_ref,
+      name: null,
+      my_team_id: null,
+    });
+  });
+  await page.route("**/api/leagues/*/sync", (route) => {
+    const match = new URL(route.request().url()).pathname.match(/\/leagues\/(\d+)\/sync$/);
+    const id = Number(match?.[1]);
+    syncOrder.push(id);
+    if (id === 3) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "fixture interruption" }),
+      });
+    }
+    return json(route, {
+      league_id: id === 2 ? "201" : "203",
+      season: 2026,
+      name: id === 2 ? "Success League" : "Ambiguous League",
+      lifecycle: "pre_draft",
+      teams: 10,
+      draft_picks: 0,
+      matchups: 0,
+      transactions: 0,
+      my_team_espn_id: id === 2 ? 1 : null,
+      needs_reauth: false,
+      errors: [],
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Discover leagues" }).click();
+  await page.getByRole("button", { name: "Import & sync 3" }).click();
+
+  const results = page.getByTestId("league-import-results-1");
+  await expect(results.getByText("Success", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Failed", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Team not identified", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Success League", { exact: true })).toBeVisible();
+  await expect(results.getByText("Interrupted League", { exact: true })).toBeVisible();
+  await expect(results.getByText("Ambiguous League", { exact: true })).toBeVisible();
+  expect(syncOrder).toEqual([2, 3, 4]);
+});
+
+test("manage keeps manual entry available when discovery returns no leagues", async ({ page }) => {
+  await page.route("**/api/accounts", (r) =>
+    json(r, [{ id: 1, label: "Main", status: "active", created_at: NOW }]));
+  await page.route("**/api/leagues", (r) => json(r, []));
+  await page.route("**/api/leagues/discover/1", (r) => json(r, []));
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Discover leagues" }).click();
+  await expect(page.getByText(/ESPN returned no discoverable leagues/)).toBeVisible();
+  await expect(page.getByPlaceholder("League ID or URL")).toBeVisible();
+});
+
+test("manage reports a discovery request failure without losing manual entry", async ({ page }) => {
+  let expired = false;
+  await page.route("**/api/accounts", (r) => {
+    return json(r, [{
+      id: 1,
+      label: "Main",
+      status: expired ? "needs_reauth" : "active",
+      created_at: NOW,
+    }]);
+  });
+  await page.route("**/api/leagues", (r) => json(r, []));
+  await page.route("**/api/leagues/discover/1", (r) => {
+    expired = true;
+    return r.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "ESPN session expired; re-authenticate this account" }),
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Discover leagues" }).click();
+  await expect(
+    page.getByText("Error: ESPN session expired; re-authenticate this account"),
+  ).toBeVisible();
+  await expect(page.getByTestId("reauth-form-1")).toBeVisible();
+  await expect(page.getByPlaceholder("League ID or URL")).toBeVisible();
 });
 
 test("league detail renders standings from mocked API data", async ({ page }) => {
@@ -312,6 +499,19 @@ test("draft board shows player name, position, and ADP (not raw IDs)", async ({ 
   await expect(page.getByText("Ace Receiver")).toBeVisible();
   await expect(page.getByText("RB", { exact: true })).toBeVisible(); // position pill
   await expect(page.getByText("3.4")).toBeVisible(); // ADP column
+  await expect(page.getByRole("img", { name: "Star Runningback ESPN portrait" })).toHaveAttribute(
+    "src",
+    "/api/players/1001/portrait",
+  );
+});
+
+test("activity renders ESPN portraits with resolved player names", async ({ page }) => {
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "Activity" }).click();
+  await expect(page.getByText("Star Runningback")).toBeVisible();
+  await expect(page.getByText("Ace Receiver")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Star Runningback ESPN portrait" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Ace Receiver ESPN portrait" })).toBeVisible();
 });
 
 test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) => {
@@ -359,7 +559,10 @@ test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)"
   await expect(page.getByText("Luck notes")).toBeVisible();
   await expect(page.getByText("Rival lost despite a top-3 all-play week")).toBeVisible();
   await expect(page.getByText("Waiver highlights")).toBeVisible();
-  await expect(page.getByText("Main added Star Runningback ($17)")).toBeVisible();
+  const waiverHighlight = page.getByRole("listitem").filter({ hasText: "Main added" });
+  await expect(waiverHighlight.getByText("Star Runningback", { exact: true })).toBeVisible();
+  await expect(waiverHighlight).toContainText("($17)");
+  await expect(page.getByRole("img", { name: "Star Runningback ESPN portrait" })).toBeVisible();
 });
 
 test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)", async ({ page }) => {
@@ -374,7 +577,13 @@ test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)
         grounding_source: "lineup_snapshot", snapshot_week: 4, snapshot_stale: false,
         projections_stale: false, my_projection_coverage: 0.9,
         proposals: [
-          { i_give: ["My RB2"], i_get: ["Their WR1"], rationale: "You have RB depth; they need a back." },
+          {
+            i_give: ["My RB2"],
+            i_get: ["Their WR1"],
+            i_give_players: [{ espn_player_id: 2001, name: "My RB2", position: "RB" }],
+            i_get_players: [{ espn_player_id: 2002, name: "Their WR1", position: "WR" }],
+            rationale: "My RB2 gives you depth; Their WR1 fills the need.",
+          },
         ],
         note: "Advisory only — the app never executes trades on ESPN.",
       },
@@ -385,16 +594,18 @@ test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)
   await expect(page.getByRole("heading", { name: "Trade finder" })).toBeVisible();
   await expect(page.getByText("vs Rival")).toBeVisible();
   await expect(page.getByText("Week 4 roster snapshot")).toBeVisible(); // Phase 22 provenance
-  await expect(page.getByText("My RB2")).toBeVisible();
-  await expect(page.getByText("Their WR1")).toBeVisible();
-  await expect(page.getByText("You have RB depth; they need a back.")).toBeVisible();
+  await expect(page.getByText("My RB2", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Their WR1", { exact: true })).toHaveCount(2);
+  await expect(page.getByText(/My RB2 gives you depth/)).toBeVisible();
+  await expect(page.getByRole("img", { name: "My RB2 ESPN portrait" })).toHaveCount(2);
+  await expect(page.getByRole("img", { name: "Their WR1 ESPN portrait" })).toHaveCount(2);
   // exact: the model note is a prefix of the static advisory copy below it.
   await expect(
     page.getByText("Advisory only — the app never executes trades on ESPN.", { exact: true }),
   ).toBeVisible();
   // Exercise the POST path too (mock returns the same proposal).
   await page.getByRole("button", { name: "Regenerate" }).click();
-  await expect(page.getByText("You have RB depth; they need a back.")).toBeVisible();
+  await expect(page.getByText(/My RB2 gives you depth/)).toBeVisible();
 });
 
 test("status page renders health/AI/account/league counts without leaking secrets", async ({ page }) => {

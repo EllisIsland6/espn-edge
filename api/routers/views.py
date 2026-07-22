@@ -266,12 +266,47 @@ def league_lineup_efficiency(
 
 
 @router.get("/api/leagues/{league_id}/activity", response_model=list[TransactionOut])
-def league_activity(league_id: int, session: Session = Depends(get_session)) -> list[Transaction]:
+def league_activity(
+    league_id: int, session: Session = Depends(get_session)
+) -> list[TransactionOut]:
     _get_league(session, league_id)
-    return list(
+    transactions = list(
         session.scalars(
             select(Transaction)
             .where(Transaction.league_id == league_id)
             .order_by(Transaction.executed_at.desc().nullslast(), Transaction.id)
         )
     )
+    player_ids = {
+        player_id
+        for transaction in transactions
+        for player_id in (transaction.player_in, transaction.player_out)
+        if player_id is not None
+    }
+    players = {
+        player.espn_player_id: player
+        for player in session.scalars(
+            select(Player).where(Player.espn_player_id.in_(player_ids))
+        )
+    } if player_ids else {}
+
+    return [
+        TransactionOut(
+            team_id=transaction.team_id,
+            type=transaction.type,
+            week=transaction.week,
+            player_in=transaction.player_in,
+            player_out=transaction.player_out,
+            player_in_name=(players.get(transaction.player_in).name
+                            if transaction.player_in in players else None),
+            player_in_position=(players.get(transaction.player_in).position
+                                if transaction.player_in in players else None),
+            player_out_name=(players.get(transaction.player_out).name
+                             if transaction.player_out in players else None),
+            player_out_position=(players.get(transaction.player_out).position
+                                 if transaction.player_out in players else None),
+            bid=transaction.bid,
+            executed_at=transaction.executed_at,
+        )
+        for transaction in transactions
+    ]

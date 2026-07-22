@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
-from api.models import Account, League
+from api.models import Account, League, Player
 from api.services.sync import SyncService
 
 from .conftest import FakeEspn, load_fixture
@@ -30,6 +30,13 @@ def league_id():
         SyncService(
             session, espn=FakeEspn(load_fixture("public_league.json"), load_fixture("players_pool.json"))
         ).sync_league(lg)
+        session.add_all(
+            [
+                Player(espn_player_id=2001, name="Adds Player", position="WR"),
+                Player(espn_player_id=2002, name="Drops Player", position="RB"),
+                Player(espn_player_id=2003, name="Free Agent", position="TE"),
+            ]
+        )
         session.commit()
         lid = lg.id
     finally:
@@ -103,6 +110,11 @@ def test_league_subresources(league_id):
     activity = client.get(f"/api/leagues/{league_id}/activity").json()
     assert len(activity) == 2
     assert {t["type"] for t in activity} == {"waiver", "fa_add"}
+    waiver = next(t for t in activity if t["type"] == "waiver")
+    assert waiver["player_in_name"] == "Adds Player"
+    assert waiver["player_in_position"] == "WR"
+    assert waiver["player_out_name"] == "Drops Player"
+    assert waiver["player_out_position"] == "RB"
 
 
 def test_view_404_for_missing_league():

@@ -83,6 +83,7 @@ class SyncSummary(BaseModel):
     transactions: int | None = None
     players: int | None = None
     completed_weeks: list[int] | None = None
+    my_team_espn_id: int | None = None
     needs_reauth: bool | None = None
     errors: list[str] = []
 
@@ -143,6 +144,10 @@ class TransactionOut(BaseModel):
     week: int | None
     player_in: int | None
     player_out: int | None
+    player_in_name: str | None = None
+    player_in_position: str | None = None
+    player_out_name: str | None = None
+    player_out_position: str | None = None
     bid: int | None
     executed_at: datetime | None
 

@@ -9,7 +9,9 @@ the manual fallback carry the flow (SPEC 2.6: "Do not let this block Phase 1").
 
 from __future__ import annotations
 
+import logging
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -22,6 +24,24 @@ from .espn import _BASE_HEADERS, Cookies
 FAN_HOST = "https://fan.api.espn.com"
 # ffl = fantasy football; used to filter the fan's entries to NFL redraft.
 _FFL_GAME_ABBREVS = {"ffl"}
+
+# HTTPX logs complete request URLs at INFO. The fan-profile path necessarily
+# contains the SWID, so suppress its request log only while this call is active.
+_DISCOVERY_REQUEST_ACTIVE: ContextVar[bool] = ContextVar(
+    "espn_discovery_request_active", default=False
+)
+
+
+class _DiscoveryCredentialLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _DISCOVERY_REQUEST_ACTIVE.get()
+
+
+logging.getLogger("httpx").addFilter(_DiscoveryCredentialLogFilter())
+
+
+class DiscoveryAuthError(RuntimeError):
+    """The account's ESPN session is no longer accepted."""
 
 
 @dataclass
@@ -40,7 +60,7 @@ def _fan_url(swid: str) -> str:
 def discover_leagues(
     cookies: Cookies, season: int | None = None, client: httpx.Client | None = None
 ) -> list[DiscoveredLeague]:
-    """Best-effort fan-profile discovery. Returns [] on any shape mismatch/failure."""
+    """Best-effort discovery; only an explicit auth failure is raised to the caller."""
     season = season or get_settings().season
     owns = client is None
     client = client or httpx.Client(timeout=30.0, headers=_BASE_HEADERS)
@@ -49,7 +69,13 @@ def discover_leagues(
             **_BASE_HEADERS,
             "Cookie": f"SWID={cookies.swid}; espn_s2={cookies.espn_s2}",
         }
-        resp = client.get(_fan_url(cookies.swid), headers=headers)
+        token = _DISCOVERY_REQUEST_ACTIVE.set(True)
+        try:
+            resp = client.get(_fan_url(cookies.swid), headers=headers)
+        finally:
+            _DISCOVERY_REQUEST_ACTIVE.reset(token)
+        if resp.status_code in {401, 403}:
+            raise DiscoveryAuthError("ESPN session expired")
         if resp.status_code >= 400:
             return []
         try:
@@ -70,36 +96,52 @@ def _parse_fan_profile(data: dict, season: int) -> list[DiscoveredLeague]:
     The exact shape is under-documented (SPEC 2.6). We defensively pull the common
     fields and skip anything we can't map, rather than trusting a rigid schema.
     """
+    if not isinstance(data, dict):
+        return []
     out: list[DiscoveredLeague] = []
     prefs = data.get("preferences") or []
     for pref in prefs:
-        meta = (pref or {}).get("metaData") or {}
+        if not isinstance(pref, dict):
+            continue
+        meta = pref.get("metaData") or {}
+        if not isinstance(meta, dict):
+            continue
         entry = meta.get("entry") or {}
-        if not entry:
+        if not isinstance(entry, dict) or not entry:
             continue
         # gameAbbrev / abbrev tells us this is fantasy football.
-        abbrev = (entry.get("abbrev") or entry.get("gameAbbrev") or "").lower()
+        abbrev = str(entry.get("abbrev") or entry.get("gameAbbrev") or "").lower()
         groups = entry.get("groups") or []
         league_id = None
         league_name = None
-        if groups:
+        if isinstance(groups, list) and groups and isinstance(groups[0], dict):
             g0 = groups[0]
             league_id = g0.get("groupId") or g0.get("id")
             league_name = g0.get("groupName") or g0.get("name")
-        entry_season = entry.get("seasonId") or entry.get("season")
-        team_id = entry.get("entryId") or entry.get("teamId")
         if abbrev and abbrev not in _FFL_GAME_ABBREVS:
             continue
         if league_id is None:
             continue
-        if entry_season and season and int(entry_season) != int(season):
+
+        entry_season = entry.get("seasonId") or entry.get("season")
+        try:
+            normalized_season = int(entry_season) if entry_season else int(season)
+        except (TypeError, ValueError):
             continue
+        if season and normalized_season != int(season):
+            continue
+
+        team_id = entry.get("entryId") or entry.get("teamId")
+        try:
+            normalized_team_id = int(team_id) if team_id else None
+        except (TypeError, ValueError):
+            normalized_team_id = None
         out.append(
             DiscoveredLeague(
                 espn_league_id=str(league_id),
                 name=league_name,
-                season=int(entry_season) if entry_season else season,
-                team_id=int(team_id) if team_id else None,
+                season=normalized_season,
+                team_id=normalized_team_id,
             )
         )
     return out

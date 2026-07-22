@@ -4,16 +4,39 @@ import {
   addAccount,
   addLeague,
   deleteAccount,
+  discoverLeagues,
   getAccounts,
   getLeagues,
   reauthAccount,
   syncLeague,
   type AccountOut,
+  type DiscoveredLeague,
   type LeagueOut,
 } from "../api";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
 import { syncSummaryMessage } from "../lib/sync";
+
+type ImportStatus = "success" | "team_missing" | "failed";
+
+interface ImportResult {
+  key: string;
+  league: string;
+  status: ImportStatus;
+  message: string;
+}
+
+const IMPORT_STATUS_LABEL: Record<ImportStatus, string> = {
+  success: "Success",
+  team_missing: "Team not identified",
+  failed: "Failed",
+};
+
+const IMPORT_STATUS_TONE: Record<ImportStatus, string> = {
+  success: "text-green",
+  team_missing: "text-gold",
+  failed: "text-red",
+};
 
 export default function Manage() {
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
@@ -47,7 +70,12 @@ export default function Manage() {
       {!accounts ? (
         <Spinner />
       ) : (
-        <AccountList accounts={accounts} onChange={reload} onError={setError} />
+        <AccountList
+          accounts={accounts}
+          leagues={leagues ?? []}
+          onChange={reload}
+          onError={setError}
+        />
       )}
 
       <AddLeagueForm accounts={accounts ?? []} onDone={reload} onError={setError} />
@@ -103,10 +131,12 @@ function AddAccountForm({ onDone, onError }: { onDone: () => void; onError: (e: 
 
 function AccountList({
   accounts,
+  leagues,
   onChange,
   onError,
 }: {
   accounts: AccountOut[];
+  leagues: LeagueOut[];
   onChange: () => void;
   onError: (e: string) => void;
 }) {
@@ -128,7 +158,13 @@ function AccountList({
   return (
     <div className="mt-3 space-y-2">
       {accounts.map((a) => (
-        <AccountRow key={a.id} account={a} onChange={onChange} onError={onError} />
+        <AccountRow
+          key={a.id}
+          account={a}
+          leagues={leagues}
+          onChange={onChange}
+          onError={onError}
+        />
       ))}
     </div>
   );
@@ -136,19 +172,126 @@ function AccountList({
 
 function AccountRow({
   account: a,
+  leagues,
   onChange,
   onError,
 }: {
   account: AccountOut;
+  leagues: LeagueOut[];
   onChange: () => void;
   onError: (e: string) => void;
 }) {
   const needsReauth = a.status === "needs_reauth";
   // Auto-expand the re-auth form when the account's session expired.
   const [showReauth, setShowReauth] = useState(needsReauth);
+  const [showDiscovery, setShowDiscovery] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [discovered, setDiscovered] = useState<DiscoveredLeague[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [discoveryNote, setDiscoveryNote] = useState<string | null>(null);
+  const [importResults, setImportResults] = useState<ImportResult[]>([]);
+
+  useEffect(() => {
+    if (needsReauth) setShowReauth(true);
+  }, [needsReauth]);
+
+  const discoveryKey = (league: DiscoveredLeague) =>
+    `${league.season ?? "current"}:${league.espn_league_id}`;
+  const existingLeague = (league: DiscoveredLeague) =>
+    leagues.find(
+      (saved) =>
+        saved.espn_league_id === league.espn_league_id &&
+        (league.season == null || saved.season === league.season),
+    );
+  const isAlreadyAttached = (league: DiscoveredLeague) =>
+    existingLeague(league)?.account_id === a.id;
+
+  async function runDiscovery() {
+    setDiscovering(true);
+    setDiscoveryNote(null);
+    setImportResults([]);
+    try {
+      const found = await discoverLeagues(a.id);
+      const unique = Array.from(
+        new Map(found.map((league) => [discoveryKey(league), league])).values(),
+      );
+      setDiscovered(unique);
+      setSelected(
+        new Set(unique.filter((league) => !isAlreadyAttached(league)).map(discoveryKey)),
+      );
+    } catch (err) {
+      await onChange();
+      onError(String(err));
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function toggleDiscovery() {
+    if (showDiscovery) {
+      setShowDiscovery(false);
+      return;
+    }
+    setShowDiscovery(true);
+    if (discovered === null) await runDiscovery();
+  }
+
+  async function importSelected() {
+    if (!discovered) return;
+    const choices = discovered.filter((league) => selected.has(discoveryKey(league)));
+    setImporting(true);
+    setDiscoveryNote(null);
+    setImportResults([]);
+    const results: ImportResult[] = [];
+    const record = (result: ImportResult) => {
+      results.push(result);
+      setImportResults([...results]);
+    };
+    for (const league of choices) {
+      const key = discoveryKey(league);
+      const label = league.name ?? `League ${league.espn_league_id}`;
+      let saved: LeagueOut;
+      try {
+        saved = await addLeague(league.espn_league_id, a.id, league.season ?? undefined);
+      } catch (err) {
+        record({ key, league: label, status: "failed", message: `Import failed: ${String(err)}` });
+        continue;
+      }
+      try {
+        const summary = await syncLeague(saved.id);
+        const warning = syncSummaryMessage(summary);
+        if (warning) {
+          record({ key, league: label, status: "failed", message: warning });
+        } else if (summary.my_team_espn_id == null) {
+          record({
+            key,
+            league: label,
+            status: "team_missing",
+            message: "Imported and synced, but this account's team was not identified.",
+          });
+        } else {
+          record({ key, league: label, status: "success", message: "Imported and synced." });
+        }
+      } catch (err) {
+        record({
+          key,
+          league: label,
+          status: "failed",
+          message: `Imported, but sync failed: ${String(err)}`,
+        });
+      }
+    }
+    setImporting(false);
+    setSelected(new Set());
+    setDiscoveryNote(`Processed ${results.length} ${results.length === 1 ? "league" : "leagues"}.`);
+    await onChange();
+  }
+
+  const selectedCount = selected.size;
   return (
     <Panel className={`px-4 py-2 ${needsReauth ? "border-red/50" : ""}`}>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="font-medium">{a.label}</span>
         <span
           className={`rounded px-1.5 py-0.5 text-[11px] ${
@@ -159,6 +302,13 @@ function AccountRow({
           {a.status}
         </span>
         <span className="mono ml-auto text-[11px] text-muted">added {relTime(a.created_at)}</span>
+        <Button
+          onClick={toggleDiscovery}
+          disabled={needsReauth || discovering || importing}
+          title={needsReauth ? "Re-authenticate this account before discovering leagues" : undefined}
+        >
+          {discovering ? "Discovering…" : showDiscovery ? "Hide leagues" : "Discover leagues"}
+        </Button>
         <Button onClick={() => setShowReauth((v) => !v)}>
           {showReauth ? "Cancel" : "Re-auth"}
         </Button>
@@ -190,6 +340,89 @@ function AccountRow({
           }}
           onError={onError}
         />
+      )}
+      {showDiscovery && (
+        <div className="mt-3 border-t border-line pt-3" data-testid={`league-discovery-${a.id}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-secondary">Leagues ESPN associates with this account</span>
+            <Button onClick={runDiscovery} disabled={discovering || importing} title="Refresh league discovery">
+              Refresh
+            </Button>
+          </div>
+          {discovered?.length === 0 && (
+            <p className="mt-3 text-xs text-muted">
+              ESPN returned no discoverable leagues for the current season. Discovery is best-effort;
+              you can still add any league by ID or URL below.
+            </p>
+          )}
+          {discovered && discovered.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {discovered.map((league) => {
+                const key = discoveryKey(league);
+                const existing = existingLeague(league);
+                const attached = existing?.account_id === a.id;
+                return (
+                  <label
+                    key={key}
+                    className={`flex min-h-11 items-center gap-3 rounded-md px-3 py-2 ${
+                      attached ? "bg-row text-muted" : "bg-row hover:bg-rowhover"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${league.name ?? `league ${league.espn_league_id}`}`}
+                      checked={selected.has(key)}
+                      disabled={attached || importing}
+                      onChange={(event) => {
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(key);
+                          else next.delete(key);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-primary">
+                        {league.name ?? `League ${league.espn_league_id}`}
+                      </span>
+                      <span className="mono block text-[11px] text-muted">
+                        ID {league.espn_league_id} · {league.season ?? "current season"}
+                      </span>
+                    </span>
+                    <span className="mono text-[11px] uppercase text-muted">
+                      {attached ? "Added" : existing ? "Relink" : "New"}
+                    </span>
+                  </label>
+                );
+              })}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Button
+                  variant="primary"
+                  onClick={importSelected}
+                  disabled={importing || selectedCount === 0}
+                >
+                  {importing ? "Importing & syncing…" : `Import & sync ${selectedCount}`}
+                </Button>
+                <span className="text-xs text-muted">Selected leagues sync one at a time.</span>
+              </div>
+            </div>
+          )}
+          {discoveryNote && <p className="mt-3 text-xs text-secondary">{discoveryNote}</p>}
+          {importResults.length > 0 && (
+            <ul className="mt-2 space-y-1" data-testid={`league-import-results-${a.id}`}>
+              {importResults.map((result) => (
+                <li key={result.key} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                  <span className={`mono uppercase ${IMPORT_STATUS_TONE[result.status]}`}>
+                    {IMPORT_STATUS_LABEL[result.status]}
+                  </span>
+                  <span className="font-medium text-primary">{result.league}</span>
+                  <span className="text-muted">{result.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </Panel>
   );

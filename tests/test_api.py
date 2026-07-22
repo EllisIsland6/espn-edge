@@ -92,6 +92,21 @@ def test_manual_add_league_parses_url():
     assert r.json()["espn_league_id"] == "778899"
 
 
+def test_manual_add_league_is_idempotent_for_repeat_import():
+    payload = {"league_ref": "90007771", "season": 2026}
+    first = client.post("/api/leagues", json=payload)
+    second = client.post("/api/leagues", json=payload)
+
+    assert first.status_code == second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+    matching = [
+        league
+        for league in client.get("/api/leagues").json()
+        if league["espn_league_id"] == "90007771" and league["season"] == 2026
+    ]
+    assert len(matching) == 1
+
+
 def test_delete_unlinked_account_ok():
     aid = client.post(
         "/api/accounts", json={"label": "Disposable", "swid": "{X-1}", "espn_s2": "s2"}
@@ -127,6 +142,63 @@ def _assert_no_canaries(text: str, *canaries: str) -> None:
     """Inspect the complete raw response/log text, not just parsed top-level keys."""
     for canary in canaries:
         assert canary not in text, f"credential canary {canary!r} leaked into: {text!r}"
+
+
+def test_discovery_response_and_logs_never_expose_account_credentials(monkeypatch, caplog):
+    import logging
+
+    from api.routers import leagues
+    from api.services.discovery import DiscoveredLeague
+
+    aid = client.post(
+        "/api/accounts",
+        json={"label": "DiscoveryCanary", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+    ).json()["id"]
+    stored_swid = f"{{{_SWID_CANARY.upper()}}}"
+
+    def fake_discover(cookies, season):
+        assert cookies.swid == stored_swid
+        assert cookies.espn_s2 == _S2_CANARY
+        assert season == 2026
+        return [DiscoveredLeague("701", "Safe League", 2026, 4)]
+
+    monkeypatch.setattr(leagues, "discover_leagues", fake_discover)
+    with caplog.at_level(logging.DEBUG):
+        response = client.get(f"/api/leagues/discover/{aid}")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"espn_league_id": "701", "name": "Safe League", "season": 2026, "team_id": 4}
+    ]
+    _assert_no_canaries(response.text, _SWID_CANARY, stored_swid, _S2_CANARY)
+    _assert_no_canaries(caplog.text, _SWID_CANARY, stored_swid, _S2_CANARY)
+
+
+def test_discovery_expired_session_sets_reauth_without_leaking(monkeypatch):
+    from api.db import SessionLocal
+    from api.models import Account
+    from api.routers import leagues
+    from api.services.discovery import DiscoveryAuthError
+
+    aid = client.post(
+        "/api/accounts",
+        json={"label": "DiscoveryExpired", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+    ).json()["id"]
+    stored_swid = f"{{{_SWID_CANARY.upper()}}}"
+
+    def fake_discover(cookies, season):
+        raise DiscoveryAuthError("ESPN session expired")
+
+    monkeypatch.setattr(leagues, "discover_leagues", fake_discover)
+    response = client.get(f"/api/leagues/discover/{aid}")
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "ESPN session expired; re-authenticate this account"
+    }
+    _assert_no_canaries(response.text, _SWID_CANARY, stored_swid, _S2_CANARY)
+    with SessionLocal() as session:
+        assert session.get(Account, aid).status == "needs_reauth"
 
 
 def test_add_account_success_has_no_credential_keys_or_values():

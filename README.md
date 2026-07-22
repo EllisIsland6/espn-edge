@@ -112,6 +112,11 @@ curl http://127.0.0.1:8000/api/leagues/discover/1
 curl -X POST http://127.0.0.1:8000/api/leagues/1/sync
 ```
 
+In the app, **Manage → Discover leagues** uses the selected account's ESPN session to
+find current-season fantasy-football leagues. Review the results, select the leagues you
+want, then **Import & sync**. Discovery is best-effort because ESPN's fan-profile API is
+unofficial; manual league ID/URL entry remains the reliable fallback.
+
 ## Verify against a real league (live smoke test)
 
 Prints league name, size, scoring type, standings, my team, and draft-pick count so you

@@ -15,7 +15,7 @@ from ..schemas import (
     LeagueOut,
     SyncSummary,
 )
-from ..services.discovery import discover_leagues, parse_league_id
+from ..services.discovery import DiscoveryAuthError, discover_leagues, parse_league_id
 from ..services.espn import cookies_for_account
 from ..services.sync import SyncService
 
@@ -36,7 +36,12 @@ def discover(account_id: int, session: Session = Depends(get_session)):
     cookies = cookies_for_account(account)
     if cookies is None:
         raise HTTPException(400, "account has no cookies")
-    found = discover_leagues(cookies, season=get_settings().season)
+    try:
+        found = discover_leagues(cookies, season=get_settings().season)
+    except DiscoveryAuthError as exc:
+        account.status = "needs_reauth"
+        session.commit()
+        raise HTTPException(401, "ESPN session expired; re-authenticate this account") from exc
     return [DiscoveredLeagueOut(**vars(d)) for d in found]
 
 

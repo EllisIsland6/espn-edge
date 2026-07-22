@@ -906,6 +906,12 @@ def test_api_trade_finder_persists_only_validated_players_and_provenance(trade_l
         # Only the valid proposal survives; the invented one is never stored/served.
         assert len(p["content"]["proposals"]) == 1
         assert p["content"]["proposals"][0]["i_give"] == ["RB One"]
+        assert p["content"]["proposals"][0]["i_give_players"] == [
+            {"espn_player_id": 102, "name": "RB One", "position": "RB"}
+        ]
+        assert p["content"]["proposals"][0]["i_get_players"] == [
+            {"espn_player_id": 203, "name": "WR OppA", "position": "WR"}
+        ]
         # Provenance persisted alongside content.
         assert p["content"]["grounding_source"] == "lineup_snapshot"
         assert p["content"]["snapshot_week"] == 1
@@ -913,5 +919,6 @@ def test_api_trade_finder_persists_only_validated_players_and_provenance(trade_l
         # GET returns the same validated, provenance-tagged content.
         g = client.get(f"{base}?opponent_team_id={opp_id}").json()
         assert len(g["content"]["proposals"]) == 1
+        assert g["content"]["proposals"][0]["i_give_players"][0]["espn_player_id"] == 102
     finally:
         FakeLlmClient.trade_override = None

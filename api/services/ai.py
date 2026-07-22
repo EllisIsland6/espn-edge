@@ -212,6 +212,49 @@ def validate_trade_proposals(
     return {**content, "proposals": kept}
 
 
+def enrich_trade_player_refs(content: dict, facts: dict) -> dict:
+    """Add response-only player references for portraits without changing stored AI reports.
+
+    Trade proposal names have already been validated against these exact roster facts. The
+    sidecars let clients render ESPN identities while keeping the LLM schema and cache stable.
+    """
+    def table(players: list[dict]) -> dict[str, dict]:
+        refs: dict[str, dict] = {}
+        for player in players or []:
+            name = player.get("name")
+            key = _norm_name(name)
+            if key:
+                refs[key] = {
+                    "espn_player_id": player.get("espn_player_id"),
+                    "name": name,
+                    "position": player.get("position"),
+                }
+        return refs
+
+    my_refs = table((facts.get("me") or {}).get("players"))
+    opponent_refs = table((facts.get("opponent") or {}).get("players"))
+
+    def resolve(names: list[str], refs: dict[str, dict]) -> list[dict]:
+        return [
+            refs.get(
+                _norm_name(name),
+                {"espn_player_id": None, "name": name, "position": None},
+            )
+            for name in names or []
+        ]
+
+    proposals = []
+    for proposal in content.get("proposals") or []:
+        proposals.append(
+            {
+                **proposal,
+                "i_give_players": resolve(proposal.get("i_give") or [], my_refs),
+                "i_get_players": resolve(proposal.get("i_get") or [], opponent_refs),
+            }
+        )
+    return {**content, "proposals": proposals}
+
+
 class AiService:
     def __init__(self, session: Session, client: LlmClient | None = None):
         self.session = session

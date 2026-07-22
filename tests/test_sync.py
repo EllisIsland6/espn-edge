@@ -92,9 +92,12 @@ def test_sync_populates_all_tables(db_session, league_fixture, players_fixture):
 def test_my_team_detection_and_autodraft_flag(db_session, league_fixture, players_fixture):
     acct = _make_account(db_session)
     lg = _make_league(db_session, acct)
-    SyncService(db_session, espn=FakeEspn(league_fixture, players_fixture)).sync_league(lg)
+    result = SyncService(
+        db_session, espn=FakeEspn(league_fixture, players_fixture)
+    ).sync_league(lg)
     db_session.commit()
 
+    assert result["my_team_espn_id"] == 1
     me = db_session.scalar(select(Team).where(Team.league_id == lg.id, Team.is_me.is_(True)))
     assert me is not None and me.name == "Alpha"
     assert lg.my_team_id == me.id

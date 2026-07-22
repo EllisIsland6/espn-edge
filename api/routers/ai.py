@@ -27,6 +27,7 @@ from ..services.ai import (
     AiError,
     AiService,
     compute_input_hash,
+    enrich_trade_player_refs,
     trade_name_tables,
     validate_trade_proposals,
 )
@@ -272,7 +273,8 @@ def get_trade_finder(
     fresh = compute_input_hash(KIND_TRADE_FINDER, row.model or STANDARD_MODEL, facts)
     return AiReportEnvelope(
         enabled=True, kind=KIND_TRADE_FINDER, model=row.model,
-        content=row.content_json, created_at=row.created_at, stale=row.input_hash != fresh,
+        content=enrich_trade_player_refs(row.content_json or {}, facts),
+        created_at=row.created_at, stale=row.input_hash != fresh,
     )
 
 
@@ -326,5 +328,6 @@ def generate_trade_finder(
     session.commit()
     return AiReportEnvelope(
         enabled=True, kind=KIND_TRADE_FINDER, model=row.model if row else STANDARD_MODEL,
-        content=content, created_at=row.created_at if row else None, stale=False,
+        content=enrich_trade_player_refs(content or {}, facts),
+        created_at=row.created_at if row else None, stale=False,
     )
