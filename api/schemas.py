@@ -55,6 +55,8 @@ class LeagueOut(BaseModel):
     draft_type: str | None
     lifecycle: str
     my_team_id: int | None
+    my_team_name: str | None = None
+    my_team_logo_url: str | None = None
     is_public: bool
     last_synced_at: datetime | None
     last_sync_ok: bool | None = None
@@ -297,6 +299,7 @@ class PortfolioRow(BaseModel):
     # my team (null if not detected / public):
     my_team_id: int | None
     my_team_name: str | None
+    my_team_logo_url: str | None
     wins: int | None
     losses: int | None
     ties: int | None

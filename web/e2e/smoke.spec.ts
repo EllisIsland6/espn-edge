@@ -8,7 +8,8 @@ const PORTFOLIO = [
     league_id: 1, espn_league_id: "111", season: 2026, league_name: "Alpha League",
     size: 8, account_label: "Main", lifecycle: "in_season", last_synced_at: NOW,
     last_sync_ok: true, last_sync_error: null,
-    my_team_id: 1, my_team_name: "My Team", wins: 5, losses: 2, ties: 0,
+    my_team_id: 1, my_team_name: "My Team", my_team_logo_url: "/mock-team-logo/my.svg",
+    wins: 5, losses: 2, ties: 0,
     points_for: 900.5, points_against: 820.1, standing: 2,
     edge_score: 72.0, grade: "B", playoff_odds: 0.81, verdict: "advantaged",
     edge_index_score: 68.0, edge_index_grade: "B", edge_index_verdict: "advantaged",
@@ -24,7 +25,8 @@ const PORTFOLIO = [
     league_id: 2, espn_league_id: "222", season: 2026, league_name: "Beta League",
     size: 10, account_label: "Main", lifecycle: "pre_draft", last_synced_at: null,
     last_sync_ok: null, last_sync_error: null,
-    my_team_id: null, my_team_name: null, wins: null, losses: null, ties: null,
+    my_team_id: null, my_team_name: null, my_team_logo_url: null,
+    wins: null, losses: null, ties: null,
     points_for: null, points_against: null, standing: null,
     edge_score: null, grade: null, playoff_odds: null, verdict: null,
     edge_index_score: null, edge_index_grade: null, edge_index_verdict: null,
@@ -45,6 +47,7 @@ const SUMMARY = {
 const LEAGUE_1 = {
   id: 1, espn_league_id: "111", season: 2026, account_id: 1, name: "Alpha League",
   size: 8, draft_type: "SNAKE", lifecycle: "in_season", my_team_id: 1,
+  my_team_name: "My Team", my_team_logo_url: "/mock-team-logo/my.svg",
   is_public: false, last_synced_at: NOW, last_sync_ok: true, last_sync_error: null,
 };
 
@@ -56,12 +59,12 @@ const OVERVIEW = {
     {
       id: 2, espn_team_id: 2, name: "Rival", abbrev: "RIV", is_me: false,
       autodrafted: false, wins: 6, losses: 1, ties: 0, points_for: 950.0,
-      points_against: 800.0, standing: 1, logo_url: null,
+      points_against: 800.0, standing: 1, logo_url: "/mock-team-logo/rival.svg",
     },
     {
       id: 1, espn_team_id: 1, name: "My Team", abbrev: "MINE", is_me: true,
       autodrafted: false, wins: 5, losses: 2, ties: 0, points_for: 900.5,
-      points_against: 820.1, standing: 2, logo_url: null,
+      points_against: 820.1, standing: 2, logo_url: "/mock-team-logo/my.svg",
     },
   ],
   edge_score: 72.0, grade: "B", verdict: "advantaged", playoff_odds: 0.81,
@@ -196,6 +199,12 @@ async function mockApi(page: Page) {
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#d9dde5"/></svg>',
     }));
+  await page.route("**/mock-team-logo/*", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><path d="M4 4h48v48H4z" fill="#49d98a"/></svg>',
+    }));
   await page.route("**/api/ai/status", (r) =>
     json(r, { enabled: false, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
   await page.route("**/api/portfolio", (r) => json(r, PORTFOLIO));
@@ -235,6 +244,13 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
   await page.goto("/");
   await expect(page.getByRole("link", { name: /ESPN\s*Edge/ })).toBeVisible();
   await expect(page.getByText("Alpha League")).toBeVisible();
+  await expect(page.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(page.getByTitle("My Team").first()).not.toContainText("MT");
+  const teamBox = await page.getByTitle("My Team").boundingBox();
+  const leagueBox = await page.getByText("Alpha League", { exact: true }).boundingBox();
+  expect(teamBox).not.toBeNull();
+  expect(leagueBox).not.toBeNull();
+  expect(teamBox!.y).toBeLessThan(leagueBox!.y);
   await expect(page.getByText("Leagues tracked")).toBeVisible();
   for (const label of ["CSV", "JSON", "XLSX"]) {
     await expect(page.getByRole("button", { name: label })).toBeVisible();
@@ -315,6 +331,7 @@ test("score rings distinguish a real zero, pending, and first sync", async ({ pa
   await expect(page.getByTestId("momentum-2")).toContainText("pending");
   await expect(page.getByTestId("achievements-1")).toHaveCount(0);
   await expect(page.getByTestId("achievements-2")).toHaveCount(0);
+  await expect(page.getByText("Team not detected", { exact: true })).toBeVisible();
 });
 
 test("momentum chips render up, down, flat, and meaningful streak states", async ({ page }) => {
@@ -410,6 +427,12 @@ test("manage tab renders the account and league forms", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add league" })).toBeVisible();
   await expect(page.getByTestId("league-achievements-1").getByLabel("Sync healthy")).toBeVisible();
+  await expect(page.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  const teamBox = await page.getByTitle("My Team").boundingBox();
+  const leagueBox = await page.getByText("Alpha League", { exact: true }).boundingBox();
+  expect(teamBox).not.toBeNull();
+  expect(leagueBox).not.toBeNull();
+  expect(teamBox!.y).toBeLessThan(leagueBox!.y);
 });
 
 test("manage discovers, selects, imports, and syncs account leagues", async ({ page }) => {
@@ -597,10 +620,27 @@ test("manage reports a discovery request failure without losing manual entry", a
 
 test("league detail renders standings from mocked API data", async ({ page }) => {
   await page.goto("/league/1");
-  await expect(page.getByRole("heading", { name: "Alpha League" })).toBeVisible();
+  const heading = page.getByRole("heading", { name: /My Team/ });
+  const standings = page.getByRole("table", { name: "League standings" });
+  await expect(heading).toBeVisible();
+  await expect(page.getByText("Alpha League", { exact: true })).toBeVisible();
   await expect(page.getByText("PPR")).toBeVisible();
-  await expect(page.getByText("Rival")).toBeVisible();
-  await expect(page.getByText("My Team")).toBeVisible();
+  await expect(heading.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(standings.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(standings.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+});
+
+test("team-first league identity remains readable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(page.getByText("Alpha League", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.goto("/league/1");
+  await expect(page.getByRole("heading", { name: /My Team/ })).toBeVisible();
+  await expect(page.getByText("Alpha League", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("league detail Overview renders edge component breakdown bars", async ({ page }) => {
@@ -679,6 +719,7 @@ test("overview renders the preseason Draft surplus component (Phase 11)", async 
 test("draft board shows player name, position, and ADP (not raw IDs)", async ({ page }) => {
   await page.goto("/league/1");
   await page.getByRole("button", { name: "Draft Board" }).click();
+  const draftBoard = page.getByRole("table", { name: "Draft board" });
   // Resolved player name + position + ADP from the mocked draft payload (Phase 10).
   await expect(page.getByText("Star Runningback")).toBeVisible();
   await expect(page.getByText("Ace Receiver")).toBeVisible();
@@ -688,6 +729,23 @@ test("draft board shows player name, position, and ADP (not raw IDs)", async ({ 
     "src",
     "/api/players/1001/portrait",
   );
+  await expect(page.getByTitle("Star Runningback")).not.toContainText("SR");
+  await expect(draftBoard.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(page.getByTitle("My Team").last()).not.toContainText("MT");
+  await expect(draftBoard.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+});
+
+test("team logo failure keeps the team initials visible", async ({ page }) => {
+  await page.route("**/mock-team-logo/my.svg", (route) =>
+    route.fulfill({ status: 502, contentType: "application/json", body: "{}" }));
+
+  await page.goto("/league/1");
+  const heading = page.getByRole("heading", { name: /My Team/ });
+  const avatar = heading.getByTitle("My Team");
+  const image = avatar.locator('img[alt="My Team team logo"]');
+  await expect(image).toBeAttached();
+  await expect(image).toHaveCSS("display", "none");
+  await expect(avatar).toContainText("MT");
 });
 
 test("draft board shows a compact per-team grade strip", async ({ page }) => {
@@ -723,15 +781,21 @@ test("draft board shows a compact per-team grade strip", async ({ page }) => {
     await expect(page.getByTestId(`draft-grade-strip-${teamId}`).getByText(grade, { exact: true })).toBeVisible();
     await expect(page.getByTestId(`draft-recap-card-${teamId}`).getByText(grade, { exact: true })).toBeVisible();
   }
+  await expect(page.getByTestId("draft-grade-strip-1").getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(page.getByTestId("draft-grade-strip-2").getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(page.getByTestId("draft-recap-card-1").getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(page.getByTestId("draft-recap-card-2").getByRole("img", { name: "Rival team logo" })).toBeVisible();
 });
 
 test("activity renders ESPN portraits with resolved player names", async ({ page }) => {
   await page.goto("/league/1");
   await page.getByRole("button", { name: "Activity" }).click();
+  const activity = page.getByRole("table", { name: "League activity" });
   await expect(page.getByText("Star Runningback")).toBeVisible();
   await expect(page.getByText("Ace Receiver")).toBeVisible();
   await expect(page.getByRole("img", { name: "Star Runningback ESPN portrait" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Ace Receiver ESPN portrait" })).toBeVisible();
+  await expect(activity.getByRole("img", { name: "My Team team logo" }).first()).toBeVisible();
 });
 
 test("portrait failure keeps the player initials visible", async ({ page }) => {
@@ -765,6 +829,12 @@ test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) =
   // Mocked all-play row values: My Team is 3-0 all-play, Rival has a +33.3 luck delta.
   await expect(page.getByText("+33.3")).toBeVisible();
   await expect(page.getByText("Matchup schedule")).toBeVisible();
+  const allPlay = page.getByRole("table", { name: "All-play standings" });
+  const schedule = page.getByRole("table", { name: "Matchup schedule" });
+  await expect(allPlay.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(allPlay.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(schedule.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(schedule.getByRole("img", { name: "Rival team logo" })).toBeVisible();
 });
 
 test("teams tab renders lineup efficiency table (Phase 13)", async ({ page }) => {
@@ -773,6 +843,12 @@ test("teams tab renders lineup efficiency table (Phase 13)", async ({ page }) =>
   await expect(page.getByText("Lineup efficiency")).toBeVisible();
   await expect(page.getByText("83.3%")).toBeVisible(); // My Team efficiency (0.8333)
   await expect(page.getByText("Left on bench/wk")).toBeVisible(); // column header
+  const leagueTeams = page.getByRole("table", { name: "League teams" });
+  const efficiency = page.getByRole("table", { name: "Lineup efficiency" });
+  await expect(leagueTeams.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(leagueTeams.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(efficiency.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  await expect(efficiency.getByRole("img", { name: "Rival team logo" })).toBeVisible();
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {
@@ -911,6 +987,15 @@ test("AI Brief weekly recap card renders a recap for the picked week (Phase 20)"
 test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)", async ({ page }) => {
   await page.route("**/api/ai/status", (r) =>
     json(r, { enabled: true, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
+  await page.route("**/api/leagues/1/teams", (r) =>
+    json(r, [
+      ...OVERVIEW.teams,
+      {
+        id: 3, espn_team_id: 3, name: "Challenger", abbrev: "CHL", is_me: false,
+        autodrafted: false, wins: 4, losses: 3, ties: 0, points_for: 875.0,
+        points_against: 860.0, standing: 3, logo_url: "/mock-team-logo/challenger.svg",
+      },
+    ]));
   // Opponent options come from the team list; trade-finder GET/POST return the proposal.
   await page.route("**/api/leagues/1/ai/trade-finder**", (r) =>
     json(r, {
@@ -935,7 +1020,28 @@ test("AI Brief trade finder renders proposals for the picked opponent (Phase 21)
   await page.goto("/league/1");
   await page.getByRole("button", { name: "AI Brief" }).click();
   await expect(page.getByRole("heading", { name: "Trade finder" })).toBeVisible();
-  await expect(page.getByText("vs Rival")).toBeVisible();
+  const picker = page.getByRole("button", { name: "Trade opponent: Rival" });
+  await expect(picker.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await picker.focus();
+  await picker.press("ArrowDown");
+  const rival = page.getByRole("menuitemradio", { name: /Rival/ });
+  const challenger = page.getByRole("menuitemradio", { name: /Challenger/ });
+  await expect(rival).toBeFocused();
+  await rival.press("ArrowDown");
+  await expect(challenger).toBeFocused();
+  await challenger.press("Escape");
+  await expect(picker).toBeFocused();
+  await expect(page.getByRole("menu", { name: "Trade opponent" })).toHaveCount(0);
+  await picker.click();
+  await expect(challenger.getByRole("img", { name: "Challenger team logo" })).toBeVisible();
+  await challenger.click();
+  await expect(page.getByRole("button", { name: "Trade opponent: Challenger" })).toBeVisible();
+  await page.getByRole("button", { name: "Trade opponent: Challenger" }).click();
+  await page.getByRole("menuitemradio", { name: /Rival/ }).click();
+  await expect(page.getByRole("button", { name: "Trade opponent: Rival" })).toBeVisible();
+  const resultOpponent = page.getByText("vs", { exact: true }).locator("..");
+  await expect(resultOpponent).toBeVisible();
+  await expect(resultOpponent.getByRole("img", { name: "Rival team logo" })).toBeVisible();
   await expect(page.getByText("Week 4 roster snapshot")).toBeVisible(); // Phase 22 provenance
   await expect(page.getByText("My RB2", { exact: true })).toHaveCount(2);
   await expect(page.getByText("Their WR1", { exact: true })).toHaveCount(2);

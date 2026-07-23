@@ -14,11 +14,15 @@ export function DataTable<T>({
   columns,
   initialSort = [],
   rowClassName,
+  columnClassName,
+  ariaLabel,
 }: {
   data: T[];
   columns: ColumnDef<T, any>[];
   initialSort?: SortingState;
   rowClassName?: (row: T) => string;
+  columnClassName?: (columnId: string) => string;
+  ariaLabel?: string;
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useReactTable({
@@ -32,7 +36,7 @@ export function DataTable<T>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
+      <table className="w-full border-collapse text-sm" aria-label={ariaLabel}>
         <thead>
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-line">
@@ -48,7 +52,9 @@ export function DataTable<T>({
                     aria-sort={
                       !canSort ? undefined : sort === "asc" ? "ascending" : sort === "desc" ? "descending" : "none"
                     }
-                    className="select-none px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted"
+                    className={`select-none whitespace-nowrap px-2 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted sm:px-3 ${
+                      columnClassName?.(h.column.id) ?? ""
+                    }`}
                   >
                     {canSort ? (
                       // Real <button> so headers are focusable + toggle on Enter/Space
@@ -79,7 +85,12 @@ export function DataTable<T>({
               }`}
             >
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-3 py-2 align-middle">
+                <td
+                  key={cell.id}
+                  className={`px-2 py-2 align-middle sm:px-3 ${
+                    columnClassName?.(cell.column.id) ?? ""
+                  }`}
+                >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

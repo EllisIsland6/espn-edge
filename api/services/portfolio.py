@@ -43,6 +43,7 @@ def build_portfolio_rows(session: Session) -> list[PortfolioRow]:
                 last_sync_error=lg.last_sync_error,
                 my_team_id=me.id if me else None,
                 my_team_name=me.name if me else None,
+                my_team_logo_url=me.logo_url if me else None,
                 wins=me.wins if me else None,
                 losses=me.losses if me else None,
                 ties=me.ties if me else None,

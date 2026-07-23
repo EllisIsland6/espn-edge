@@ -1,4 +1,5 @@
 import type { PlayerReference } from "../api";
+import { useEffect, useState } from "react";
 import { PositionPill } from "./ui";
 
 export function espnPlayerImageUrl(espnPlayerId: number | null): string | null {
@@ -23,6 +24,8 @@ export function PlayerAvatar({
   size?: "xs" | "sm" | "md";
 }) {
   const src = espnPlayerImageUrl(player.espn_player_id);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [src]);
   const defense = (player.espn_player_id ?? 0) < 0;
   const dimensions = {
     xs: "h-6 w-6 text-[9px]",
@@ -34,17 +37,16 @@ export function PlayerAvatar({
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-rowhover font-semibold text-muted ${dimensions}`}
       title={player.name}
     >
-      <span aria-hidden="true">{initials(player.name)}</span>
+      {(!src || imageFailed) && <span aria-hidden="true">{initials(player.name)}</span>}
       {src && (
         <img
           src={src}
           alt={`${player.name} ESPN portrait`}
           loading="lazy"
           referrerPolicy="no-referrer"
-          className={`absolute inset-0 h-full w-full ${defense ? "object-contain p-1" : "object-cover object-top"}`}
-          onError={(event) => {
-            event.currentTarget.style.display = "none";
-          }}
+          decoding="async"
+          className={`absolute inset-0 h-full w-full ${imageFailed ? "hidden" : ""} ${defense ? "object-contain p-1" : "object-cover object-top"}`}
+          onError={() => setImageFailed(true)}
         />
       )}
     </span>

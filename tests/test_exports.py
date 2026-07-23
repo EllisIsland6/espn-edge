@@ -74,6 +74,10 @@ def test_export_json(synced):
     lg = body["leagues"][0]
     assert {"league", "teams", "draft", "matchups", "activity"} <= set(lg)
     assert len(lg["teams"]) == 4  # toy fixture has 4 teams
+    assert lg["league"]["my_team_name"] == "Alpha"
+    assert lg["league"]["my_team_logo_url"] == "http://x/1.png"
+    assert body["rows"][0]["my_team_name"] == "Alpha"
+    assert body["rows"][0]["my_team_logo_url"] == "http://x/1.png"
 
 
 def test_export_xlsx_opens_with_openpyxl(synced):

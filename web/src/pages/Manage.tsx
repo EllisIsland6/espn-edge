@@ -14,6 +14,7 @@ import {
   type LeagueOut,
 } from "../api";
 import { AchievementRow } from "../components/Gamification";
+import { TeamIdentity } from "../components/TeamIdentity";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
 import { syncSummaryMessage } from "../lib/sync";
@@ -553,9 +554,20 @@ function LeagueList({
   return (
     <div className="mt-3 space-y-2">
       {leagues.map((l) => (
-        <Panel key={l.id} className="flex items-center gap-3 px-4 py-2">
-          <Link to={`/league/${l.id}`} className="font-medium hover:text-red">
-            {l.name ?? `League ${l.espn_league_id}`}
+        <Panel key={l.id} className="flex min-h-20 items-center gap-3 px-4 py-2">
+          <Link to={`/league/${l.id}`} className="min-w-0 flex-1 hover:text-red">
+            <TeamIdentity
+              team={{
+                name: l.my_team_name,
+                logo_url: l.my_team_logo_url,
+                is_me: l.my_team_id != null,
+              }}
+              size="sm"
+              fallback="Team not detected"
+            />
+            <span className="mt-1 block truncate pl-11 text-sm text-secondary">
+              {l.name ?? `League ${l.espn_league_id}`}
+            </span>
           </Link>
           <LifecycleBadge lifecycle={l.lifecycle} label={LIFECYCLE_LABEL[l.lifecycle] ?? l.lifecycle} />
           <span className="mono text-[11px] text-muted">

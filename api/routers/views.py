@@ -19,7 +19,6 @@ from ..schemas import (
     EdgeComponent,
     EdgeIndexComponentOut,
     EdgeIndexOut,
-    LeagueOut,
     LeagueOverview,
     LeagueSoftnessComponentOut,
     LeagueSoftnessOut,
@@ -45,6 +44,7 @@ from ..services.metrics import (
 from ..services.momentum import EDGE_SCORE, metric_momentum, team_achievements
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
+from ..services.read_models import build_league_out
 
 router = APIRouter(tags=["views"])
 
@@ -93,7 +93,7 @@ def league_overview(league_id: int, session: Session = Depends(get_session)) -> 
     )
     achievements = team_achievements(session, league, league.my_team_id)
     return LeagueOverview(
-        league=LeagueOut.model_validate(league),
+        league=build_league_out(session, league),
         account_label=account.label if account else None,
         scoring=_scoring_label(league),
         teams=[TeamOut.model_validate(t) for t in teams],

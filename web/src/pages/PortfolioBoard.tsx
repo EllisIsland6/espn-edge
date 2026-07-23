@@ -21,6 +21,7 @@ import {
 } from "../lib/format";
 import { syncSummaryMessage } from "../lib/sync";
 import { AchievementRow, MomentumBadges, ScoreRing } from "../components/Gamification";
+import { TeamIdentity } from "../components/TeamIdentity";
 import {
   Button,
   EmptyState,
@@ -77,7 +78,8 @@ export default function PortfolioBoard() {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (q && !(r.league_name ?? "").toLowerCase().includes(q) &&
-          !(r.account_label ?? "").toLowerCase().includes(q)) {
+          !(r.account_label ?? "").toLowerCase().includes(q) &&
+          !(r.my_team_name ?? "").toLowerCase().includes(q)) {
         return false;
       }
       if (filter === "all" || filter === "by_account") return true;
@@ -200,7 +202,7 @@ function ControlBar({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search leagues / accounts"
+          placeholder="Search teams / leagues / accounts"
           className="min-w-0 flex-1 basis-56 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-primary placeholder:text-muted focus:border-red/60 sm:flex-none"
         />
         <div className="flex items-center overflow-hidden rounded-md border border-line">
@@ -243,21 +245,28 @@ function BoardRow({ row }: { row: PortfolioRow }) {
       className="relative flex min-h-24 items-center gap-3 border-t border-line py-3 pl-5 pr-4 no-underline first:border-t-0 hover:bg-rowhover focus-visible:bg-rowhover"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${VERDICT_ACCENT[verdict]}`} />
-      {/* League + account */}
+      {/* Owned team first, then its league context. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-semibold text-primary">{row.league_name ?? `League ${row.espn_league_id}`}</span>
+        <TeamIdentity
+          team={{
+            name: row.my_team_name,
+            logo_url: row.my_team_logo_url,
+            is_me: row.my_team_id != null,
+          }}
+          size="sm"
+          fallback="Team not detected"
+        />
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 pl-11">
+          <span className="truncate text-sm text-secondary">{row.league_name ?? `League ${row.espn_league_id}`}</span>
           <SizePill size={row.size} />
           <LifecycleBadge lifecycle={row.lifecycle} label={LIFECYCLE_LABEL[row.lifecycle] ?? row.lifecycle} />
         </div>
-        <div className="mono mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+        <div className="mono mt-0.5 flex flex-wrap items-center gap-x-2 pl-11 text-[11px] text-muted">
           <span>{row.account_label ?? "—"}</span>
-          <span>·</span>
-          <span>{row.my_team_name ?? "team not detected"}</span>
           <span>·</span>
           <span>{row.season}</span>
         </div>
-        <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-2">
+        <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-2 pl-11">
           <AchievementRow achievements={row.achievements} testId={`achievements-${row.league_id}`} />
           {row.edge_score != null && (
             <span className="mono text-[9px] uppercase text-muted">

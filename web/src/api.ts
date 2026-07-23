@@ -41,6 +41,7 @@ export interface PortfolioRow {
   last_sync_error: string | null;
   my_team_id: number | null;
   my_team_name: string | null;
+  my_team_logo_url: string | null;
   wins: number | null;
   losses: number | null;
   ties: number | null;
@@ -86,6 +87,8 @@ export interface LeagueOut {
   draft_type: string | null;
   lifecycle: string;
   my_team_id: number | null;
+  my_team_name: string | null;
+  my_team_logo_url: string | null;
   is_public: boolean;
   last_synced_at: string | null;
   last_sync_ok: boolean | null;

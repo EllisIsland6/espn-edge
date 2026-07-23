@@ -89,7 +89,11 @@ def test_manual_add_league_parses_url():
         json={"league_ref": "https://fantasy.espn.com/football/team?leagueId=778899&seasonId=2026"},
     )
     assert r.status_code == 201
-    assert r.json()["espn_league_id"] == "778899"
+    body = r.json()
+    assert body["espn_league_id"] == "778899"
+    assert body["my_team_id"] is None
+    assert body["my_team_name"] is None
+    assert body["my_team_logo_url"] is None
 
 
 def test_manual_add_league_is_idempotent_for_repeat_import():
@@ -105,6 +109,35 @@ def test_manual_add_league_is_idempotent_for_repeat_import():
         if league["espn_league_id"] == "90007771" and league["season"] == 2026
     ]
     assert len(matching) == 1
+
+
+def test_repeat_import_returns_existing_owned_team_identity():
+    from api.db import SessionLocal
+    from api.models import League, Team
+
+    payload = {"league_ref": "90007772", "season": 2026}
+    first = client.post("/api/leagues", json=payload)
+    assert first.status_code == 201
+    league_id = first.json()["id"]
+
+    with SessionLocal() as session:
+        team = Team(
+            league_id=league_id,
+            espn_team_id=8,
+            name="Existing Eight",
+            logo_url="https://example.test/eight.png",
+            is_me=True,
+        )
+        session.add(team)
+        session.flush()
+        session.get(League, league_id).my_team_id = team.id
+        session.commit()
+
+    repeated = client.post("/api/leagues", json=payload)
+    assert repeated.status_code == 201
+    assert repeated.json()["id"] == league_id
+    assert repeated.json()["my_team_name"] == "Existing Eight"
+    assert repeated.json()["my_team_logo_url"] == "https://example.test/eight.png"
 
 
 def test_delete_unlinked_account_ok():

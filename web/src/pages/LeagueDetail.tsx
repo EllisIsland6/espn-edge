@@ -51,6 +51,7 @@ import {
   ScoreRing,
 } from "../components/Gamification";
 import { PlayerIdentity, PlayerMentionText } from "../components/PlayerIdentity";
+import { TeamIdentity, TeamSelect } from "../components/TeamIdentity";
 import {
   Button,
   EmptyState,
@@ -168,6 +169,7 @@ export default function LeagueDetail() {
   if (!ov) return <Spinner label="Loading league…" />;
 
   const lg = ov.league;
+  const myTeam = ov.teams.find((team) => team.id === lg.my_team_id || team.is_me) ?? null;
   return (
     <div>
       <div className="flex items-center gap-3">
@@ -175,16 +177,21 @@ export default function LeagueDetail() {
           ← Portfolio
         </Link>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">{lg.name ?? `League ${lg.espn_league_id}`}</h1>
-        <SizePill size={lg.size} />
-        <LifecycleBadge lifecycle={lg.lifecycle} label={LIFECYCLE_LABEL[lg.lifecycle] ?? lg.lifecycle} />
-        {ov.scoring && (
-          <span className="mono rounded bg-rowhover px-1.5 py-0.5 text-[11px] text-secondary">
-            {ov.scoring}
-          </span>
-        )}
-        <div className="mono flex w-full flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted lg:ml-auto lg:w-auto">
+      <div className="mt-3">
+        <h1 className="text-xl font-semibold">
+          <TeamIdentity team={myTeam} size="lg" fallback="Team not detected" />
+        </h1>
+        <div className="mt-1 flex flex-wrap items-center gap-2 pl-16">
+          <span className="text-sm text-secondary">{lg.name ?? `League ${lg.espn_league_id}`}</span>
+          <SizePill size={lg.size} />
+          <LifecycleBadge lifecycle={lg.lifecycle} label={LIFECYCLE_LABEL[lg.lifecycle] ?? lg.lifecycle} />
+          {ov.scoring && (
+            <span className="mono rounded bg-rowhover px-1.5 py-0.5 text-[11px] text-secondary">
+              {ov.scoring}
+            </span>
+          )}
+        </div>
+        <div className="mono mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-16 text-[11px] text-muted">
           <span>{ov.account_label ?? "public"}</span>
           <span>· {lg.season}</span>
           <span>· synced {relTime(lg.last_synced_at)}</span>
@@ -244,6 +251,14 @@ function teamLabel(m: Map<number, TeamOut>, id: number | null): string {
   return m.get(id)?.name ?? `#${id}`;
 }
 
+function teamForId(m: Map<number, TeamOut>, id: number | null): TeamOut | null {
+  return id == null ? null : (m.get(id) ?? null);
+}
+
+function teamForEspnId(m: Map<number, TeamOut>, espnTeamId: number): TeamOut | null {
+  return [...m.values()].find((team) => team.espn_team_id === espnTeamId) ?? null;
+}
+
 // --- Overview: standings + Edge breakdown + MyEdge panel --------------------
 function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number }) {
   const cols: ColumnDef<TeamOut, any>[] = [
@@ -252,13 +267,13 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
       accessorKey: "name",
       header: "Team",
       cell: (c) => (
-        <span className={c.row.original.is_me ? "font-semibold text-primary" : "text-primary"}>
-          {c.getValue<string>()} {c.row.original.is_me && <span className="text-red">·me</span>}
-          {c.row.original.autodrafted && <span className="ml-1 text-[10px] text-muted">auto</span>}
-        </span>
+        <div>
+          <TeamIdentity team={c.row.original} size="xs" />
+          {c.row.original.autodrafted && <span className="ml-9 text-[10px] text-muted">auto</span>}
+        </div>
       ),
     },
-    { id: "record", header: "W-L-T", accessorFn: (t) => t.wins, cell: (c) => <span className="mono">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
+    { id: "record", header: "W-L-T", accessorFn: (t) => t.wins, cell: (c) => <span className="mono whitespace-nowrap">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
     { accessorKey: "points_for", header: "PF", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
     { accessorKey: "points_against", header: "PA", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
   ];
@@ -273,8 +288,14 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
           <DataTable
             data={ov.teams}
             columns={cols}
+            ariaLabel="League standings"
             initialSort={[{ id: "standing", desc: false }]}
             rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")}
+            columnClassName={(columnId) =>
+              columnId === "points_for" || columnId === "points_against"
+                ? "hidden sm:table-cell"
+                : ""
+            }
           />
         </div>
       </Panel>
@@ -521,7 +542,12 @@ function DraftTab({
   const cols: ColumnDef<DraftPickOut, any>[] = [
     { accessorKey: "overall", header: "Overall", cell: (c) => <span className="mono text-secondary">{c.getValue<number>()}</span> },
     { id: "rp", header: "Rd.Pick", accessorFn: (p) => (p.round ?? 0) * 100 + (p.round_pick ?? 0), cell: (c) => <span className="mono text-muted">{c.row.original.round}.{c.row.original.round_pick}</span> },
-    { id: "team", header: "Team", accessorFn: (p) => teamLabel(teamName, p.team_id), cell: (c) => <span className="text-primary">{teamLabel(teamName, c.row.original.team_id)}</span> },
+    {
+      id: "team",
+      header: "Team",
+      accessorFn: (p) => teamLabel(teamName, p.team_id),
+      cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.team_id)} size="xs" />,
+    },
     {
       id: "player",
       header: "Player",
@@ -545,11 +571,12 @@ function DraftTab({
   );
   return (
     <div className="space-y-5">
-      <DraftRecaps leagueId={leagueId} players={players} />
+      <DraftRecaps leagueId={leagueId} players={players} teams={teamName} />
       <Panel className="overflow-hidden p-1">
         <DataTable
           data={picks}
           columns={cols}
+          ariaLabel="Draft board"
           initialSort={[{ id: "overall", desc: false }]}
           rowClassName={(p) => (myTeamId != null && p.team_id === myTeamId ? "bg-greenchip/40" : "")}
         />
@@ -563,7 +590,15 @@ function DraftTab({
 }
 
 // --- AI draft recaps (per team) --------------------------------------------
-function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerReference[] }) {
+function DraftRecaps({
+  leagueId,
+  players,
+  teams,
+}: {
+  leagueId: number;
+  players: PlayerReference[];
+  teams: Map<number, TeamOut>;
+}) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [reports, setReports] = useState<DraftRecapContent[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -618,9 +653,13 @@ function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerR
                 className="flex shrink-0 items-center gap-2 border-r border-line pr-2 last:border-r-0"
                 data-testid={`draft-grade-strip-${r.espn_team_id}`}
               >
-                <span className="max-w-32 truncate text-xs text-secondary">
-                  {r.team_name ?? `Team ${r.espn_team_id}`}
-                </span>
+                <TeamIdentity
+                  team={teamForEspnId(teams, r.espn_team_id)}
+                  size="xs"
+                  tone="text-secondary"
+                  showMe={false}
+                  fallback={r.team_name ?? `Team ${r.espn_team_id}`}
+                />
                 <GradePill grade={r.grade} />
               </div>
             ))}
@@ -633,7 +672,11 @@ function DraftRecaps({ leagueId, players }: { leagueId: number; players: PlayerR
                 data-testid={`draft-recap-card-${r.espn_team_id}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-primary">{r.team_name ?? `Team ${r.espn_team_id}`}</span>
+                  <TeamIdentity
+                    team={teamForEspnId(teams, r.espn_team_id)}
+                    size="xs"
+                    fallback={r.team_name ?? `Team ${r.espn_team_id}`}
+                  />
                   <GradePill grade={r.grade} />
                 </div>
                 <div className="mono mt-1 flex flex-wrap items-center gap-1 text-[11px] text-secondary">
@@ -665,8 +708,9 @@ function TeamsTab({
   leagueId: number;
   myTeamId: number | null;
 }) {
+  const teamName = new Map(teams.map((team) => [team.id, team]));
   const cols: ColumnDef<TeamOut, any>[] = [
-    { accessorKey: "name", header: "Team", cell: (c) => <span className={c.row.original.is_me ? "font-semibold text-primary" : "text-primary"}>{c.getValue<string>()}{c.row.original.is_me && <span className="text-red"> ·me</span>}</span> },
+    { accessorKey: "name", header: "Team", cell: (c) => <TeamIdentity team={c.row.original} size="xs" /> },
     { accessorKey: "abbrev", header: "Abbr", cell: (c) => <span className="mono text-muted">{c.getValue<string | null>() ?? DASH}</span> },
     { id: "record", header: "W-L-T", accessorFn: (t) => t.wins, cell: (c) => <span className="mono">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
     { accessorKey: "points_for", header: "PF", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
@@ -676,16 +720,29 @@ function TeamsTab({
   return (
     <div className="space-y-5">
       <Panel className="overflow-hidden p-1">
-        <DataTable data={teams} columns={cols} rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")} />
+        <DataTable
+          data={teams}
+          columns={cols}
+          ariaLabel="League teams"
+          rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")}
+        />
         <p className="px-3 py-2 text-[11px] text-muted">Roster strength (ADP/projection based) computes in Phase 3.</p>
       </Panel>
-      <LineupEfficiencyTable leagueId={leagueId} myTeamId={myTeamId} />
+      <LineupEfficiencyTable leagueId={leagueId} myTeamId={myTeamId} teamName={teamName} />
     </div>
   );
 }
 
 // Lineup efficiency: started vs optimal points (Phase 13). Backend-computed; React formats.
-function LineupEfficiencyTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: number | null }) {
+function LineupEfficiencyTable({
+  leagueId,
+  myTeamId,
+  teamName,
+}: {
+  leagueId: number;
+  myTeamId: number | null;
+  teamName: Map<number, TeamOut>;
+}) {
   const [rows, setRows] = useState<LineupEfficiencyOut[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -702,7 +759,17 @@ function LineupEfficiencyTable({ leagueId, myTeamId }: { leagueId: number; myTea
     );
 
   const cols: ColumnDef<LineupEfficiencyOut, any>[] = [
-    { accessorKey: "team_name", header: "Team", cell: (c) => <span className="text-primary">{c.getValue<string | null>() ?? DASH}</span> },
+    {
+      accessorKey: "team_name",
+      header: "Team",
+      cell: (c) => (
+        <TeamIdentity
+          team={teamForId(teamName, c.row.original.team_id)}
+          size="xs"
+          fallback={c.getValue<string | null>() ?? DASH}
+        />
+      ),
+    },
     { accessorKey: "lineup_efficiency", header: "Efficiency", cell: (c) => <span className="mono text-green">{`${(c.getValue<number>() * 100).toFixed(1)}%`}</span> },
     { accessorKey: "started_points_avg", header: "Started/wk", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
     { accessorKey: "optimal_points_avg", header: "Optimal/wk", cell: (c) => <span className="mono text-secondary">{num(c.getValue<number>())}</span> },
@@ -716,6 +783,7 @@ function LineupEfficiencyTable({ leagueId, myTeamId }: { leagueId: number; myTea
       <DataTable
         data={rows}
         columns={cols}
+        ariaLabel="Lineup efficiency"
         initialSort={[{ id: "lineup_efficiency", desc: true }]}
         rowClassName={(r) => (myTeamId != null && r.team_id === myTeamId ? "bg-greenchip/40" : "")}
       />
@@ -750,20 +818,25 @@ function MatchupsTab({
 
   const cols: ColumnDef<MatchupOut, any>[] = [
     { accessorKey: "week", header: "Wk", cell: (c) => <span className="mono text-secondary">{c.getValue<number>()}</span> },
-    { id: "home", header: "Home", accessorFn: (m) => teamLabel(teamName, m.home_team_id), cell: (c) => teamLabel(teamName, c.row.original.home_team_id) },
+    { id: "home", header: "Home", accessorFn: (m) => teamLabel(teamName, m.home_team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.home_team_id)} size="xs" /> },
     { accessorKey: "home_points", header: "HPts", cell: (c) => <span className="mono">{num(c.getValue<number | null>())}</span> },
     { accessorKey: "away_points", header: "APts", cell: (c) => <span className="mono">{num(c.getValue<number | null>())}</span> },
-    { id: "away", header: "Away", accessorFn: (m) => teamLabel(teamName, m.away_team_id), cell: (c) => teamLabel(teamName, c.row.original.away_team_id) },
+    { id: "away", header: "Away", accessorFn: (m) => teamLabel(teamName, m.away_team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.away_team_id)} size="xs" /> },
     { accessorKey: "is_playoff", header: "PO", cell: (c) => (c.getValue<boolean>() ? <span className="text-gold">●</span> : "") },
   ];
   return (
     <div className="space-y-5">
-      <AllPlayTable leagueId={leagueId} myTeamId={myTeamId} />
+      <AllPlayTable leagueId={leagueId} myTeamId={myTeamId} teamName={teamName} />
       <Panel className="overflow-hidden p-1">
         <div className="border-b border-line px-3 py-2 text-xs uppercase tracking-wide text-muted">
           Matchup schedule
         </div>
-        <DataTable data={played} columns={cols} initialSort={[{ id: "week", desc: false }]} />
+        <DataTable
+          data={played}
+          columns={cols}
+          ariaLabel="Matchup schedule"
+          initialSort={[{ id: "week", desc: false }]}
+        />
       </Panel>
     </div>
   );
@@ -771,7 +844,15 @@ function MatchupsTab({
 
 // All-play record + luck delta (Phase 12). All numbers are backend-computed; the component
 // only formats them (percent, signed luck) — no analytics math here.
-function AllPlayTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: number | null }) {
+function AllPlayTable({
+  leagueId,
+  myTeamId,
+  teamName,
+}: {
+  leagueId: number;
+  myTeamId: number | null;
+  teamName: Map<number, TeamOut>;
+}) {
   const [rows, setRows] = useState<AllPlayOut[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -790,7 +871,17 @@ function AllPlayTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: numb
   const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
   const luck = (v: number) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}`;
   const cols: ColumnDef<AllPlayOut, any>[] = [
-    { accessorKey: "team_name", header: "Team", cell: (c) => <span className="text-primary">{c.getValue<string | null>() ?? DASH}</span> },
+    {
+      accessorKey: "team_name",
+      header: "Team",
+      cell: (c) => (
+        <TeamIdentity
+          team={teamForId(teamName, c.row.original.team_id)}
+          size="xs"
+          fallback={c.getValue<string | null>() ?? DASH}
+        />
+      ),
+    },
     { id: "record", header: "W-L-T", accessorFn: (r) => r.wins, cell: (c) => <span className="mono">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
     { accessorKey: "win_pct", header: "Win%", cell: (c) => <span className="mono text-secondary">{pct(c.getValue<number>())}</span> },
     { id: "ap_record", header: "All-play", accessorFn: (r) => r.all_play_win_pct, cell: (c) => <span className="mono">{record(c.row.original.all_play_wins, c.row.original.all_play_losses, c.row.original.all_play_ties)}</span> },
@@ -812,6 +903,7 @@ function AllPlayTable({ leagueId, myTeamId }: { leagueId: number; myTeamId: numb
       <DataTable
         data={rows}
         columns={cols}
+        ariaLabel="All-play standings"
         initialSort={[{ id: "all_play_win_pct", desc: true }]}
         rowClassName={(r) => (myTeamId != null && r.team_id === myTeamId ? "bg-greenchip/40" : "")}
       />
@@ -842,7 +934,7 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
 
   const cols: ColumnDef<TransactionOut, any>[] = [
     { accessorKey: "week", header: "Wk", cell: (c) => <span className="mono text-secondary">{c.getValue<number | null>() ?? DASH}</span> },
-    { id: "team", header: "Team", accessorFn: (t) => teamLabel(teamName, t.team_id), cell: (c) => teamLabel(teamName, c.row.original.team_id) },
+    { id: "team", header: "Team", accessorFn: (t) => teamLabel(teamName, t.team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.team_id)} size="xs" /> },
     { accessorKey: "type", header: "Type", cell: (c) => <span className="mono text-secondary">{c.getValue<string | null>() ?? DASH}</span> },
     {
       id: "player_in",
@@ -886,7 +978,7 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
   ];
   return (
     <Panel className="overflow-hidden p-1">
-      <DataTable data={tx} columns={cols} />
+      <DataTable data={tx} columns={cols} ariaLabel="League activity" />
     </Panel>
   );
 }
@@ -1071,6 +1163,7 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
 
   if (teams == null) return <Panel className="p-4"><Spinner /></Panel>;
   const opponents = teams.filter((t) => !t.is_me);
+  const selectedOpponent = opponents.find((team) => team.id === opp) ?? null;
   const hasMe = teams.some((t) => t.is_me);
   const has = !!env?.content;
   const c = env?.content;
@@ -1080,15 +1173,12 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
         <h3 className="text-sm font-semibold">Trade finder</h3>
         <div className="flex items-center gap-2">
           {hasMe && opponents.length > 0 && (
-            <select
-              value={opp ?? ""}
-              onChange={(e) => setOpp(Number(e.target.value))}
-              className="max-w-[150px] truncate rounded-md border border-line bg-panel px-2 py-1 text-xs text-primary"
-            >
-              {opponents.map((t) => (
-                <option key={t.id} value={t.id}>{t.name ?? `Team ${t.espn_team_id}`}</option>
-              ))}
-            </select>
+            <TeamSelect
+              teams={opponents}
+              value={opp}
+              onChange={setOpp}
+              label="Trade opponent"
+            />
           )}
           {has && env?.stale && (
             <span className="mono text-[10px] uppercase tracking-wide text-gold">inputs changed</span>
@@ -1118,9 +1208,14 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
           {has && c ? (
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="mono text-[11px] uppercase tracking-wide text-muted">
-                  vs {c.opponent_name ?? opponents.find((t) => t.id === opp)?.name ?? "opponent"}
-                </span>
+                <span className="mono text-[11px] uppercase tracking-wide text-muted">vs</span>
+                <TeamIdentity
+                  team={selectedOpponent}
+                  size="xs"
+                  tone="text-secondary"
+                  showMe={false}
+                  fallback={c.opponent_name ?? "opponent"}
+                />
                 <TradeProvenance c={c} />
               </div>
               {c.proposals.length === 0 ? (

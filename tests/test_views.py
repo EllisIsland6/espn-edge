@@ -2,11 +2,12 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from api.crypto import encrypt
 from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
-from api.models import Account, League, Player
+from api.models import Account, League, Player, Team
 from api.services.sync import SyncService
 
 from .conftest import FakeEspn, load_fixture
@@ -53,6 +54,7 @@ def test_portfolio(league_id):
     row = next(x for x in rows if x["league_id"] == league_id)
     assert row["league_name"] == "Test Public League"
     assert row["my_team_name"] == "Alpha"
+    assert row["my_team_logo_url"] == "http://x/1.png"
     assert row["wins"] == 1 and row["losses"] == 0
     assert row["account_label"] == "Main"
     # Phase 3 metrics are computed on sync (in_season fixture); UI only formats them.
@@ -67,6 +69,53 @@ def test_portfolio(league_id):
         "history_count": 1,
     }
     assert "sync_healthy" in {item["key"] for item in row["achievements"]}
+
+    league = next(x for x in client.get("/api/leagues").json() if x["id"] == league_id)
+    assert league["my_team_name"] == "Alpha"
+    assert league["my_team_logo_url"] == "http://x/1.png"
+
+    overview = client.get(f"/api/leagues/{league_id}/overview").json()
+    assert overview["league"]["my_team_name"] == "Alpha"
+    assert overview["league"]["my_team_logo_url"] == "http://x/1.png"
+
+
+def test_league_identity_rejects_cross_league_team_reference(league_id):
+    with SessionLocal() as session:
+        league = session.get(League, league_id)
+        for team in session.scalars(select(Team).where(Team.league_id == league_id)):
+            team.is_me = False
+        other = League(
+            espn_league_id="identity-other",
+            season=2026,
+            lifecycle="drafted",
+            is_public=True,
+        )
+        session.add(other)
+        session.flush()
+        foreign_team = Team(
+            league_id=other.id,
+            espn_team_id=99,
+            name="Wrong League Team",
+            logo_url="https://example.test/wrong.png",
+            is_me=True,
+        )
+        session.add(foreign_team)
+        session.flush()
+        league.my_team_id = foreign_team.id
+        session.commit()
+
+    listed = next(x for x in client.get("/api/leagues").json() if x["id"] == league_id)
+    assert listed["my_team_name"] is None
+    assert listed["my_team_logo_url"] is None
+
+    overview = client.get(f"/api/leagues/{league_id}/overview").json()
+    assert overview["league"]["my_team_name"] is None
+    assert overview["league"]["my_team_logo_url"] is None
+
+    portfolio = next(x for x in client.get("/api/portfolio").json() if x["league_id"] == league_id)
+    assert portfolio["my_team_id"] is None
+    assert portfolio["my_team_name"] is None
+    assert portfolio["my_team_logo_url"] is None
 
 
 def test_portfolio_summary(league_id):

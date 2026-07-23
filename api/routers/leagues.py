@@ -17,14 +17,16 @@ from ..schemas import (
 )
 from ..services.discovery import DiscoveryAuthError, discover_leagues, parse_league_id
 from ..services.espn import cookies_for_account
+from ..services.read_models import build_league_out
 from ..services.sync import SyncService
 
 router = APIRouter(prefix="/api/leagues", tags=["leagues"])
 
 
 @router.get("", response_model=list[LeagueOut])
-def list_leagues(session: Session = Depends(get_session)) -> list[League]:
-    return list(session.scalars(select(League).order_by(League.id)))
+def list_leagues(session: Session = Depends(get_session)) -> list[LeagueOut]:
+    leagues = session.scalars(select(League).order_by(League.id))
+    return [build_league_out(session, league) for league in leagues]
 
 
 @router.get("/discover/{account_id}", response_model=list[DiscoveredLeagueOut])
@@ -46,7 +48,7 @@ def discover(account_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=LeagueOut, status_code=201)
-def add_league(payload: LeagueAdd, session: Session = Depends(get_session)) -> League:
+def add_league(payload: LeagueAdd, session: Session = Depends(get_session)) -> LeagueOut:
     """Manual add (SPEC 2.6 path 2, the guaranteed fallback)."""
     settings = get_settings()
     season = payload.season or settings.season
@@ -68,7 +70,7 @@ def add_league(payload: LeagueAdd, session: Session = Depends(get_session)) -> L
             existing.is_public = False
         session.commit()
         session.refresh(existing)
-        return existing
+        return build_league_out(session, existing)
 
     league = League(
         espn_league_id=espn_league_id,
@@ -80,7 +82,7 @@ def add_league(payload: LeagueAdd, session: Session = Depends(get_session)) -> L
     session.add(league)
     session.commit()
     session.refresh(league)
-    return league
+    return build_league_out(session, league)
 
 
 @router.post("/{league_id}/sync", response_model=SyncSummary)

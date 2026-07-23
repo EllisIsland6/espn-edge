@@ -16,9 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import DraftPick, League, Matchup, Team, Transaction
-from ..schemas import DraftPickOut, LeagueOut, MatchupOut, TeamOut, TransactionOut
+from ..schemas import DraftPickOut, MatchupOut, TeamOut, TransactionOut
 from .metrics import team_edge
 from .portfolio import build_portfolio_rows, build_summary
+from .read_models import build_league_out
 
 # Column order shared by CSV + XLSX so the two never drift. Edge Index (Phase 16/17) is the
 # primary advantage score; legacy edge_score/grade/verdict are kept for compatibility.
@@ -66,7 +67,7 @@ def portfolio_json(session: Session) -> dict:
         activity = session.scalars(select(Transaction).where(Transaction.league_id == lg.id))
         leagues_out.append(
             {
-                "league": LeagueOut.model_validate(lg).model_dump(mode="json"),
+                "league": build_league_out(session, lg).model_dump(mode="json"),
                 "teams": [TeamOut.model_validate(t).model_dump(mode="json") for t in teams],
                 "draft": [DraftPickOut.model_validate(p).model_dump(mode="json") for p in draft],
                 "matchups": [
