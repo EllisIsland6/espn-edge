@@ -84,20 +84,19 @@ git status --short                     # only the intended files changed
 
 ### Dependency-audit ground truth (remediated)
 - Both `npm audit` (full, dev + prod) and `npm audit --omit=dev` (in `web/`) report
-  **0 vulnerabilities** — verified after the focused upgrade below.
-- **Context that prompted the fix:** the prior advisories (1 high Vite path-traversal /
-  `server.fs.deny` bypass, 1 moderate esbuild dev-server request exposure) sat in the
-  Vite/esbuild toolchain. Although npm marks them dev-only and they are absent from the
-  built browser bundle, **Vite is the dev server launched by `make dev` / `make web`**, so
-  it is part of the app's documented local execution path — not risk-free "dev noise."
-- **Remediation applied:** `vite` `^5.4.11` → `^6.4.3` (installs `vite@6.4.3`, which pulls
-  `esbuild@0.25.12`). This is the smallest peer-compatible upgrade: `@vitejs/plugin-react`
-  (peer `… || ^6 || ^7`) and `@tailwindcss/vite` (peer `… || ^6 || ^7 || ^8`) both already
-  support Vite 6, so **no plugin changes were needed**. `vite.config.ts` is unchanged and
-  still binds `host: "127.0.0.1"`.
-- **Rejected alternative:** npm's `audit fix` target `vite@8.1.5` is an **unsupported peer
-  combination** — no published `@vitejs/plugin-react` (through 5.1.0) supports Vite 8 — so
-  `npm audit fix --force` would break the build. Do not run it.
+  **0 vulnerabilities**.
+- **July 2026 remediation:** PostCSS `8.5.16` → `8.5.23` closes its source-map path
+  traversal advisory. React `18.3.1` → `19.2.x` and `react-router-dom` `7.18.1` →
+  `react-router` `8.3.0` close the React Router advisory set, including the latest
+  unstable-RSC CSRF advisory. The app does not use RSC, but the zero-vulnerability gate
+  deliberately does not waive it.
+- React Router 8 consolidates browser APIs into `react-router` and `react-router/dom`;
+  the app's imports were migrated without changing routes or navigation behavior. It
+  requires Node.js 22.22.0+, now declared in `web/package.json` and pinned in CI.
+- The earlier Vite remediation remains in place at `vite@6.4.3`; `vite.config.ts` is
+  unchanged and still binds `host: "127.0.0.1"`.
+- Do not run `npm audit fix --force`; dependency remediation requires an explicit,
+  reviewed package and lockfile change followed by the complete gate set.
 - **Gate:** both `npm audit` and `npm audit --omit=dev` must report **no high or moderate
   vulnerabilities**; any future dependency upgrade beyond this focused fix requires
   **explicit human approval**.

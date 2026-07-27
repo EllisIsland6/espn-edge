@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 import {
   generateAdvantageVerdict,
   generateDraftRecaps,

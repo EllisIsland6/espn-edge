@@ -32,6 +32,8 @@ full design; ESPN data access is Section 2 (the verified technical foundation).
 
 ## Quick start
 
+Requires Python 3.12+ and Node.js 22.22.0+.
+
 Fresh clone to running in **two commands** (`setup` installs api + web deps and writes
 `.env` with a generated `FERNET_KEY`):
 

@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return `rounded-md px-3 py-1.5 text-sm transition-colors duration-150 ${
