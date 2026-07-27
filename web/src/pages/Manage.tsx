@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   addAccount,
@@ -17,47 +17,97 @@ import { AchievementRow } from "../components/Gamification";
 import { TeamIdentity } from "../components/TeamIdentity";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
-import { syncSummaryMessage } from "../lib/sync";
+import {
+  classifySyncSummary,
+  syncFailureMessage,
+  syncSummaryMessage,
+  type SyncOutcome,
+} from "../lib/sync";
 
-type ImportStatus = "success" | "team_missing" | "failed";
+type SyncOperation =
+  | { kind: "individual"; leagueId: number }
+  | { kind: "import"; accountId: number }
+  | { kind: "bulk" };
 
 interface ImportResult {
   key: string;
   league: string;
-  status: ImportStatus;
+  status: SyncOutcome;
   message: string;
 }
 
-const IMPORT_STATUS_LABEL: Record<ImportStatus, string> = {
+interface LeagueSyncResult {
+  leagueId: number;
+  league: string;
+  status: SyncOutcome;
+  message: string;
+}
+
+const SYNC_STATUS_LABEL: Record<SyncOutcome, string> = {
   success: "Success",
+  issues: "Completed with issues",
   team_missing: "Team not identified",
+  needs_reauth: "Needs re-auth",
   failed: "Failed",
+  skipped: "Skipped",
 };
 
-const IMPORT_STATUS_TONE: Record<ImportStatus, string> = {
+const SYNC_STATUS_TONE: Record<SyncOutcome, string> = {
   success: "text-green",
+  issues: "text-gold",
   team_missing: "text-gold",
+  needs_reauth: "text-red",
   failed: "text-red",
+  skipped: "text-muted",
 };
 
 export default function Manage() {
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
   const [leagues, setLeagues] = useState<LeagueOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncOperation, setSyncOperation] = useState<SyncOperation | null>(null);
+  const syncOperationRef = useRef<SyncOperation | null>(null);
 
-  async function reload() {
+  const loadData = useCallback(async () => {
+    const [nextAccounts, nextLeagues] = await Promise.all([getAccounts(), getLeagues()]);
+    setAccounts(nextAccounts);
+    setLeagues(nextLeagues);
+  }, []);
+
+  const reload = useCallback(async () => {
     setError(null);
     try {
-      const [a, l] = await Promise.all([getAccounts(), getLeagues()]);
-      setAccounts(a);
-      setLeagues(l);
+      await loadData();
     } catch (e) {
       setError(String(e));
     }
-  }
-  useEffect(() => {
-    reload();
+  }, [loadData]);
+
+  const reloadAfterBulk = useCallback(async (): Promise<string | null> => {
+    try {
+      await loadData();
+      setError(null);
+      return null;
+    } catch (e) {
+      return syncFailureMessage(e);
+    }
+  }, [loadData]);
+
+  const beginSyncOperation = useCallback((operation: SyncOperation): boolean => {
+    if (syncOperationRef.current !== null) return false;
+    syncOperationRef.current = operation;
+    setSyncOperation(operation);
+    return true;
   }, []);
+
+  const endSyncOperation = useCallback(() => {
+    syncOperationRef.current = null;
+    setSyncOperation(null);
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   return (
     <div className="max-w-4xl">
@@ -77,6 +127,9 @@ export default function Manage() {
           leagues={leagues ?? []}
           onChange={reload}
           onError={setError}
+          syncOperation={syncOperation}
+          beginSyncOperation={beginSyncOperation}
+          endSyncOperation={endSyncOperation}
         />
       )}
 
@@ -84,7 +137,16 @@ export default function Manage() {
       {!leagues ? (
         <Spinner />
       ) : (
-        <LeagueList leagues={leagues} accounts={accounts ?? []} onChange={reload} onError={setError} />
+        <LeagueList
+          leagues={leagues}
+          accounts={accounts ?? []}
+          onChange={reload}
+          onBulkReload={reloadAfterBulk}
+          onError={setError}
+          syncOperation={syncOperation}
+          beginSyncOperation={beginSyncOperation}
+          endSyncOperation={endSyncOperation}
+        />
       )}
     </div>
   );
@@ -136,11 +198,17 @@ function AccountList({
   leagues,
   onChange,
   onError,
+  syncOperation,
+  beginSyncOperation,
+  endSyncOperation,
 }: {
   accounts: AccountOut[];
   leagues: LeagueOut[];
   onChange: () => void;
   onError: (e: string) => void;
+  syncOperation: SyncOperation | null;
+  beginSyncOperation: (operation: SyncOperation) => boolean;
+  endSyncOperation: () => void;
 }) {
   if (accounts.length === 0)
     return (
@@ -166,6 +234,9 @@ function AccountList({
           leagues={leagues}
           onChange={onChange}
           onError={onError}
+          syncOperation={syncOperation}
+          beginSyncOperation={beginSyncOperation}
+          endSyncOperation={endSyncOperation}
         />
       ))}
     </div>
@@ -177,11 +248,17 @@ function AccountRow({
   leagues,
   onChange,
   onError,
+  syncOperation,
+  beginSyncOperation,
+  endSyncOperation,
 }: {
   account: AccountOut;
   leagues: LeagueOut[];
   onChange: () => void;
   onError: (e: string) => void;
+  syncOperation: SyncOperation | null;
+  beginSyncOperation: (operation: SyncOperation) => boolean;
+  endSyncOperation: () => void;
 }) {
   const needsReauth = a.status === "needs_reauth";
   // Auto-expand the re-auth form when the account's session expired.
@@ -241,6 +318,7 @@ function AccountRow({
 
   async function importSelected() {
     if (!discovered) return;
+    if (!beginSyncOperation({ kind: "import", accountId: a.id })) return;
     const choices = discovered.filter((league) => selected.has(discoveryKey(league)));
     setImporting(true);
     setDiscoveryNote(null);
@@ -250,44 +328,42 @@ function AccountRow({
       results.push(result);
       setImportResults([...results]);
     };
-    for (const league of choices) {
-      const key = discoveryKey(league);
-      const label = league.name ?? `League ${league.espn_league_id}`;
-      let saved: LeagueOut;
-      try {
-        saved = await addLeague(league.espn_league_id, a.id, league.season ?? undefined);
-      } catch (err) {
-        record({ key, league: label, status: "failed", message: `Import failed: ${String(err)}` });
-        continue;
-      }
-      try {
-        const summary = await syncLeague(saved.id);
-        const warning = syncSummaryMessage(summary);
-        if (warning) {
-          record({ key, league: label, status: "failed", message: warning });
-        } else if (summary.my_team_espn_id == null) {
+    try {
+      for (const league of choices) {
+        const key = discoveryKey(league);
+        const label = league.name ?? `League ${league.espn_league_id}`;
+        let saved: LeagueOut;
+        try {
+          saved = await addLeague(league.espn_league_id, a.id, league.season ?? undefined);
+        } catch (err) {
           record({
             key,
             league: label,
-            status: "team_missing",
-            message: "Imported and synced, but this account's team was not identified.",
+            status: "failed",
+            message: `Import failed: ${syncFailureMessage(err)}`,
           });
-        } else {
-          record({ key, league: label, status: "success", message: "Imported and synced." });
+          continue;
         }
-      } catch (err) {
-        record({
-          key,
-          league: label,
-          status: "failed",
-          message: `Imported, but sync failed: ${String(err)}`,
-        });
+        try {
+          const summary = await syncLeague(saved.id);
+          const result = classifySyncSummary(summary, { accountLinked: true });
+          record({ key, league: label, ...result });
+        } catch (err) {
+          record({
+            key,
+            league: label,
+            status: "failed",
+            message: `Imported, but sync failed: ${syncFailureMessage(err)}`,
+          });
+        }
       }
+      setSelected(new Set());
+      setDiscoveryNote(`Processed ${results.length} ${results.length === 1 ? "league" : "leagues"}.`);
+      await onChange();
+    } finally {
+      setImporting(false);
+      endSyncOperation();
     }
-    setImporting(false);
-    setSelected(new Set());
-    setDiscoveryNote(`Processed ${results.length} ${results.length === 1 ? "league" : "leagues"}.`);
-    await onChange();
   }
 
   const selectedCount = selected.size;
@@ -402,7 +478,7 @@ function AccountRow({
                 <Button
                   variant="primary"
                   onClick={importSelected}
-                  disabled={importing || selectedCount === 0}
+                  disabled={syncOperation !== null || selectedCount === 0}
                 >
                   {importing ? "Importing & syncing…" : `Import & sync ${selectedCount}`}
                 </Button>
@@ -415,8 +491,8 @@ function AccountRow({
             <ul className="mt-2 space-y-1" data-testid={`league-import-results-${a.id}`}>
               {importResults.map((result) => (
                 <li key={result.key} className="flex flex-wrap items-baseline gap-x-2 text-xs">
-                  <span className={`mono uppercase ${IMPORT_STATUS_TONE[result.status]}`}>
-                    {IMPORT_STATUS_LABEL[result.status]}
+                  <span className={`mono uppercase ${SYNC_STATUS_TONE[result.status]}`}>
+                    {SYNC_STATUS_LABEL[result.status]}
                   </span>
                   <span className="font-medium text-primary">{result.league}</span>
                   <span className="text-muted">{result.message}</span>
@@ -533,15 +609,118 @@ function LeagueList({
   leagues,
   accounts,
   onChange,
+  onBulkReload,
   onError,
+  syncOperation,
+  beginSyncOperation,
+  endSyncOperation,
 }: {
   leagues: LeagueOut[];
   accounts: AccountOut[];
   onChange: () => void;
+  onBulkReload: () => Promise<string | null>;
   onError: (e: string) => void;
+  syncOperation: SyncOperation | null;
+  beginSyncOperation: (operation: SyncOperation) => boolean;
+  endSyncOperation: () => void;
 }) {
-  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [bulkSyncingId, setBulkSyncingId] = useState<number | null>(null);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+  const [bulkResults, setBulkResults] = useState<LeagueSyncResult[]>([]);
+  const [bulkReloadError, setBulkReloadError] = useState<string | null>(null);
   const acctLabel = (id: number | null) => accounts.find((a) => a.id === id)?.label ?? "public";
+  const leagueLabel = (league: LeagueOut) => league.name ?? `League ${league.espn_league_id}`;
+
+  async function syncOne(league: LeagueOut) {
+    if (!beginSyncOperation({ kind: "individual", leagueId: league.id })) return;
+    try {
+      const summary = await syncLeague(league.id);
+      const message = syncSummaryMessage(summary, { accountLinked: league.account_id != null });
+      await onChange();
+      if (message) onError(message);
+    } catch (e) {
+      onError(syncFailureMessage(e));
+    } finally {
+      endSyncOperation();
+    }
+  }
+
+  async function syncAll() {
+    if (!beginSyncOperation({ kind: "bulk" })) return;
+    const queue = [...leagues];
+    const blockedAccounts = new Set(
+      accounts.filter((account) => account.status === "needs_reauth").map((account) => account.id),
+    );
+    const results: LeagueSyncResult[] = [];
+    const record = (result: LeagueSyncResult) => {
+      results.push(result);
+      setBulkResults([...results]);
+    };
+
+    setBulkResults([]);
+    setBulkReloadError(null);
+    setBulkProgress({ current: 0, total: queue.length });
+
+    try {
+      for (const [index, league] of queue.entries()) {
+        setBulkSyncingId(league.id);
+        setBulkProgress({ current: index + 1, total: queue.length });
+        const label = leagueLabel(league);
+        if (league.account_id != null && blockedAccounts.has(league.account_id)) {
+          record({
+            leagueId: league.id,
+            league: label,
+            status: "skipped",
+            message: "Skipped because this account needs re-authentication.",
+          });
+          continue;
+        }
+
+        try {
+          const summary = await syncLeague(league.id);
+          const result = classifySyncSummary(summary, {
+            accountLinked: league.account_id != null,
+          });
+          record({ leagueId: league.id, league: label, ...result });
+          if (result.status === "needs_reauth" && league.account_id != null) {
+            blockedAccounts.add(league.account_id);
+          }
+        } catch (e) {
+          record({
+            leagueId: league.id,
+            league: label,
+            status: "failed",
+            message: `Sync request failed: ${syncFailureMessage(e)}`,
+          });
+        }
+      }
+      setBulkReloadError(await onBulkReload());
+    } finally {
+      setBulkSyncingId(null);
+      endSyncOperation();
+    }
+  }
+
+  const isBulkSyncing = syncOperation?.kind === "bulk";
+  const resultCounts = bulkResults.reduce<Partial<Record<SyncOutcome, number>>>((counts, result) => {
+    counts[result.status] = (counts[result.status] ?? 0) + 1;
+    return counts;
+  }, {});
+  const summaryParts = [
+    `${resultCounts.success ?? 0} synced`,
+    resultCounts.issues ? `${resultCounts.issues} with issues` : null,
+    resultCounts.team_missing ? `${resultCounts.team_missing} team not identified` : null,
+    resultCounts.needs_reauth ? `${resultCounts.needs_reauth} need re-auth` : null,
+    resultCounts.failed ? `${resultCounts.failed} failed` : null,
+    resultCounts.skipped ? `${resultCounts.skipped} skipped` : null,
+  ].filter(Boolean);
+  const bulkSummary =
+    bulkResults.length === bulkProgress.total && bulkProgress.total > 0 && !isBulkSyncing
+      ? `Processed ${bulkProgress.total} ${
+          bulkProgress.total === 1 ? "league" : "leagues"
+        }: ${summaryParts.join(", ")}.`
+      : null;
+
   if (leagues.length === 0)
     return (
       <div className="mt-3">
@@ -594,25 +773,63 @@ function LeagueList({
             />
           )}
           <Button
-            onClick={async () => {
-              setSyncingId(l.id);
-              try {
-                const s = await syncLeague(l.id);
-                const msg = syncSummaryMessage(s); // covers needs_reauth AND errors
-                if (msg) onError(msg);
-                onChange();
-              } catch (e) {
-                onError(String(e));
-              } finally {
-                setSyncingId(null);
-              }
-            }}
-            disabled={syncingId === l.id}
+            onClick={() => void syncOne(l)}
+            disabled={syncOperation !== null}
           >
-            {syncingId === l.id ? "Syncing…" : "Sync"}
+            {(syncOperation?.kind === "individual" && syncOperation.leagueId === l.id) ||
+            (isBulkSyncing && bulkSyncingId === l.id)
+              ? "Syncing…"
+              : "Sync"}
           </Button>
         </Panel>
       ))}
+      <div className="flex flex-wrap items-center gap-3 pt-3">
+        <Button
+          variant="primary"
+          onClick={() => void syncAll()}
+          disabled={syncOperation !== null}
+        >
+          {isBulkSyncing
+            ? `Syncing ${bulkProgress.current} of ${bulkProgress.total}...`
+            : `Sync all ${leagues.length} ${leagues.length === 1 ? "league" : "leagues"}`}
+        </Button>
+        <span className="text-xs text-muted">
+          Leagues sync one at a time. Keep this page open until the run finishes.
+        </span>
+      </div>
+      <div aria-live="polite" aria-atomic="false" data-testid="bulk-sync-status">
+        {isBulkSyncing && (
+          <p className="mt-2 text-xs text-secondary">
+            Syncing {bulkProgress.current} of {bulkProgress.total}:{" "}
+            {bulkSyncingId == null
+              ? "Preparing..."
+              : leagueLabel(leagues.find((league) => league.id === bulkSyncingId) ?? leagues[0])}
+          </p>
+        )}
+        {bulkSummary && <p className="mt-2 text-xs text-secondary">{bulkSummary}</p>}
+        {bulkReloadError && (
+          <p className="mt-2 text-xs text-red">
+            Sync results were saved, but Manage data could not be refreshed: {bulkReloadError}
+          </p>
+        )}
+        {bulkResults.length > 0 && (
+          <ul className="mt-2 space-y-1" data-testid="bulk-sync-results">
+            {bulkResults.map((result) => (
+              <li
+                key={result.leagueId}
+                className="flex flex-wrap items-baseline gap-x-2 text-xs"
+                data-testid={`bulk-sync-result-${result.leagueId}`}
+              >
+                <span className={`mono uppercase ${SYNC_STATUS_TONE[result.status]}`}>
+                  {SYNC_STATUS_LABEL[result.status]}
+                </span>
+                <span className="font-medium text-primary">{result.league}</span>
+                <span className="text-muted">{result.message}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

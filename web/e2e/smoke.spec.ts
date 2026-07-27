@@ -435,6 +435,35 @@ test("manage tab renders the account and league forms", async ({ page }) => {
   expect(teamBox!.y).toBeLessThan(leagueBox!.y);
 });
 
+test("manage individual sync preserves completed-with-issues feedback after reload", async ({ page }) => {
+  await page.route("**/api/accounts", (route) =>
+    json(route, [{ id: 1, label: "Main", status: "active", created_at: NOW }]));
+  await page.route("**/api/leagues", (route) => json(route, [LEAGUE_1]));
+  await page.route("**/api/leagues/1/sync", (route) =>
+    json(route, {
+      league_id: "111",
+      season: 2026,
+      name: "Alpha League",
+      lifecycle: "in_season",
+      teams: 8,
+      draft_picks: 120,
+      matchups: 8,
+      transactions: 4,
+      metric_snapshots: 1,
+      my_team_espn_id: 1,
+      needs_reauth: false,
+      errors: ["boxscore fixture unavailable"],
+    }));
+
+  await page.goto("/manage");
+  const alphaRow = page.getByRole("link", { name: /Alpha League/ }).locator("..");
+  await alphaRow.getByRole("button", { name: "Sync" }).click();
+
+  await expect(
+    page.getByText("Alpha League: Completed with issues: boxscore fixture unavailable"),
+  ).toBeVisible();
+});
+
 test("manage discovers, selects, imports, and syncs account leagues", async ({ page }) => {
   const account = {
     id: 1, label: "Main", status: "active", created_at: NOW,
@@ -575,6 +604,347 @@ test("manage continues a batch after failure and reports every league result", a
   await expect(results.getByText("Interrupted League", { exact: true })).toBeVisible();
   await expect(results.getByText("Ambiguous League", { exact: true })).toBeVisible();
   expect(syncOrder).toEqual([2, 3, 4]);
+});
+
+test("manage bulk sync runs a stable sequential queue with one final reload", async ({ page }) => {
+  const account = { id: 1, label: "Main", status: "active", created_at: NOW };
+  const leagues = [
+    LEAGUE_1,
+    { ...LEAGUE_1, id: 2, espn_league_id: "222", name: "Beta League" },
+    { ...LEAGUE_1, id: 3, espn_league_id: "333", name: "Gamma League" },
+  ];
+  const syncOrder: number[] = [];
+  const releases = new Map<number, () => void>();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let accountReads = 0;
+  let leagueReads = 0;
+
+  await page.route("**/api/accounts", (route) => {
+    accountReads += 1;
+    return json(route, [account]);
+  });
+  await page.route("**/api/leagues", (route) => {
+    leagueReads += 1;
+    return json(route, leagues);
+  });
+  await page.route("**/api/leagues/*/sync", async (route) => {
+    const id = Number(new URL(route.request().url()).pathname.match(/\/leagues\/(\d+)\/sync$/)?.[1]);
+    syncOrder.push(id);
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    try {
+      await new Promise<void>((resolve) => releases.set(id, resolve));
+      await json(route, {
+        league_id: String(id),
+        season: 2026,
+        name: leagues.find((league) => league.id === id)?.name,
+        lifecycle: "in_season",
+        teams: 10,
+        draft_picks: 150,
+        matchups: 10,
+        transactions: 5,
+        metric_snapshots: 1,
+        my_team_espn_id: 1,
+        needs_reauth: false,
+        errors: [],
+      });
+    } finally {
+      inFlight -= 1;
+    }
+  });
+
+  await page.goto("/manage");
+  const bulk = page.getByRole("button", { name: "Sync all 3 leagues" });
+  await expect(bulk).toBeVisible();
+  const initialAccountReads = accountReads;
+  const initialLeagueReads = leagueReads;
+
+  await bulk.click();
+  await expect.poll(() => [...syncOrder]).toEqual([1]);
+  await expect(page.getByRole("button", { name: "Syncing 1 of 3..." })).toBeVisible();
+  releases.get(1)?.();
+
+  await expect.poll(() => [...syncOrder]).toEqual([1, 2]);
+  await expect(page.getByTestId("bulk-sync-result-1")).toContainText("Success");
+  await expect(page.getByRole("button", { name: "Syncing 2 of 3..." })).toBeVisible();
+  releases.get(2)?.();
+
+  await expect.poll(() => [...syncOrder]).toEqual([1, 2, 3]);
+  await expect(page.getByTestId("bulk-sync-result-2")).toContainText("Success");
+  await expect(page.getByRole("button", { name: "Syncing 3 of 3..." })).toBeVisible();
+  releases.get(3)?.();
+
+  await expect(
+    page.getByText("Processed 3 leagues: 3 synced.", { exact: true }),
+  ).toBeVisible();
+  expect(syncOrder).toEqual([1, 2, 3]);
+  expect(maxInFlight).toBe(1);
+  expect(accountReads).toBe(initialAccountReads + 1);
+  expect(leagueReads).toBe(initialLeagueReads + 1);
+});
+
+test("manage bulk sync records mixed results and preserves them when reload fails", async ({ page }) => {
+  const account = { id: 1, label: "Main", status: "active", created_at: NOW };
+  const leagues = [
+    LEAGUE_1,
+    { ...LEAGUE_1, id: 2, espn_league_id: "222", name: "Issues League" },
+    { ...LEAGUE_1, id: 3, espn_league_id: "333", name: "Failed League" },
+    { ...LEAGUE_1, id: 4, espn_league_id: "444", name: "Missing Team League" },
+  ];
+  const syncOrder: number[] = [];
+  let leagueReads = 0;
+
+  await page.route("**/api/accounts", (route) => json(route, [account]));
+  await page.route("**/api/leagues", (route) => {
+    leagueReads += 1;
+    if (leagueReads > 1) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "reload unavailable" }),
+      });
+    }
+    return json(route, leagues);
+  });
+  await page.route("**/api/leagues/*/sync", (route) => {
+    const id = Number(new URL(route.request().url()).pathname.match(/\/leagues\/(\d+)\/sync$/)?.[1]);
+    syncOrder.push(id);
+    if (id === 3) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "fixture interruption" }),
+      });
+    }
+    return json(route, {
+      league_id: String(id),
+      season: 2026,
+      name: leagues.find((league) => league.id === id)?.name,
+      lifecycle: "in_season",
+      teams: 10,
+      draft_picks: 150,
+      matchups: 10,
+      transactions: 5,
+      metric_snapshots: 1,
+      my_team_espn_id: id === 4 ? null : 1,
+      needs_reauth: false,
+      errors: id === 2 ? ["boxscore fixture unavailable"] : [],
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Sync all 4 leagues" }).click();
+
+  const results = page.getByTestId("bulk-sync-results");
+  await expect(results.getByText("Success", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Completed with issues", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Failed", { exact: true })).toHaveCount(1);
+  await expect(results.getByText("Team not identified", { exact: true })).toHaveCount(1);
+  await expect(
+    page.getByText(
+      "Processed 4 leagues: 1 synced, 1 with issues, 1 team not identified, 1 failed.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/Manage data could not be refreshed: reload unavailable/)).toBeVisible();
+  expect(syncOrder).toEqual([1, 2, 3, 4]);
+});
+
+test("manage bulk sync skips accounts needing re-auth and continues other leagues", async ({ page }) => {
+  const accounts = [
+    { id: 1, label: "Main", status: "active", created_at: NOW },
+    { id: 2, label: "Expired", status: "needs_reauth", created_at: NOW },
+    { id: 3, label: "Other", status: "active", created_at: NOW },
+  ];
+  const leagues = [
+    LEAGUE_1,
+    { ...LEAGUE_1, id: 2, espn_league_id: "222", name: "Same Account League" },
+    { ...LEAGUE_1, id: 3, espn_league_id: "333", name: "Already Expired", account_id: 2 },
+    {
+      ...LEAGUE_1,
+      id: 4,
+      espn_league_id: "444",
+      name: "Public League",
+      account_id: null,
+      is_public: true,
+      my_team_id: null,
+      my_team_name: null,
+      my_team_logo_url: null,
+    },
+    { ...LEAGUE_1, id: 5, espn_league_id: "555", name: "Other Account League", account_id: 3 },
+  ];
+  const syncOrder: number[] = [];
+
+  await page.route("**/api/accounts", (route) => json(route, accounts));
+  await page.route("**/api/leagues", (route) => json(route, leagues));
+  await page.route("**/api/leagues/*/sync", (route) => {
+    const id = Number(new URL(route.request().url()).pathname.match(/\/leagues\/(\d+)\/sync$/)?.[1]);
+    syncOrder.push(id);
+    return json(route, {
+      league_id: String(id),
+      season: 2026,
+      name: leagues.find((league) => league.id === id)?.name,
+      lifecycle: "in_season",
+      teams: 10,
+      draft_picks: 150,
+      matchups: 10,
+      transactions: 5,
+      metric_snapshots: 1,
+      my_team_espn_id: id === 4 ? null : 1,
+      needs_reauth: id === 1,
+      errors: [],
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Sync all 5 leagues" }).click();
+
+  await expect(
+    page.getByText("Processed 5 leagues: 2 synced, 1 need re-auth, 2 skipped.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("bulk-sync-result-1")).toContainText("Needs re-auth");
+  await expect(page.getByTestId("bulk-sync-result-2")).toContainText("Skipped");
+  await expect(page.getByTestId("bulk-sync-result-3")).toContainText("Skipped");
+  await expect(page.getByTestId("bulk-sync-result-4")).toContainText("Success");
+  await expect(page.getByTestId("bulk-sync-result-5")).toContainText("Success");
+  expect(syncOrder).toEqual([1, 4, 5]);
+});
+
+test("manage prevents overlapping bulk, individual, and import sync operations", async ({ page }) => {
+  const account = { id: 1, label: "Main", status: "active", created_at: NOW };
+  const leagues = [
+    LEAGUE_1,
+    { ...LEAGUE_1, id: 2, espn_league_id: "222", name: "Beta League" },
+  ];
+  const syncOrder: number[] = [];
+  let phase: "bulk" | "individual" | "import" = "bulk";
+  let releaseBulk: (() => void) | null = null;
+  let releaseIndividual: (() => void) | null = null;
+  let releaseImport: (() => void) | null = null;
+
+  await page.route("**/api/accounts", (route) => json(route, [account]));
+  await page.route("**/api/leagues/discover/1", (route) =>
+    json(route, [{ espn_league_id: "333", name: "Gamma League", season: 2026, team_id: 3 }]));
+  await page.route("**/api/leagues", (route) => {
+    if (route.request().method() === "POST") {
+      return json(route, { ...LEAGUE_1, id: 3, espn_league_id: "333", name: "Gamma League" });
+    }
+    return json(route, leagues);
+  });
+  await page.route("**/api/leagues/*/sync", async (route) => {
+    const id = Number(new URL(route.request().url()).pathname.match(/\/leagues\/(\d+)\/sync$/)?.[1]);
+    syncOrder.push(id);
+    if (phase === "bulk" && id === 1) {
+      await new Promise<void>((resolve) => {
+        releaseBulk = resolve;
+      });
+    } else if (phase === "individual") {
+      await new Promise<void>((resolve) => {
+        releaseIndividual = resolve;
+      });
+    } else if (phase === "import") {
+      await new Promise<void>((resolve) => {
+        releaseImport = resolve;
+      });
+    }
+    return json(route, {
+      league_id: String(id),
+      season: 2026,
+      name: id === 1 ? "Alpha League" : id === 2 ? "Beta League" : "Gamma League",
+      lifecycle: "in_season",
+      teams: 10,
+      draft_picks: 150,
+      matchups: 10,
+      transactions: 5,
+      metric_snapshots: 1,
+      my_team_espn_id: 1,
+      needs_reauth: false,
+      errors: [],
+    });
+  });
+
+  await page.goto("/manage");
+  await page.getByRole("button", { name: "Discover leagues" }).click();
+  const importButton = page.getByRole("button", { name: "Import & sync 1" });
+  const bulkButton = page.getByRole("button", { name: "Sync all 2 leagues" });
+
+  await bulkButton.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => [...syncOrder]).toEqual([1]);
+  await expect(importButton).toBeDisabled();
+  for (const button of await page.getByRole("button", { name: /^(Sync|Syncing…)$/ }).all()) {
+    await expect(button).toBeDisabled();
+  }
+  releaseBulk?.();
+  await expect(page.getByText("Processed 2 leagues: 2 synced.", { exact: true })).toBeVisible();
+  expect(syncOrder).toEqual([1, 2]);
+
+  phase = "individual";
+  const alphaRow = page.getByRole("link", { name: /Alpha League/ }).locator("..");
+  await alphaRow.getByRole("button", { name: "Sync" }).click();
+  await expect.poll(() => [...syncOrder]).toEqual([1, 2, 1]);
+  await expect(page.getByRole("button", { name: "Sync all 2 leagues" })).toBeDisabled();
+  await expect(importButton).toBeDisabled();
+  releaseIndividual?.();
+  await expect(page.getByRole("button", { name: "Sync all 2 leagues" })).toBeEnabled();
+
+  phase = "import";
+  await importButton.click();
+  await expect.poll(() => [...syncOrder]).toEqual([1, 2, 1, 3]);
+  await expect(page.getByRole("button", { name: "Sync all 2 leagues" })).toBeDisabled();
+  releaseImport?.();
+  await expect(page.getByText("Processed 1 league.", { exact: true })).toBeVisible();
+  expect(syncOrder).toEqual([1, 2, 1, 3]);
+});
+
+test("manage hides bulk sync for an empty list", async ({ page }) => {
+  let syncCalls = 0;
+  await page.route("**/api/accounts", (route) => json(route, []));
+  await page.route("**/api/leagues", (route) => json(route, []));
+  await page.route("**/api/leagues/*/sync", (route) => {
+    syncCalls += 1;
+    return json(route, {});
+  });
+
+  await page.goto("/manage");
+  await expect(page.getByText("No leagues yet")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Sync all/ })).toHaveCount(0);
+  expect(syncCalls).toBe(0);
+});
+
+test("manage bulk sync is keyboard accessible and usable on mobile", async ({ page }) => {
+  const account = { id: 1, label: "Main", status: "active", created_at: NOW };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/accounts", (route) => json(route, [account]));
+  await page.route("**/api/leagues", (route) => json(route, [LEAGUE_1]));
+  await page.route("**/api/leagues/1/sync", (route) =>
+    json(route, {
+      league_id: "111",
+      season: 2026,
+      name: "Alpha League",
+      lifecycle: "in_season",
+      teams: 8,
+      draft_picks: 120,
+      matchups: 8,
+      transactions: 4,
+      metric_snapshots: 1,
+      my_team_espn_id: 1,
+      needs_reauth: false,
+      errors: [],
+    }));
+
+  await page.goto("/manage");
+  const bulk = page.getByRole("button", { name: "Sync all 1 league" });
+  await bulk.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByText("Processed 1 league: 1 synced.", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("bulk-sync-status")).toHaveAttribute("aria-live", "polite");
+  await expect(page.getByRole("img", { name: "My Team team logo" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("manage keeps manual entry available when discovery returns no leagues", async ({ page }) => {
