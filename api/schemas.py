@@ -156,7 +156,7 @@ class RosterSlotOut(BaseModel):
     nfl_team: str | None = None
     opponent: str | None = None
     kickoff_at: datetime | None = None
-    game_status: Literal["pregame", "in_progress", "final"] | None = None
+    game_status: Literal["pregame", "in_progress", "final", "bye"] | None = None
     injury_status: str | None = None
     actual_points: float | None = None
     projected_points: float | None = None

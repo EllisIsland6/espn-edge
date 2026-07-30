@@ -369,8 +369,16 @@ def parse_pro_schedule(data: dict, scoring_period: int) -> dict[int, ParsedProGa
         team_id = team.get("id")
         if not isinstance(team_id, int) or team_id == 0:
             continue
-        games = (team.get("proGamesByScoringPeriod") or {}).get(str(scoring_period)) or []
+        games_by_period = team.get("proGamesByScoringPeriod") or {}
+        if str(scoring_period) not in games_by_period:
+            continue
+        games = games_by_period.get(str(scoring_period)) or []
         if not games:
+            out[team_id] = ParsedProGame(
+                opponent=None,
+                kickoff_at=None,
+                game_status="bye",
+            )
             continue
         game = games[0]
         home_id = game.get("homeProTeamId")

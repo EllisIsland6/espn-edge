@@ -29,7 +29,9 @@
       },
       {
         "id": 3,
-        "proGamesByScoringPeriod": {}
+        "proGamesByScoringPeriod": {
+          "1": []
+        }
       },
       {
         "id": 4,

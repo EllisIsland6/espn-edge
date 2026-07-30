@@ -76,6 +76,7 @@ def test_parse_current_roster_and_pro_schedule(
     assert games[1].opponent == "BUF"
     assert games[1].game_status == "pregame"
     assert games[1].kickoff_at is not None
+    assert games[3].game_status == "bye"
 
     entries = parse.parse_current_rosters(
         current_roster_fixture,
