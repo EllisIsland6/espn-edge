@@ -29,6 +29,7 @@ from ..schemas import (
     MyEdgeOut,
     PortfolioRow,
     PortfolioSummary,
+    TeamDetailOut,
     TeamOut,
     TransactionOut,
 )
@@ -44,7 +45,7 @@ from ..services.metrics import (
 from ..services.momentum import EDGE_SCORE, metric_momentum, team_achievements
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
-from ..services.read_models import build_league_out
+from ..services.read_models import build_league_out, build_team_detail
 
 router = APIRouter(tags=["views"])
 
@@ -112,6 +113,24 @@ def league_teams(league_id: int, session: Session = Depends(get_session)) -> lis
     _get_league(session, league_id)
     teams = session.scalars(select(Team).where(Team.league_id == league_id))
     return sorted(teams, key=_standing_key)
+
+
+@router.get(
+    "/api/leagues/{league_id}/teams/{team_id}",
+    response_model=TeamDetailOut,
+)
+def league_team_detail(
+    league_id: int,
+    team_id: int,
+    session: Session = Depends(get_session),
+) -> TeamDetailOut:
+    league = _get_league(session, league_id)
+    team = session.scalar(
+        select(Team).where(Team.id == team_id, Team.league_id == league.id)
+    )
+    if team is None:
+        raise HTTPException(404, "team not found in league")
+    return build_team_detail(session, league, team)
 
 
 @router.get("/api/leagues/{league_id}/draft", response_model=list[DraftPickOut])

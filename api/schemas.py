@@ -86,6 +86,7 @@ class SyncSummary(BaseModel):
     transactions: int | None = None
     players: int | None = None
     completed_weeks: list[int] | None = None
+    current_roster_entries: int | None = None
     metric_snapshots: int | None = None
     my_team_espn_id: int | None = None
     needs_reauth: bool | None = None
@@ -137,9 +138,58 @@ class MatchupOut(BaseModel):
     away_team_id: int | None
     home_points: float | None
     away_points: float | None
+    home_projected_points: float | None = None
+    away_projected_points: float | None = None
     is_playoff: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RosterSlotOut(BaseModel):
+    slot_id: int
+    slot_label: str
+    slot_index: int
+    section: Literal["starters", "bench", "ir"]
+    espn_player_id: int | None = None
+    player_name: str | None = None
+    player_position: str | None = None
+    nfl_team: str | None = None
+    opponent: str | None = None
+    kickoff_at: datetime | None = None
+    game_status: Literal["pregame", "in_progress", "final"] | None = None
+    injury_status: str | None = None
+    actual_points: float | None = None
+    projected_points: float | None = None
+
+
+class TeamMatchupSideOut(BaseModel):
+    team: TeamOut | None
+    points: float | None = None
+    projected_points: float | None = None
+
+
+class TeamMatchupOut(BaseModel):
+    matchup_period: int
+    scoring_period: int | None
+    is_playoff: bool
+    home: TeamMatchupSideOut
+    away: TeamMatchupSideOut
+    next_kickoff_at: datetime | None = None
+
+
+class TeamDetailOut(BaseModel):
+    league: LeagueOut
+    account_label: str | None
+    scoring: str | None
+    team: TeamOut
+    current_scoring_period: int | None
+    current_matchup_period: int | None
+    roster_status: Literal["current", "stale", "unavailable"]
+    roster_synced_at: datetime | None
+    starters: list[RosterSlotOut]
+    bench: list[RosterSlotOut]
+    ir: list[RosterSlotOut]
+    matchup: TeamMatchupOut | None
 
 
 class TransactionOut(BaseModel):

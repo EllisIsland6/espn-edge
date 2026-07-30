@@ -20,6 +20,8 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from ..models import (
+    CurrentRosterEntry,
+    CurrentRosterSnapshot,
     DraftPick,
     League,
     LineupSlot,
@@ -127,6 +129,8 @@ class SyncService:
         league.lineup_slots_json = settings.lineup_slots
         league.draft_type = settings.draft_type
         league.playoff_team_count = settings.playoff_team_count
+        league.current_scoring_period = settings.current_scoring_period
+        league.current_matchup_period = settings.current_matchup_period
         self.session.flush()
 
         # Clear stale my-team / autodraft state before repopulating so a changed
@@ -149,6 +153,8 @@ class SyncService:
 
         # ---- Step 3: matchups + boxscores ---------------------------------
         completed_weeks: list[int] = []
+        matchups: list[parse.ParsedMatchup] = []
+        matchups_fetched = False
         try:
             mdata = self.espn.fetch_views(
                 league.espn_league_id,
@@ -158,11 +164,52 @@ class SyncService:
                 bust_cache=True,
             )
             matchups = parse.parse_schedule(mdata)
+            matchups_fetched = True
+        except EspnError as exc:
+            result["errors"].append(f"matchups_failed: {exc}")
+
+        current_period = settings.current_scoring_period
+        if current_period is not None:
+            try:
+                current_data = self.espn.fetch_views(
+                    league.espn_league_id,
+                    league.season,
+                    ["mRoster", "mMatchupScore", "mScoreboard"],
+                    scoring_period=current_period,
+                    cookies=cookies,
+                    bust_cache=True,
+                )
+                current_matchups = parse.parse_schedule(current_data)
+                matchups = self._merge_matchup_details(matchups, current_matchups)
+                pro_schedule: dict[int, parse.ParsedProGame] = {}
+                try:
+                    pro_data = self.espn.fetch_pro_schedule(league.season)
+                    pro_schedule = parse.parse_pro_schedule(pro_data, current_period)
+                except EspnError as exc:
+                    result["errors"].append(f"pro_schedule_failed: {exc}")
+                roster_entries = parse.parse_current_rosters(
+                    current_data,
+                    current_period,
+                    settings.current_matchup_period,
+                    pro_schedule,
+                )
+                self._replace_current_roster(
+                    league,
+                    current_period,
+                    settings.current_matchup_period,
+                    roster_entries,
+                    id_map,
+                )
+                result["current_roster_entries"] = len(roster_entries)
+            except EspnError as exc:
+                # Retain the prior successful snapshot. The detail endpoint marks
+                # a period mismatch or failed league sync as stale.
+                result["errors"].append(f"current_roster_failed: {exc}")
+
+        if matchups_fetched:
             self._replace_matchups(league, matchups, id_map, settings.current_week)
             completed_weeks = self._completed_weeks(matchups, settings.current_week)
             result["matchups"] = len(matchups)
-        except EspnError as exc:
-            result["errors"].append(f"matchups_failed: {exc}")
 
         self.session.execute(delete(LineupSlot).where(LineupSlot.league_id == league.id))
         for week in completed_weeks:
@@ -408,7 +455,89 @@ class SyncService:
                     away_team_id=id_map.get(m.away_espn_team_id),
                     home_points=m.home_points,
                     away_points=m.away_points,
+                    home_projected_points=m.home_projected_points,
+                    away_projected_points=m.away_projected_points,
                     is_playoff=m.is_playoff,
+                )
+            )
+        self.session.flush()
+
+    @staticmethod
+    def _merge_matchup_details(
+        base: list[parse.ParsedMatchup],
+        detailed: list[parse.ParsedMatchup],
+    ) -> list[parse.ParsedMatchup]:
+        if not base:
+            return base
+        details = {
+            (m.week, m.home_espn_team_id, m.away_espn_team_id): m for m in detailed
+        }
+        for matchup in base:
+            detail = details.get(
+                (matchup.week, matchup.home_espn_team_id, matchup.away_espn_team_id)
+            )
+            if detail is None:
+                continue
+            matchup.home_points = detail.home_points
+            matchup.away_points = detail.away_points
+            matchup.home_projected_points = detail.home_projected_points
+            matchup.away_projected_points = detail.away_projected_points
+        return base
+
+    def _replace_current_roster(
+        self,
+        league: League,
+        scoring_period: int,
+        matchup_period: int | None,
+        entries: list[parse.ParsedCurrentRosterEntry],
+        id_map: dict[int, int],
+    ) -> None:
+        existing = self.session.scalar(
+            select(CurrentRosterSnapshot).where(
+                CurrentRosterSnapshot.league_id == league.id
+            )
+        )
+        if existing is not None:
+            self.session.execute(
+                delete(CurrentRosterEntry).where(
+                    CurrentRosterEntry.snapshot_id == existing.id
+                )
+            )
+            self.session.delete(existing)
+            self.session.flush()
+
+        snapshot = CurrentRosterSnapshot(
+            league_id=league.id,
+            scoring_period=scoring_period,
+            matchup_period=matchup_period,
+            synced_at=datetime.now(UTC),
+        )
+        self.session.add(snapshot)
+        self.session.flush()
+        for entry in entries:
+            team_id = id_map.get(entry.espn_team_id)
+            if team_id is None:
+                log.warning(
+                    "current roster: unknown espn_team_id %s, skipping entry",
+                    entry.espn_team_id,
+                )
+                continue
+            self.session.add(
+                CurrentRosterEntry(
+                    snapshot_id=snapshot.id,
+                    team_id=team_id,
+                    lineup_slot_id=entry.slot_id,
+                    slot_index=entry.slot_index,
+                    espn_player_id=entry.espn_player_id,
+                    player_name=entry.player_name,
+                    player_position=entry.player_position,
+                    nfl_team=entry.nfl_team,
+                    opponent=entry.opponent,
+                    kickoff_at=entry.kickoff_at,
+                    game_status=entry.game_status,
+                    injury_status=entry.injury_status,
+                    actual_points=entry.actual_points,
+                    projected_points=entry.projected_points,
                 )
             )
         self.session.flush()

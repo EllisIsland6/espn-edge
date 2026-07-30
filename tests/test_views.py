@@ -47,6 +47,43 @@ def league_id():
     Base.metadata.create_all(engine)
 
 
+@pytest.fixture
+def current_team_detail_ids():
+    init_db()
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    session = SessionLocal()
+    try:
+        acct = Account(label="Main", swid="{ABC}", espn_s2_encrypted=encrypt("s2"))
+        session.add(acct)
+        session.flush()
+        league = League(
+            espn_league_id="current-roster",
+            season=2026,
+            account_id=acct.id,
+            is_public=False,
+        )
+        session.add(league)
+        session.flush()
+        SyncService(
+            session,
+            espn=FakeEspn(
+                load_fixture("current_roster.json"),
+                load_fixture("players_pool.json"),
+                pro_schedule_data=load_fixture("pro_schedule_2026.json"),
+            ),
+        ).sync_league(league)
+        session.commit()
+        my_team = session.scalar(
+            select(Team).where(Team.league_id == league.id, Team.is_me.is_(True))
+        )
+        yield league.id, my_team.id
+    finally:
+        session.close()
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+
+
 def test_portfolio(league_id):
     r = client.get("/api/portfolio")
     assert r.status_code == 200
@@ -175,6 +212,75 @@ def test_league_subresources(league_id):
     assert waiver["player_in_position"] == "WR"
     assert waiver["player_out_name"] == "Drops Player"
     assert waiver["player_out_position"] == "RB"
+
+
+def test_team_detail_uses_configured_slots_and_current_matchup(current_team_detail_ids):
+    league_id, team_id = current_team_detail_ids
+    response = client.get(f"/api/leagues/{league_id}/teams/{team_id}")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["team"]["name"] == "My Team"
+    assert body["team"]["is_me"] is True
+    assert body["current_scoring_period"] == 1
+    assert body["current_matchup_period"] == 1
+    assert body["roster_status"] == "current"
+    assert [row["slot_label"] for row in body["starters"]] == [
+        "QB",
+        "RB",
+        "RB",
+        "WR",
+        "TE",
+        "FLEX",
+        "D/ST",
+        "K",
+    ]
+    quarterback = body["starters"][0]
+    assert quarterback["player_name"] == "Alpha Quarterback"
+    assert quarterback["actual_points"] == 0.0
+    assert quarterback["projected_points"] == 18.5
+    assert quarterback["opponent"] == "BUF"
+    assert quarterback["game_status"] == "pregame"
+    flex = next(row for row in body["starters"] if row["slot_label"] == "FLEX")
+    assert flex["espn_player_id"] is None
+    assert len(body["bench"]) == 2
+    assert body["bench"][0]["player_name"] == "Bench Receiver"
+    assert body["bench"][1]["espn_player_id"] is None
+    assert len(body["ir"]) == 1
+    assert body["ir"][0]["injury_status"] == "INJURY_RESERVE"
+
+    matchup = body["matchup"]
+    assert matchup["matchup_period"] == 1
+    assert matchup["home"]["team"]["name"] == "My Team"
+    assert matchup["away"]["team"]["name"] == "Rival"
+    assert matchup["home"]["points"] == 0.0
+    assert matchup["home"]["projected_points"] == 108.4
+    assert matchup["next_kickoff_at"] is not None
+
+
+def test_team_detail_marks_failed_sync_stale(current_team_detail_ids):
+    league_id, team_id = current_team_detail_ids
+    with SessionLocal() as session:
+        league = session.get(League, league_id)
+        league.last_sync_ok = False
+        league.last_sync_error = "current_roster_failed"
+        session.commit()
+
+    body = client.get(f"/api/leagues/{league_id}/teams/{team_id}").json()
+    assert body["roster_status"] == "stale"
+
+
+def test_team_detail_rejects_team_outside_league(current_team_detail_ids):
+    league_id, _team_id = current_team_detail_ids
+    with SessionLocal() as session:
+        other = League(espn_league_id="other", season=2026, is_public=True)
+        session.add(other)
+        session.flush()
+        foreign = Team(league_id=other.id, espn_team_id=99, name="Foreign")
+        session.add(foreign)
+        session.commit()
+        foreign_id = foreign.id
+    assert client.get(f"/api/leagues/{league_id}/teams/{foreign_id}").status_code == 404
 
 
 def test_view_404_for_missing_league():

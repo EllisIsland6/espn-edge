@@ -58,6 +58,20 @@ def test_public_fetch_no_cookies():
     assert svc.fetch_views(1, 2026, ["mTeam"]) == {"ok": 1}
 
 
+def test_pro_schedule_uses_shared_season_endpoint():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"settings": {"proTeams": []}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    svc = EspnService(host="https://host", client=client, min_interval=0)
+    assert svc.fetch_pro_schedule(2026) == {"settings": {"proTeams": []}}
+    assert "/games/ffl/seasons/2026?" in seen["url"]
+    assert "view=proTeamSchedules_wl" in seen["url"]
+
+
 def test_auth_retry_with_url_decoded_espn_s2():
     # Stored value is URL-encoded and fails; decoded value works. (SPEC 2.3 gotcha)
     encoded = "abc%2Fdef%3D"

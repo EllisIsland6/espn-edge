@@ -189,6 +189,11 @@ make db-reset     # deletes data/edge.db (+ WAL/SHM)
 > `metric_snapshots` at commits `2d6d16d` or `673bf6e`, stop `make dev`, run
 > `make db-reset`, restart with `make dev`, then re-add/discover leagues and sync.
 
+> Team-detail rosters add current scoring/matchup periods, matchup projections,
+> and the `current_roster_snapshots` / `current_roster_entries` tables. Existing
+> databases must run `make db-reset` before starting this version; `create_all`
+> cannot add those fields to the existing league and matchup tables.
+
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child rows
 cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The
 raw JSON cache in `data/raw_cache/`/`raw_cache` table makes re-syncing cheap.

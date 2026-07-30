@@ -38,6 +38,16 @@ def players_fixture() -> dict:
 
 
 @pytest.fixture
+def current_roster_fixture() -> dict:
+    return load_fixture("current_roster.json")
+
+
+@pytest.fixture
+def pro_schedule_fixture() -> dict:
+    return load_fixture("pro_schedule_2026.json")
+
+
+@pytest.fixture
 def db_session():
     """Fresh schema per test, rolled back / dropped after."""
     from api.db import Base, SessionLocal, engine, init_db
@@ -61,9 +71,17 @@ class FakeEspn:
     views into one response) and the player fixture for kona_player_info.
     """
 
-    def __init__(self, league_data: dict, players_data: dict, *, auth_error: bool = False):
+    def __init__(
+        self,
+        league_data: dict,
+        players_data: dict,
+        *,
+        auth_error: bool = False,
+        pro_schedule_data: dict | None = None,
+    ):
         self.league_data = league_data
         self.players_data = players_data
+        self.pro_schedule_data = pro_schedule_data or {"settings": {"proTeams": []}}
         self.auth_error = auth_error
         self.calls: list[tuple] = []
 
@@ -86,3 +104,7 @@ class FakeEspn:
         if "kona_player_info" in views:
             return self.players_data
         return self.league_data
+
+    def fetch_pro_schedule(self, season):
+        self.calls.append((("proTeamSchedules_wl",), None))
+        return self.pro_schedule_data

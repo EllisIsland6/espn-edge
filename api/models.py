@@ -58,6 +58,8 @@ class League(Base):
     lineup_slots_json: Mapped[dict | None] = mapped_column(JSON)
     draft_type: Mapped[str | None] = mapped_column(String)
     playoff_team_count: Mapped[int | None] = mapped_column(Integer)  # for playoff_odds (SPEC §6)
+    current_scoring_period: Mapped[int | None] = mapped_column(Integer)
+    current_matchup_period: Mapped[int | None] = mapped_column(Integer)
     # pre_draft | drafted | in_season | complete
     lifecycle: Mapped[str] = mapped_column(String, default="pre_draft")
     my_team_id: Mapped[int | None] = mapped_column(Integer)
@@ -137,6 +139,8 @@ class Matchup(Base):
     away_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"))
     home_points: Mapped[float | None] = mapped_column(Float)
     away_points: Mapped[float | None] = mapped_column(Float)
+    home_projected_points: Mapped[float | None] = mapped_column(Float)
+    away_projected_points: Mapped[float | None] = mapped_column(Float)
     is_playoff: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -160,6 +164,58 @@ class LineupSlot(Base):
     espn_player_id: Mapped[int | None] = mapped_column(Integer)
     points: Mapped[float | None] = mapped_column(Float)
     is_starter: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class CurrentRosterSnapshot(Base):
+    """The latest successfully fetched scoring-period roster for one league."""
+
+    __tablename__ = "current_roster_snapshots"
+    __table_args__ = (
+        UniqueConstraint("league_id", name="uq_current_roster_snapshot_league"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    league_id: Mapped[int] = mapped_column(
+        ForeignKey("leagues.id", ondelete="CASCADE"), nullable=False
+    )
+    scoring_period: Mapped[int] = mapped_column(Integer, nullable=False)
+    matchup_period: Mapped[int | None] = mapped_column(Integer)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class CurrentRosterEntry(Base):
+    """One occupied slot in a current-roster snapshot."""
+
+    __tablename__ = "current_roster_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id",
+            "team_id",
+            "lineup_slot_id",
+            "slot_index",
+            name="uq_current_roster_slot",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("current_roster_snapshots.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int] = mapped_column(
+        ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    lineup_slot_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    espn_player_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    player_name: Mapped[str | None] = mapped_column(String)
+    player_position: Mapped[str | None] = mapped_column(String)
+    nfl_team: Mapped[str | None] = mapped_column(String)
+    opponent: Mapped[str | None] = mapped_column(String)
+    kickoff_at: Mapped[datetime | None] = mapped_column(DateTime)
+    game_status: Mapped[str | None] = mapped_column(String)
+    injury_status: Mapped[str | None] = mapped_column(String)
+    actual_points: Mapped[float | None] = mapped_column(Float)
+    projected_points: Mapped[float | None] = mapped_column(Float)
 
 
 class Transaction(Base):

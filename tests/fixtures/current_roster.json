@@ -1,0 +1,227 @@
+{
+  "scoringPeriodId": 1,
+  "status": {
+    "currentMatchupPeriod": 1,
+    "latestScoringPeriod": 0,
+    "finalScoringPeriod": 17,
+    "isActive": true
+  },
+  "settings": {
+    "name": "Current Roster League",
+    "size": 2,
+    "rosterSettings": {
+      "lineupSlotCounts": {
+        "0": 1,
+        "2": 2,
+        "4": 1,
+        "6": 1,
+        "16": 1,
+        "17": 1,
+        "20": 2,
+        "21": 1,
+        "23": 1
+      }
+    },
+    "draftSettings": {
+      "type": "SNAKE"
+    },
+    "scheduleSettings": {
+      "playoffTeamCount": 1
+    },
+    "scoringSettings": {
+      "scoringItems": [
+        {
+          "statId": 53,
+          "points": 1
+        }
+      ]
+    }
+  },
+  "draftDetail": {
+    "drafted": true,
+    "picks": []
+  },
+  "teams": [
+    {
+      "id": 1,
+      "name": "My Team",
+      "abbrev": "MINE",
+      "owners": [
+        "{ABC}"
+      ],
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        }
+      },
+      "playoffSeed": 1,
+      "logo": "https://example.test/my-team.png",
+      "roster": {
+        "entries": [
+          {
+            "playerId": 1001,
+            "lineupSlotId": 0,
+            "playerPoolEntry": {
+              "id": 1001,
+              "appliedStatTotal": 0,
+              "player": {
+                "id": 1001,
+                "fullName": "Alpha Quarterback",
+                "defaultPositionId": 1,
+                "proTeamId": 1,
+                "injuryStatus": "QUESTIONABLE",
+                "stats": [
+                  {
+                    "seasonId": 2026,
+                    "scoringPeriodId": 1,
+                    "statSourceId": 0,
+                    "statSplitTypeId": 1,
+                    "appliedTotal": 0
+                  },
+                  {
+                    "seasonId": 2026,
+                    "scoringPeriodId": 1,
+                    "statSourceId": 1,
+                    "statSplitTypeId": 1,
+                    "appliedTotal": 18.5
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "playerId": 1002,
+            "lineupSlotId": 2,
+            "playerPoolEntry": {
+              "id": 1002,
+              "player": {
+                "id": 1002,
+                "fullName": "Beta Runningback",
+                "defaultPositionId": 2,
+                "proTeamId": 2,
+                "stats": [
+                  {
+                    "seasonId": 2026,
+                    "scoringPeriodId": 1,
+                    "statSourceId": 1,
+                    "statSplitTypeId": 1,
+                    "appliedTotal": 15.2
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "playerId": 1003,
+            "lineupSlotId": 2,
+            "playerPoolEntry": {
+              "id": 1003,
+              "player": {
+                "id": 1003,
+                "fullName": "Gamma Runningback",
+                "defaultPositionId": 2,
+                "proTeamId": 3,
+                "stats": []
+              }
+            }
+          },
+          {
+            "playerId": 1004,
+            "lineupSlotId": 20,
+            "playerPoolEntry": {
+              "id": 1004,
+              "player": {
+                "id": 1004,
+                "fullName": "Bench Receiver",
+                "defaultPositionId": 3,
+                "proTeamId": 4,
+                "stats": []
+              }
+            }
+          },
+          {
+            "playerId": 1005,
+            "lineupSlotId": 21,
+            "playerPoolEntry": {
+              "id": 1005,
+              "player": {
+                "id": 1005,
+                "fullName": "Injured Tight End",
+                "defaultPositionId": 4,
+                "proTeamId": 5,
+                "injuryStatus": "INJURY_RESERVE",
+                "stats": []
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Rival",
+      "abbrev": "RIV",
+      "owners": [
+        "{DEF}"
+      ],
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0,
+          "pointsFor": 0,
+          "pointsAgainst": 0
+        }
+      },
+      "playoffSeed": 2,
+      "logo": "https://example.test/rival.png",
+      "roster": {
+        "entries": [
+          {
+            "playerId": 2001,
+            "lineupSlotId": 0,
+            "playerPoolEntry": {
+              "id": 2001,
+              "player": {
+                "id": 2001,
+                "fullName": "Rival Quarterback",
+                "defaultPositionId": 1,
+                "proTeamId": 6,
+                "stats": [
+                  {
+                    "seasonId": 2026,
+                    "scoringPeriodId": 1,
+                    "statSourceId": 1,
+                    "statSplitTypeId": 1,
+                    "appliedTotal": 20.1
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "matchupPeriodId": 1,
+      "playoffTierType": "NONE",
+      "home": {
+        "teamId": 1,
+        "totalPointsLive": 0,
+        "totalProjectedPointsLive": 108.4
+      },
+      "away": {
+        "teamId": 2,
+        "totalPointsLive": 0,
+        "totalProjectedPointsLive": 111.2
+      }
+    }
+  ],
+  "transactions": []
+}

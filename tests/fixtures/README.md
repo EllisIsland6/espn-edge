@@ -16,6 +16,8 @@ Recorded live on **2026-07-07** from ESPN league **17739342** ("EA Fantasy Footb
 - `real_league_2026.json` — pre-draft: settings, teams (zeroed), empty draft.
 - `real_matchups_2025.json` / `_2026.json` — `mMatchupScore` schedule (teamId + points).
 - `real_boxscore_2025_wk1.json` — one week-1 matchup's rosters (starter/bench + points).
+- `current_roster.json` / `pro_schedule_2026.json` — synthetic, PII-free current-period
+  roster, projection, injury, matchup, opponent, and kickoff coverage for team-detail tests.
 - `real_players_2025.json` / `_2026.json` — trimmed `kona_player_info` pool (ADP/rank).
 
 **Sanitization** (recorder: kept out of the repo, in the session scratchpad):

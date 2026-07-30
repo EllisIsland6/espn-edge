@@ -117,6 +117,9 @@ class EspnService:
             return f"{self.host}/apis/v3/games/ffl/seasons/{season}/segments/0/leaguedefaults/3"
         return f"{self.host}/apis/v3/games/ffl/seasons/{season}/players"
 
+    def season_url(self, season: int) -> str:
+        return f"{self.host}/apis/v3/games/ffl/seasons/{season}"
+
     # ---- throttle + backoff (SPEC 2.10) -------------------------------------
     def _throttle(self, key: str) -> None:
         last = self._last_req.get(key)
@@ -247,6 +250,24 @@ class EspnService:
             cookies=cookies,
             throttle_key=cookies.swid if cookies else "public",
         )
+
+    def fetch_pro_schedule(self, season: int) -> dict:
+        """Fetch the shared NFL schedule used to resolve opponents and kickoffs."""
+        cache_key = f"pro_schedule:{season}"
+        if self.cache is not None:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
+        data = self._get_authed(
+            self.season_url(season),
+            params=[("view", "proTeamSchedules_wl")],
+            headers=dict(_BASE_HEADERS),
+            cookies=None,
+            throttle_key="public",
+        )
+        if self.cache is not None:
+            self.cache.set(cache_key, data)
+        return data
 
     # ---- auth-aware GET ------------------------------------------------------
     def _get_authed(

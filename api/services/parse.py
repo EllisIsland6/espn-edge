@@ -13,8 +13,10 @@ from datetime import UTC, datetime
 
 from .espn_constants import (
     STAT_ID_RECEPTIONS,
+    STAT_SOURCE_ACTUAL,
     STAT_SOURCE_PROJECTED,
     is_starter_slot,
+    nfl_team_name,
     position_name,
     slot_name,
 )
@@ -46,6 +48,8 @@ class LeagueSettings:
     scoring_label: str
     playoff_team_count: int | None
     current_week: int | None
+    current_scoring_period: int | None
+    current_matchup_period: int | None
     drafted: bool | None
 
 
@@ -60,7 +64,11 @@ def parse_settings(data: dict) -> LeagueSettings:
     status = data.get("status") or {}
 
     lineup_slots = roster.get("lineupSlotCounts") or {}
-    current_week = status.get("currentMatchupPeriod") or status.get("latestScoringPeriod")
+    current_matchup_period = status.get("currentMatchupPeriod")
+    current_scoring_period = data.get("scoringPeriodId")
+    if not isinstance(current_scoring_period, int) or current_scoring_period <= 0:
+        current_scoring_period = current_matchup_period
+    current_week = current_matchup_period or status.get("latestScoringPeriod")
 
     return LeagueSettings(
         name=settings.get("name"),
@@ -71,6 +79,8 @@ def parse_settings(data: dict) -> LeagueSettings:
         scoring_label=classify_scoring(scoring),
         playoff_team_count=schedule.get("playoffTeamCount"),
         current_week=current_week,
+        current_scoring_period=current_scoring_period,
+        current_matchup_period=current_matchup_period,
         drafted=(data.get("draftDetail") or {}).get("drafted"),
     )
 
@@ -222,7 +232,19 @@ class ParsedMatchup:
     away_espn_team_id: int | None
     home_points: float | None
     away_points: float | None
+    home_projected_points: float | None
+    away_projected_points: float | None
     is_playoff: bool
+
+
+def _side_total(side: dict, live_key: str, settled_key: str) -> float | None:
+    value = side.get(live_key) if live_key in side else side.get(settled_key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def parse_schedule(data: dict) -> list[ParsedMatchup]:
@@ -240,8 +262,14 @@ def parse_schedule(data: dict) -> list[ParsedMatchup]:
                 week=m.get("matchupPeriodId"),
                 home_espn_team_id=home.get("teamId"),
                 away_espn_team_id=away.get("teamId"),
-                home_points=home.get("totalPoints"),
-                away_points=away.get("totalPoints"),
+                home_points=_side_total(home, "totalPointsLive", "totalPoints"),
+                away_points=_side_total(away, "totalPointsLive", "totalPoints"),
+                home_projected_points=_side_total(
+                    home, "totalProjectedPointsLive", "totalProjectedPoints"
+                ),
+                away_projected_points=_side_total(
+                    away, "totalProjectedPointsLive", "totalProjectedPoints"
+                ),
                 is_playoff=tier != "NONE",
             )
         )
@@ -290,6 +318,162 @@ def parse_boxscore_week(data: dict, week: int) -> list[ParsedLineupEntry]:
                         is_starter=is_starter_slot(slot_id),
                     )
                 )
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Current scoring-period roster + professional schedule
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class ParsedProGame:
+    opponent: str | None
+    kickoff_at: datetime | None
+    game_status: str | None
+
+
+@dataclass
+class ParsedCurrentRosterEntry:
+    espn_team_id: int
+    slot_id: int
+    slot_index: int
+    espn_player_id: int
+    player_name: str | None
+    player_position: str | None
+    nfl_team: str | None
+    opponent: str | None
+    kickoff_at: datetime | None
+    game_status: str | None
+    injury_status: str | None
+    actual_points: float | None
+    projected_points: float | None
+
+
+def _game_status(game: dict) -> str | None:
+    status = str(game.get("status") or game.get("gameStatus") or "").upper()
+    if game.get("completed") is True or status in {"FINAL", "POST", "COMPLETE", "COMPLETED"}:
+        return "final"
+    if status in {"IN", "LIVE", "IN_PROGRESS", "INPROGRESS"}:
+        return "in_progress"
+    if status in {"PRE", "PREGAME", "SCHEDULED"}:
+        return "pregame"
+    return None
+
+
+def parse_pro_schedule(data: dict, scoring_period: int) -> dict[int, ParsedProGame]:
+    teams = (data.get("settings") or {}).get("proTeams")
+    if teams is None:
+        _warn_missing("proTeamSchedules_wl", "settings.proTeams")
+        return {}
+    out: dict[int, ParsedProGame] = {}
+    for team in teams:
+        team_id = team.get("id")
+        if not isinstance(team_id, int) or team_id == 0:
+            continue
+        games = (team.get("proGamesByScoringPeriod") or {}).get(str(scoring_period)) or []
+        if not games:
+            continue
+        game = games[0]
+        home_id = game.get("homeProTeamId")
+        away_id = game.get("awayProTeamId")
+        opponent_id = away_id if home_id == team_id else home_id
+        out[team_id] = ParsedProGame(
+            opponent=nfl_team_name(opponent_id),
+            kickoff_at=_epoch_ms_to_dt(game.get("date")),
+            game_status=_game_status(game),
+        )
+    return out
+
+
+def _weekly_points(player: dict, scoring_period: int, source: int) -> float | None:
+    for stats in player.get("stats") or []:
+        if stats.get("scoringPeriodId") != scoring_period:
+            continue
+        if stats.get("statSourceId") != source or stats.get("statSplitTypeId") == 2:
+            continue
+        value = stats.get("appliedTotal")
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _entry_points(
+    entry: dict,
+    player: dict,
+    scoring_period: int,
+) -> tuple[float | None, float | None]:
+    pool = entry.get("playerPoolEntry") or {}
+    actual = pool.get("appliedStatTotal")
+    if actual is None:
+        actual = entry.get("appliedStatTotal")
+    try:
+        actual_value = float(actual) if actual is not None else None
+    except (TypeError, ValueError):
+        actual_value = None
+    if actual_value is None:
+        actual_value = _weekly_points(player, scoring_period, STAT_SOURCE_ACTUAL)
+    return actual_value, _weekly_points(player, scoring_period, STAT_SOURCE_PROJECTED)
+
+
+def _current_roster_sources(data: dict, matchup_period: int | None) -> dict[int, list[dict]]:
+    by_team: dict[int, list[dict]] = {}
+    for team in data.get("teams") or []:
+        team_id = team.get("id")
+        if isinstance(team_id, int):
+            by_team[team_id] = ((team.get("roster") or {}).get("entries") or [])
+    for matchup in data.get("schedule") or []:
+        if matchup_period is not None and matchup.get("matchupPeriodId") != matchup_period:
+            continue
+        for side_name in ("home", "away"):
+            side = matchup.get(side_name) or {}
+            team_id = side.get("teamId")
+            entries = _roster_entries(side)
+            if isinstance(team_id, int) and entries:
+                by_team[team_id] = entries
+    return by_team
+
+
+def parse_current_rosters(
+    data: dict,
+    scoring_period: int,
+    matchup_period: int | None,
+    pro_schedule: dict[int, ParsedProGame],
+) -> list[ParsedCurrentRosterEntry]:
+    out: list[ParsedCurrentRosterEntry] = []
+    for team_id, entries in _current_roster_sources(data, matchup_period).items():
+        slot_counts: dict[int, int] = {}
+        for entry in entries:
+            slot_id = entry.get("lineupSlotId")
+            pool = entry.get("playerPoolEntry") or {}
+            player = pool.get("player") or entry.get("player") or {}
+            player_id = entry.get("playerId") or pool.get("id") or player.get("id")
+            if not isinstance(slot_id, int) or not isinstance(player_id, int):
+                continue
+            slot_index = slot_counts.get(slot_id, 0)
+            slot_counts[slot_id] = slot_index + 1
+            pro_team_id = player.get("proTeamId")
+            game = pro_schedule.get(pro_team_id)
+            actual, projected = _entry_points(entry, player, scoring_period)
+            out.append(
+                ParsedCurrentRosterEntry(
+                    espn_team_id=team_id,
+                    slot_id=slot_id,
+                    slot_index=slot_index,
+                    espn_player_id=player_id,
+                    player_name=player.get("fullName"),
+                    player_position=position_name(player.get("defaultPositionId")),
+                    nfl_team=nfl_team_name(pro_team_id),
+                    opponent=game.opponent if game else None,
+                    kickoff_at=game.kickoff_at if game else None,
+                    game_status=game.game_status if game else None,
+                    injury_status=player.get("injuryStatus"),
+                    actual_points=actual,
+                    projected_points=projected,
+                )
+            )
     return out
 
 

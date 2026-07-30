@@ -1,0 +1,48 @@
+{
+  "settings": {
+    "proTeams": [
+      {
+        "id": 1,
+        "proGamesByScoringPeriod": {
+          "1": [
+            {
+              "homeProTeamId": 1,
+              "awayProTeamId": 2,
+              "date": 1789070400000,
+              "status": "SCHEDULED"
+            }
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "proGamesByScoringPeriod": {
+          "1": [
+            {
+              "homeProTeamId": 1,
+              "awayProTeamId": 2,
+              "date": 1789070400000,
+              "status": "SCHEDULED"
+            }
+          ]
+        }
+      },
+      {
+        "id": 3,
+        "proGamesByScoringPeriod": {}
+      },
+      {
+        "id": 4,
+        "proGamesByScoringPeriod": {}
+      },
+      {
+        "id": 5,
+        "proGamesByScoringPeriod": {}
+      },
+      {
+        "id": 6,
+        "proGamesByScoringPeriod": {}
+      }
+    ]
+  }
+}

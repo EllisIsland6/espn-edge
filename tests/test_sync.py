@@ -1,10 +1,14 @@
 """End-to-end sync pipeline tests against fixtures + a temp SQLite DB (SPEC 5, 12)."""
 
+import copy
+
 from sqlalchemy import func, select
 
 from api.crypto import encrypt
 from api.models import (
     Account,
+    CurrentRosterEntry,
+    CurrentRosterSnapshot,
     DraftPick,
     League,
     LineupSlot,
@@ -88,6 +92,103 @@ def test_sync_populates_all_tables(db_session, league_fixture, players_fixture):
         )
         == 3
     )
+
+
+def test_sync_persists_current_week_roster_and_matchup_detail(
+    db_session,
+    current_roster_fixture,
+    players_fixture,
+    pro_schedule_fixture,
+):
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    fake = FakeEspn(
+        current_roster_fixture,
+        players_fixture,
+        pro_schedule_data=pro_schedule_fixture,
+    )
+
+    result = SyncService(db_session, espn=fake).sync_league(lg)
+    db_session.commit()
+
+    assert result["errors"] == []
+    assert result["current_roster_entries"] == 6
+    assert lg.current_scoring_period == 1
+    assert lg.current_matchup_period == 1
+    snapshot = db_session.scalar(
+        select(CurrentRosterSnapshot).where(CurrentRosterSnapshot.league_id == lg.id)
+    )
+    assert snapshot is not None
+    assert snapshot.scoring_period == 1
+    entries = list(
+        db_session.scalars(
+            select(CurrentRosterEntry).where(CurrentRosterEntry.snapshot_id == snapshot.id)
+        )
+    )
+    assert len(entries) == 6
+    quarterback = next(entry for entry in entries if entry.espn_player_id == 1001)
+    assert quarterback.player_name == "Alpha Quarterback"
+    assert quarterback.nfl_team == "ATL"
+    assert quarterback.opponent == "BUF"
+    assert quarterback.projected_points == 18.5
+    matchup = db_session.scalar(select(Matchup).where(Matchup.league_id == lg.id))
+    assert matchup is not None
+    assert matchup.home_points == 0.0
+    assert matchup.home_projected_points == 108.4
+
+
+def test_current_roster_failure_retains_prior_snapshot(
+    db_session,
+    current_roster_fixture,
+    players_fixture,
+    pro_schedule_fixture,
+):
+    from api.services.espn import EspnError
+
+    acct = _make_account(db_session)
+    lg = _make_league(db_session, acct)
+    SyncService(
+        db_session,
+        espn=FakeEspn(
+            current_roster_fixture,
+            players_fixture,
+            pro_schedule_data=pro_schedule_fixture,
+        ),
+    ).sync_league(lg)
+    db_session.commit()
+    original = db_session.scalar(
+        select(CurrentRosterSnapshot).where(CurrentRosterSnapshot.league_id == lg.id)
+    )
+    assert original is not None
+    original_id = original.id
+
+    next_period = copy.deepcopy(current_roster_fixture)
+    next_period["scoringPeriodId"] = 2
+    next_period["status"]["currentMatchupPeriod"] = 2
+
+    class CurrentRosterFailEspn(FakeEspn):
+        def fetch_views(self, league_id, season, views, **kwargs):
+            if "mRoster" in views:
+                raise EspnError("current roster unavailable")
+            return super().fetch_views(league_id, season, views, **kwargs)
+
+    result = SyncService(
+        db_session,
+        espn=CurrentRosterFailEspn(
+            next_period,
+            players_fixture,
+            pro_schedule_data=pro_schedule_fixture,
+        ),
+    ).sync_league(lg)
+    db_session.commit()
+
+    retained = db_session.scalar(
+        select(CurrentRosterSnapshot).where(CurrentRosterSnapshot.league_id == lg.id)
+    )
+    assert retained is not None and retained.id == original_id
+    assert retained.scoring_period == 1
+    assert lg.current_scoring_period == 2
+    assert any("current_roster_failed" in error for error in result["errors"])
 
 
 def test_my_team_detection_and_autodraft_flag(db_session, league_fixture, players_fixture):
