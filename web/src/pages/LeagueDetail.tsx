@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import {
   generateAdvantageVerdict,
   generateDraftRecaps,
@@ -51,6 +51,7 @@ import {
   ScoreRing,
 } from "../components/Gamification";
 import { PlayerIdentity, PlayerMentionText } from "../components/PlayerIdentity";
+import { TeamDetailLink } from "../components/TeamDetailLink";
 import { TeamIdentity, TeamSelect } from "../components/TeamIdentity";
 import {
   Button,
@@ -77,6 +78,44 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "activity", label: "Activity" },
   { key: "ai", label: "AI Brief" },
 ];
+const TAB_KEYS = new Set<Tab>(TABS.map((tab) => tab.key));
+
+function tabFromSearch(value: string | null): Tab {
+  return value && TAB_KEYS.has(value as Tab) ? (value as Tab) : "overview";
+}
+
+function leagueReturnTo(leagueId: number, tab: Tab): string {
+  return `/league/${leagueId}?tab=${tab}`;
+}
+
+function LinkedTeamIdentity({
+  leagueId,
+  tab,
+  team,
+  size = "xs",
+  showMe = true,
+  fallback = "Unknown team",
+}: {
+  leagueId: number;
+  tab: Tab;
+  team: TeamOut | null;
+  size?: "xs" | "sm" | "md" | "lg";
+  showMe?: boolean;
+  fallback?: string;
+}) {
+  return team ? (
+    <TeamDetailLink
+      leagueId={leagueId}
+      team={team}
+      returnTo={leagueReturnTo(leagueId, tab)}
+      size={size}
+      showMe={showMe}
+      fallback={fallback}
+    />
+  ) : (
+    <TeamIdentity team={null} size={size} showMe={showMe} fallback={fallback} />
+  );
+}
 
 function playerReference(
   espnPlayerId: number | null,
@@ -131,9 +170,10 @@ function transactionPlayerReferences(transactions: TransactionOut[]): PlayerRefe
 export default function LeagueDetail() {
   const { id } = useParams();
   const leagueId = Number(id);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [ov, setOv] = useState<LeagueOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
+  const tab = tabFromSearch(searchParams.get("tab"));
   const [syncing, setSyncing] = useState(false);
   const [warning, setWarning] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -150,6 +190,12 @@ export default function LeagueDetail() {
     ov?.teams.forEach((t) => m.set(t.id, t));
     return m;
   }, [ov]);
+
+  function selectTab(next: Tab) {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", next);
+    setSearchParams(nextParams);
+  }
 
   async function sync() {
     setSyncing(true);
@@ -179,7 +225,13 @@ export default function LeagueDetail() {
       </div>
       <div className="mt-3">
         <h1 className="text-xl font-semibold">
-          <TeamIdentity team={myTeam} size="lg" fallback="Team not detected" />
+          <LinkedTeamIdentity
+            leagueId={leagueId}
+            tab={tab}
+            team={myTeam}
+            size="lg"
+            fallback="Team not detected"
+          />
         </h1>
         <div className="mt-1 flex flex-wrap items-center gap-2 pl-16">
           <span className="text-sm text-secondary">{lg.name ?? `League ${lg.espn_league_id}`}</span>
@@ -220,7 +272,7 @@ export default function LeagueDetail() {
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => selectTab(t.key)}
             className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${
               tab === t.key
                 ? "border-red text-primary"
@@ -268,7 +320,11 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
       header: "Team",
       cell: (c) => (
         <div>
-          <TeamIdentity team={c.row.original} size="xs" />
+          <LinkedTeamIdentity
+            leagueId={leagueId}
+            tab="overview"
+            team={c.row.original}
+          />
           {c.row.original.autodrafted && <span className="ml-9 text-[10px] text-muted">auto</span>}
         </div>
       ),
@@ -546,7 +602,13 @@ function DraftTab({
       id: "team",
       header: "Team",
       accessorFn: (p) => teamLabel(teamName, p.team_id),
-      cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.team_id)} size="xs" />,
+      cell: (c) => (
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="draft"
+          team={teamForId(teamName, c.row.original.team_id)}
+        />
+      ),
     },
     {
       id: "player",
@@ -653,10 +715,11 @@ function DraftRecaps({
                 className="flex shrink-0 items-center gap-2 border-r border-line pr-2 last:border-r-0"
                 data-testid={`draft-grade-strip-${r.espn_team_id}`}
               >
-                <TeamIdentity
+                <LinkedTeamIdentity
+                  leagueId={leagueId}
+                  tab="draft"
                   team={teamForEspnId(teams, r.espn_team_id)}
                   size="xs"
-                  tone="text-secondary"
                   showMe={false}
                   fallback={r.team_name ?? `Team ${r.espn_team_id}`}
                 />
@@ -672,7 +735,9 @@ function DraftRecaps({
                 data-testid={`draft-recap-card-${r.espn_team_id}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <TeamIdentity
+                  <LinkedTeamIdentity
+                    leagueId={leagueId}
+                    tab="draft"
                     team={teamForEspnId(teams, r.espn_team_id)}
                     size="xs"
                     fallback={r.team_name ?? `Team ${r.espn_team_id}`}
@@ -710,7 +775,17 @@ function TeamsTab({
 }) {
   const teamName = new Map(teams.map((team) => [team.id, team]));
   const cols: ColumnDef<TeamOut, any>[] = [
-    { accessorKey: "name", header: "Team", cell: (c) => <TeamIdentity team={c.row.original} size="xs" /> },
+    {
+      accessorKey: "name",
+      header: "Team",
+      cell: (c) => (
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="teams"
+          team={c.row.original}
+        />
+      ),
+    },
     { accessorKey: "abbrev", header: "Abbr", cell: (c) => <span className="mono text-muted">{c.getValue<string | null>() ?? DASH}</span> },
     { id: "record", header: "W-L-T", accessorFn: (t) => t.wins, cell: (c) => <span className="mono">{record(c.row.original.wins, c.row.original.losses, c.row.original.ties)}</span> },
     { accessorKey: "points_for", header: "PF", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
@@ -763,9 +838,10 @@ function LineupEfficiencyTable({
       accessorKey: "team_name",
       header: "Team",
       cell: (c) => (
-        <TeamIdentity
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="teams"
           team={teamForId(teamName, c.row.original.team_id)}
-          size="xs"
           fallback={c.getValue<string | null>() ?? DASH}
         />
       ),
@@ -818,10 +894,32 @@ function MatchupsTab({
 
   const cols: ColumnDef<MatchupOut, any>[] = [
     { accessorKey: "week", header: "Wk", cell: (c) => <span className="mono text-secondary">{c.getValue<number>()}</span> },
-    { id: "home", header: "Home", accessorFn: (m) => teamLabel(teamName, m.home_team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.home_team_id)} size="xs" /> },
+    {
+      id: "home",
+      header: "Home",
+      accessorFn: (m) => teamLabel(teamName, m.home_team_id),
+      cell: (c) => (
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="matchups"
+          team={teamForId(teamName, c.row.original.home_team_id)}
+        />
+      ),
+    },
     { accessorKey: "home_points", header: "HPts", cell: (c) => <span className="mono">{num(c.getValue<number | null>())}</span> },
     { accessorKey: "away_points", header: "APts", cell: (c) => <span className="mono">{num(c.getValue<number | null>())}</span> },
-    { id: "away", header: "Away", accessorFn: (m) => teamLabel(teamName, m.away_team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.away_team_id)} size="xs" /> },
+    {
+      id: "away",
+      header: "Away",
+      accessorFn: (m) => teamLabel(teamName, m.away_team_id),
+      cell: (c) => (
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="matchups"
+          team={teamForId(teamName, c.row.original.away_team_id)}
+        />
+      ),
+    },
     { accessorKey: "is_playoff", header: "PO", cell: (c) => (c.getValue<boolean>() ? <span className="text-gold">●</span> : "") },
   ];
   return (
@@ -875,9 +973,10 @@ function AllPlayTable({
       accessorKey: "team_name",
       header: "Team",
       cell: (c) => (
-        <TeamIdentity
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="matchups"
           team={teamForId(teamName, c.row.original.team_id)}
-          size="xs"
           fallback={c.getValue<string | null>() ?? DASH}
         />
       ),
@@ -934,7 +1033,18 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
 
   const cols: ColumnDef<TransactionOut, any>[] = [
     { accessorKey: "week", header: "Wk", cell: (c) => <span className="mono text-secondary">{c.getValue<number | null>() ?? DASH}</span> },
-    { id: "team", header: "Team", accessorFn: (t) => teamLabel(teamName, t.team_id), cell: (c) => <TeamIdentity team={teamForId(teamName, c.row.original.team_id)} size="xs" /> },
+    {
+      id: "team",
+      header: "Team",
+      accessorFn: (t) => teamLabel(teamName, t.team_id),
+      cell: (c) => (
+        <LinkedTeamIdentity
+          leagueId={leagueId}
+          tab="activity"
+          team={teamForId(teamName, c.row.original.team_id)}
+        />
+      ),
+    },
     { accessorKey: "type", header: "Type", cell: (c) => <span className="mono text-secondary">{c.getValue<string | null>() ?? DASH}</span> },
     {
       id: "player_in",
@@ -1209,10 +1319,11 @@ function TradeFinderCard({ leagueId }: { leagueId: number }) {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="mono text-[11px] uppercase tracking-wide text-muted">vs</span>
-                <TeamIdentity
+                <LinkedTeamIdentity
+                  leagueId={leagueId}
+                  tab="ai"
                   team={selectedOpponent}
                   size="xs"
-                  tone="text-secondary"
                   showMe={false}
                   fallback={c.opponent_name ?? "opponent"}
                 />

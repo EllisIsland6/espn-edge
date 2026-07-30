@@ -81,6 +81,93 @@ const OVERVIEW = {
   ],
 };
 
+const rosterSlot = (
+  slotId: number,
+  slotLabel: string,
+  slotIndex: number,
+  section: "starters" | "bench" | "ir",
+  player: {
+    id: number;
+    name: string;
+    position: string;
+    nflTeam: string;
+    opponent?: string | null;
+    actual?: number | null;
+    projected?: number | null;
+    injury?: string | null;
+    status?: "pregame" | "in_progress" | "final" | "bye" | null;
+  } | null,
+) => ({
+  slot_id: slotId,
+  slot_label: slotLabel,
+  slot_index: slotIndex,
+  section,
+  espn_player_id: player?.id ?? null,
+  player_name: player?.name ?? null,
+  player_position: player?.position ?? null,
+  nfl_team: player?.nflTeam ?? null,
+  opponent: player?.opponent ?? null,
+  kickoff_at: player?.status === "bye" ? null : "2026-09-10T20:20:00Z",
+  game_status: player?.status ?? null,
+  injury_status: player?.injury ?? null,
+  actual_points: player?.actual ?? null,
+  projected_points: player?.projected ?? null,
+});
+
+function teamDetail(teamId: number) {
+  const team = OVERVIEW.teams.find((candidate) => candidate.id === teamId) ?? OVERVIEW.teams[1];
+  return {
+    league: LEAGUE_1,
+    account_label: "Main",
+    scoring: "PPR",
+    team,
+    current_scoring_period: 1,
+    current_matchup_period: 1,
+    roster_status: "current",
+    roster_synced_at: NOW,
+    starters: [
+      rosterSlot(0, "QB", 0, "starters", {
+        id: 1001, name: "Star Quarterback", position: "QB", nflTeam: "ATL",
+        opponent: "BUF", actual: 0, projected: 18.5, injury: "QUESTIONABLE",
+        status: "pregame",
+      }),
+      rosterSlot(2, "RB", 0, "starters", {
+        id: 1002, name: "Star Runningback", position: "RB", nflTeam: "BUF",
+        opponent: "ATL", projected: 15.2, status: "pregame",
+      }),
+      rosterSlot(2, "RB", 1, "starters", null),
+      rosterSlot(4, "WR", 0, "starters", {
+        id: 1003, name: "Ace Receiver", position: "WR", nflTeam: "CHI",
+        status: "bye",
+      }),
+      rosterSlot(6, "TE", 0, "starters", null),
+      rosterSlot(23, "FLEX", 0, "starters", null),
+      rosterSlot(16, "D/ST", 0, "starters", null),
+      rosterSlot(17, "K", 0, "starters", null),
+    ],
+    bench: [
+      rosterSlot(20, "BE", 0, "bench", {
+        id: 1004, name: "Bench Receiver", position: "WR", nflTeam: "CIN",
+      }),
+      rosterSlot(20, "BE", 1, "bench", null),
+    ],
+    ir: [
+      rosterSlot(21, "IR", 0, "ir", {
+        id: 1005, name: "Injured Tight End", position: "TE", nflTeam: "CLE",
+        injury: "INJURY_RESERVE",
+      }),
+    ],
+    matchup: {
+      matchup_period: 1,
+      scoring_period: 1,
+      is_playoff: false,
+      home: { team: OVERVIEW.teams[1], points: 0, projected_points: 108.4 },
+      away: { team: OVERVIEW.teams[0], points: 0, projected_points: 111.2 },
+      next_kickoff_at: "2026-09-10T20:20:00Z",
+    },
+  };
+}
+
 const AI_DISABLED = (kind: string) => ({
   enabled: false, kind, model: null, created_at: null, stale: false,
   content: null, error: null,
@@ -213,6 +300,10 @@ async function mockApi(page: Page) {
   await page.route("**/api/accounts", (r) => json(r, []));
   await page.route("**/api/leagues/1/overview", (r) => json(r, OVERVIEW));
   await page.route("**/api/leagues/1/teams", (r) => json(r, OVERVIEW.teams));
+  await page.route("**/api/leagues/1/teams/*", (r) => {
+    const teamId = Number(new URL(r.request().url()).pathname.split("/").at(-1));
+    return json(r, teamDetail(teamId));
+  });
   await page.route("**/api/leagues/1/ai/league-brief", (r) => json(r, AI_DISABLED("league_brief")));
   await page.route("**/api/leagues/1/ai/advantage-verdict", (r) =>
     json(r, AI_DISABLED("advantage_verdict")));
@@ -1000,6 +1091,101 @@ test("league detail renders standings from mocked API data", async ({ page }) =>
   await expect(standings.getByRole("img", { name: "Rival team logo" })).toBeVisible();
 });
 
+test("team links open a deep-linked configured roster and return to the source tab", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.goto("/league/1?tab=overview");
+  const standings = page.getByRole("table", { name: "League standings" });
+  const rivalLink = standings.getByRole("link", { name: "Open Rival roster" });
+  await expect(rivalLink).toHaveAttribute("href", "/league/1/teams/2");
+  await rivalLink.click();
+
+  await expect(page).toHaveURL(/\/league\/1\/teams\/2$/);
+  await expect(page.getByRole("heading", { name: /Rival/ })).toBeVisible();
+  await expect(page.getByText("Week 1 matchup")).toBeVisible();
+  await expect(page.getByText("108.4 proj")).toBeVisible();
+  await expect(page.getByText("111.2 proj")).toBeVisible();
+
+  const starters = page.getByRole("table", { name: "Starting lineup roster" });
+  await expect(starters).toBeVisible();
+  await expect(starters.locator("tbody td:first-child")).toHaveText([
+    "QB", "RB", "RB", "WR", "TE", "FLEX", "D/ST", "K",
+  ]);
+  await expect(starters.getByText("Star Quarterback")).toBeVisible();
+  await expect(starters.getByText("0.0", { exact: true })).toBeVisible();
+  await expect(starters.getByText("18.5", { exact: true })).toBeVisible();
+  await expect(starters.getByText("Q", { exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Bench roster" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "IR / Reserve roster" })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/undefined|NaN/);
+
+  await page.getByRole("link", { name: "Back to league" }).click();
+  await expect(page).toHaveURL(/\/league\/1\?tab=overview$/);
+  await expect(standings).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+});
+
+test("team detail supports hard refresh, keyboard entry, Escape, and retry", async ({ page }) => {
+  let detailCalls = 0;
+  await page.route("**/api/leagues/1/teams/1", (route) => {
+    detailCalls += 1;
+    if (detailCalls === 1) {
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Roster temporarily unavailable" }),
+      });
+    }
+    return json(route, teamDetail(1));
+  });
+
+  await page.goto("/league/1/teams/1");
+  await expect(page.getByText("Roster temporarily unavailable")).toBeVisible();
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByRole("heading", { name: /My Team/ })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("table", { name: "Starting lineup roster" })).toBeVisible();
+
+  await page.goto("/league/1?tab=teams");
+  const teamsTable = page.getByRole("table", { name: "League teams" });
+  const link = teamsTable.getByRole("link", { name: "Open Rival roster" });
+  await link.focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/league\/1\/teams\/2$/);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/\/league\/1\?tab=teams$/);
+});
+
+test("team detail uses stacked player rows on mobile without horizontal overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/league/1/teams/1");
+  await expect(page.getByRole("table", { name: "Starting lineup roster" })).toBeHidden();
+  await expect(page.getByText("Star Quarterback").last()).toBeVisible();
+  await expect(page.getByText("Actual 0.0")).toBeVisible();
+  await expect(page.getByText("Proj 18.5")).toBeVisible();
+  await expect(page.getByText("Bye", { exact: true }).last()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("team detail holds its skeleton shape and labels a retained roster stale", async ({ page }) => {
+  await page.route("**/api/leagues/1/teams/1", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return json(route, {
+      ...teamDetail(1),
+      roster_status: "stale",
+      roster_synced_at: "2026-09-01T12:00:00Z",
+    });
+  });
+  await page.goto("/league/1/teams/1");
+  await expect(page.getByLabel("Loading team roster")).toBeVisible();
+  await expect(page.getByTestId("roster-stale-note")).toContainText(
+    "Roster snapshot may be stale",
+  );
+  await expect(page.getByRole("table", { name: "Starting lineup roster" })).toBeVisible();
+});
+
 test("team-first league identity remains readable on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -1205,6 +1391,10 @@ test("matchups tab renders all-play + luck table (Phase 12)", async ({ page }) =
   await expect(allPlay.getByRole("img", { name: "Rival team logo" })).toBeVisible();
   await expect(schedule.getByRole("img", { name: "My Team team logo" })).toBeVisible();
   await expect(schedule.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(schedule.getByRole("link", { name: "Open Rival roster" }).first()).toHaveAttribute(
+    "href",
+    "/league/1/teams/2",
+  );
 });
 
 test("teams tab renders lineup efficiency table (Phase 13)", async ({ page }) => {
@@ -1219,6 +1409,10 @@ test("teams tab renders lineup efficiency table (Phase 13)", async ({ page }) =>
   await expect(leagueTeams.getByRole("img", { name: "Rival team logo" })).toBeVisible();
   await expect(efficiency.getByRole("img", { name: "My Team team logo" })).toBeVisible();
   await expect(efficiency.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(leagueTeams.getByRole("link", { name: "Open Rival roster" })).toHaveAttribute(
+    "href",
+    "/league/1/teams/2",
+  );
 });
 
 test("AI-disabled state renders the connect-a-key panel without crashing", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, ScrollRestoration } from "react-router";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return `rounded-md px-3 py-1.5 text-sm transition-colors duration-150 ${
@@ -30,6 +30,7 @@ export default function Layout() {
       <main className="mx-auto max-w-[1400px] px-5 py-6">
         <Outlet />
       </main>
+      <ScrollRestoration />
     </div>
   );
 }

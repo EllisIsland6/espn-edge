@@ -139,7 +139,58 @@ export interface MatchupOut {
   away_team_id: number | null;
   home_points: number | null;
   away_points: number | null;
+  home_projected_points: number | null;
+  away_projected_points: number | null;
   is_playoff: boolean;
+}
+
+export type RosterSection = "starters" | "bench" | "ir";
+
+export interface RosterSlotOut {
+  slot_id: number;
+  slot_label: string;
+  slot_index: number;
+  section: RosterSection;
+  espn_player_id: number | null;
+  player_name: string | null;
+  player_position: string | null;
+  nfl_team: string | null;
+  opponent: string | null;
+  kickoff_at: string | null;
+  game_status: "pregame" | "in_progress" | "final" | "bye" | null;
+  injury_status: string | null;
+  actual_points: number | null;
+  projected_points: number | null;
+}
+
+export interface TeamMatchupSideOut {
+  team: TeamOut | null;
+  points: number | null;
+  projected_points: number | null;
+}
+
+export interface TeamMatchupOut {
+  matchup_period: number;
+  scoring_period: number | null;
+  is_playoff: boolean;
+  home: TeamMatchupSideOut;
+  away: TeamMatchupSideOut;
+  next_kickoff_at: string | null;
+}
+
+export interface TeamDetailOut {
+  league: LeagueOut;
+  account_label: string | null;
+  scoring: string | null;
+  team: TeamOut;
+  current_scoring_period: number | null;
+  current_matchup_period: number | null;
+  roster_status: "current" | "stale" | "unavailable";
+  roster_synced_at: string | null;
+  starters: RosterSlotOut[];
+  bench: RosterSlotOut[];
+  ir: RosterSlotOut[];
+  matchup: TeamMatchupOut | null;
 }
 
 // Full Edge Index v1 (Phase 16): 0.5·MyEdge + 0.5·LeagueSoftness. Backend-computed.
@@ -268,6 +319,7 @@ export interface SyncSummary {
   draft_picks: number | null;
   matchups: number | null;
   transactions: number | null;
+  current_roster_entries: number | null;
   metric_snapshots: number | null;
   my_team_espn_id: number | null;
   needs_reauth: boolean | null;
@@ -390,6 +442,8 @@ export const getLeagues = () => get<LeagueOut[]>("/api/leagues");
 export const getLeagueOverview = (id: number) =>
   get<LeagueOverview>(`/api/leagues/${id}/overview`);
 export const getLeagueTeams = (id: number) => get<TeamOut[]>(`/api/leagues/${id}/teams`);
+export const getLeagueTeamDetail = (leagueId: number, teamId: number) =>
+  get<TeamDetailOut>(`/api/leagues/${leagueId}/teams/${teamId}`);
 export const getLeagueDraft = (id: number) => get<DraftPickOut[]>(`/api/leagues/${id}/draft`);
 export const getLeagueMatchups = (id: number) =>
   get<MatchupOut[]>(`/api/leagues/${id}/matchups`);
