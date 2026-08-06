@@ -10,6 +10,22 @@
   --color-row: #0a0f1b;
   --color-rowhover: #111828;
 
+  /* Cold Front ramp — blue carries rank, mint carries advantage, ash carries
+     context. These are the two reference screens' shared product colors. */
+  --color-cold: #061820;
+  --color-coldpanel: #0a2028;
+  --color-coldline: #17404a;
+  --color-highlight: #202b36;
+  --color-ice: #68a9ff;
+  --color-icesoft: #a8d0ff;
+  --color-icechip: #10283d;
+  --color-icebar: #1b2c47;
+  --color-mint: #c3f8d8;
+  --color-mintchip: #18312d;
+  --color-ash: #a5b0b6;
+  --color-ashbar: #26313a;
+  --color-frost: #eef7f4;
+
   --color-line: #1b2233;
   --color-linedash: #232c42;
 
@@ -19,6 +35,10 @@
 
   --color-red: #e5484d;
   --color-redhover: #f2555a;
+
+  /* Sync actions use the warm coral-to-gold signal from the product reference. */
+  --color-syncstart: #f25b63;
+  --color-syncend: #dba42e;
 
   --color-green: #86efac;
   --color-greenchip: #12241a;
@@ -38,9 +58,11 @@
   --color-dst: #a78bfa;
   --color-k: #94a3b8;
 
-  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display: var(--font-ui);
   /* Numbers are the product — tabular figures so columns align (SPEC 9.1). */
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+  --font-mono: var(--font-ui);
 }
 
 html,
@@ -51,10 +73,40 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-page);
+  background:
+    radial-gradient(
+      circle at 50% -10rem,
+      color-mix(in srgb, var(--color-coldline) 28%, var(--color-page)),
+      var(--color-page) 42rem
+    );
+  background-attachment: fixed;
   color: var(--color-primary);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+}
+
+.display-face {
+  font-family: var(--font-display);
+}
+
+.panel-shadow {
+  box-shadow: 0 16px 44px color-mix(in srgb, var(--color-header) 72%, transparent);
+}
+
+.cold-grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-coldline) 14%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-coldline) 10%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.score-ring-glow {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 46%, transparent));
+}
+
+::selection {
+  background: var(--color-icechip);
+  color: var(--color-frost);
 }
 
 /* Every number in a table/chip/stat uses tabular figures. */

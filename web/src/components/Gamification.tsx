@@ -63,7 +63,7 @@ export function ScoreRing({
       aria-label={pending ? `${label} pending` : `${label} ${Math.round(value)} grade ${grade ?? "pending"}`}
     >
       <div className="relative" style={{ width: pixels, height: pixels }}>
-        <svg className="-rotate-90" width={pixels} height={pixels} viewBox={`0 0 ${pixels} ${pixels}`} aria-hidden="true">
+        <svg className={`score-ring-glow -rotate-90 ${RING_TONE[gradeKey]?.text ?? "text-grade-b"}`} width={pixels} height={pixels} viewBox={`0 0 ${pixels} ${pixels}`} aria-hidden="true">
           <circle
             cx={pixels / 2}
             cy={pixels / 2}
@@ -150,9 +150,11 @@ const ACHIEVEMENT_META: Record<string, { glyph: string; tone: string }> = {
 export function AchievementRow({
   achievements,
   testId,
+  showLabels = false,
 }: {
   achievements: Achievement[] | null | undefined;
   testId?: string;
+  showLabels?: boolean;
 }) {
   if (!achievements?.length) return null;
   return (
@@ -165,11 +167,12 @@ export function AchievementRow({
         return (
           <span
             key={achievement.key}
-            className={`mono inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[9px] font-semibold ${meta.tone}`}
+            className={`mono inline-flex h-5 items-center justify-center gap-1 border px-1.5 text-[8px] font-semibold uppercase tracking-wide ${showLabels ? "rounded" : "min-w-5 rounded-full"} ${meta.tone}`}
             title={`${achievement.label}: ${achievement.detail}`}
             aria-label={achievement.label}
           >
-            {meta.glyph}
+            <span>{meta.glyph}</span>
+            {showLabels && <span>{achievement.label.split(" ")[0]}</span>}
           </span>
         );
       })}

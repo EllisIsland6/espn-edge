@@ -1,15 +1,116 @@
 // Shared visual primitives — SPEC Section 9.2. All colors come from the @theme
 // tokens; no ad-hoc hex here.
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { DASH, type Verdict } from "../lib/format";
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-line bg-panel ${className}`}>{children}</div>
+    <div className={`panel-shadow rounded-lg border border-line bg-panel/95 ${className}`}>{children}</div>
   );
 }
 
-type BtnVariant = "primary" | "secondary" | "danger";
+export function InfoTip({ label, description }: { label: string; description: string }) {
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [position, setPosition] = useState<CSSProperties | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
+
+  const updatePosition = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const width = Math.min(288, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2));
+    const placeAbove = rect.bottom > window.innerHeight * 0.66;
+    setPosition(
+      placeAbove
+        ? { bottom: window.innerHeight - rect.top + 8, left, width }
+        : { top: rect.bottom + 8, left, width },
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => updatePosition();
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || popupRef.current?.contains(target)) return;
+      setPinned(false);
+      setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPinned(false);
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [pinned]);
+
+  const show = () => {
+    updatePosition();
+    setOpen(true);
+  };
+
+  return (
+    <span className="inline-flex shrink-0 align-middle">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-ice/70 bg-icechip text-[10px] font-bold normal-case leading-none tracking-normal text-icesoft transition-colors hover:border-icesoft hover:bg-icebar hover:text-frost"
+        aria-label={`About ${label}`}
+        aria-describedby={open ? tooltipId : undefined}
+        aria-expanded={pinned}
+        onMouseEnter={show}
+        onMouseLeave={() => !pinned && setOpen(false)}
+        onFocus={show}
+        onBlur={() => !pinned && setOpen(false)}
+        onClick={() => {
+          const next = !pinned;
+          setPinned(next);
+          if (next) show();
+          else setOpen(false);
+        }}
+      >
+        i
+      </button>
+      {open && position && typeof document !== "undefined" && createPortal(
+        <div
+          ref={popupRef}
+          id={tooltipId}
+          role="tooltip"
+          style={position}
+          className="fixed z-[100] max-h-60 overflow-y-auto rounded-lg border border-coldline bg-panel p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-primary shadow-2xl"
+        >
+          <div className="mb-1 font-semibold text-icesoft">{label}</div>
+          <div>{description}</div>
+          {pinned && <div className="mt-2 text-[10px] text-muted">Click the i again or press Escape to close.</div>}
+        </div>,
+        document.body,
+      )}
+    </span>
+  );
+}
+
+type BtnVariant = "primary" | "secondary" | "danger" | "sync" | "discover";
 export function Button({
   children,
   onClick,
@@ -26,14 +127,23 @@ export function Button({
   title?: string;
 }) {
   const base =
-    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed";
+    "display-face inline-flex items-center justify-center gap-1.5 transition duration-150 disabled:cursor-not-allowed disabled:opacity-40";
   const styles: Record<BtnVariant, string> = {
-    primary: "bg-red text-white hover:bg-redhover",
-    secondary: "border border-line bg-panel text-primary hover:bg-rowhover",
-    danger: "border border-red/40 text-red hover:bg-red/10",
+    primary: "min-h-9 rounded-md bg-red px-3 py-1.5 text-sm font-semibold tracking-wide text-white hover:bg-redhover",
+    secondary: "min-h-9 rounded-md border border-line bg-panel px-3 py-1.5 text-sm font-semibold tracking-wide text-primary hover:bg-rowhover",
+    danger: "min-h-9 rounded-md border border-red/40 px-3 py-1.5 text-sm font-semibold tracking-wide text-red hover:bg-red/10",
+    sync: "h-[30px] rounded-lg bg-gradient-to-r from-syncstart to-syncend px-4 text-[10px] font-black uppercase tracking-[0.15em] text-header shadow-[0_0_16px_color-mix(in_srgb,var(--color-syncstart)_18%,transparent)] hover:brightness-110 active:translate-y-px active:brightness-95 disabled:translate-y-0 disabled:shadow-none disabled:brightness-75",
+    discover: "h-[30px] rounded-lg bg-gradient-to-r from-ice to-rb px-4 text-[10px] font-black uppercase tracking-[0.15em] text-header shadow-[0_0_16px_color-mix(in_srgb,var(--color-ice)_18%,transparent)] hover:brightness-110 active:translate-y-px active:brightness-95 disabled:translate-y-0 disabled:shadow-none disabled:brightness-75",
   };
   return (
-    <button type={type} onClick={onClick} disabled={disabled} title={title} className={`${base} ${styles[variant]}`}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      data-variant={variant}
+      className={`${base} ${styles[variant]}`}
+    >
       {children}
     </button>
   );
@@ -42,7 +152,7 @@ export function Button({
 // League size pill, e.g. "12-TEAM".
 export function SizePill({ size }: { size: number | null }) {
   return (
-    <span className="mono rounded bg-rowhover px-1.5 py-0.5 text-[11px] text-secondary">
+    <span className="mono rounded border border-line/70 bg-rowhover px-1.5 py-0.5 text-[9px] text-secondary">
       {size ? `${size}-TEAM` : "—"}
     </span>
   );
@@ -57,7 +167,7 @@ const LIFECYCLE_STYLE: Record<string, string> = {
 export function LifecycleBadge({ lifecycle, label }: { lifecycle: string; label: string }) {
   const s = LIFECYCLE_STYLE[lifecycle] ?? "text-secondary bg-rowhover";
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wide ${s}`}>
+    <span className={`display-face rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${s}`}>
       {label}
     </span>
   );
@@ -142,11 +252,29 @@ export function TierDivider({ verdict, count }: { verdict: Verdict; count: numbe
 }
 
 // Horizontal fill bar behind a mono numeral (the 680/662/656 pattern, SPEC 9.2).
-export function ValueBar({ value, max, label }: { value: number; max: number; label?: string }) {
+type BarTone = "mint" | "ice" | "ash";
+const BAR_TONE: Record<BarTone, string> = {
+  mint: "bg-greenbar",
+  ice: "bg-icebar",
+  ash: "bg-ashbar",
+};
+
+export function ValueBar({
+  value,
+  max,
+  label,
+  tone = "mint",
+}: {
+  value: number;
+  max: number;
+  label?: string;
+  tone?: BarTone;
+}) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
-    <div className="relative h-6 w-full overflow-hidden rounded bg-row">
-      <div className="absolute inset-y-0 left-0 bg-greenbar" style={{ width: `${pct}%` }} />
+    <div className="relative h-6 w-full overflow-hidden rounded bg-rowhover/80">
+      <div className={`absolute inset-y-0 left-0 ${BAR_TONE[tone]}`} style={{ width: `${pct}%` }} />
+      <span className="absolute inset-y-0 w-px bg-icesoft" style={{ left: `${pct}%` }} aria-hidden="true" />
       <span className="mono absolute inset-0 flex items-center justify-end px-2 text-xs text-primary">
         {label ?? value}
       </span>

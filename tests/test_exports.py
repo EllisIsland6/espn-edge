@@ -63,7 +63,11 @@ def test_export_json(synced):
     assert r.headers["content-type"].startswith("application/json")
     assert "attachment" in r.headers["content-disposition"]
     body = r.json()
-    assert {"generated_at", "summary", "rows", "leagues"} <= set(body)
+    assert {
+        "generated_at", "summary", "rows", "leagues", "exposure", "draft_adp",
+        "strategies",
+    } <= set(body)
+    assert {"me", "opponents"} == set(body["exposure"])
     assert body["summary"]["total_leagues"] == 1
     # Summary carries both the Edge Index (primary) and legacy edge_score aggregates.
     assert {
@@ -89,15 +93,29 @@ def test_export_xlsx_opens_with_openpyxl(synced):
     assert "portfolio.xlsx" in r.headers["content-disposition"]
 
     wb = load_workbook(io.BytesIO(r.content))
-    assert "Portfolio" in wb.sheetnames
-    assert len(wb.sheetnames) >= 2  # Portfolio + at least one league sheet
+    analytics_sheets = {
+        "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
+        "Exposure Headlines", "NFL Concentration", "Positional Spend", "Draft ADP",
+        "Strategies",
+    }
+    assert {
+        "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
+        "Draft ADP", "Strategies",
+    } <= set(wb.sheetnames)
+    assert len(wb.sheetnames) >= 5  # Four portfolio sheets + at least one league sheet
 
     portfolio = wb["Portfolio"]
     header = [c.value for c in portfolio[1]]
     assert "League Name" in header and "Playoff Odds" in header
 
     # The league sheet has the standings headers.
-    league_sheet = wb[[s for s in wb.sheetnames if s != "Portfolio"][0]]
+    league_sheet = wb[
+        next(
+            sheet
+            for sheet in wb.sheetnames
+            if sheet not in analytics_sheets
+        )
+    ]
     lheader = [c.value for c in league_sheet[1]]
     assert lheader[:2] == ["Standing", "Team"]
     assert "Playoff %" in lheader
@@ -109,4 +127,26 @@ def test_exports_empty_db_still_valid():
     assert client.get("/api/exports/portfolio.csv").status_code == 200
     assert client.get("/api/exports/portfolio.json").json()["summary"]["total_leagues"] == 0
     wb = load_workbook(io.BytesIO(client.get("/api/exports/portfolio.xlsx").content))
-    assert "Portfolio" in wb.sheetnames
+    assert {
+        "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
+        "Draft ADP", "Strategies",
+    } <= set(wb.sheetnames)
+
+
+def test_analytics_csv_exports_share_api_row_fields(synced):
+    exposure = client.get("/api/exports/exposure.csv?scope=me")
+    draft_adp = client.get("/api/exports/draft-adp.csv")
+    strategies = client.get("/api/exports/strategies.csv")
+    assert exposure.status_code == draft_adp.status_code == strategies.status_code == 200
+    assert "exposure-me.csv" in exposure.headers["content-disposition"]
+    assert "draft-adp.csv" in draft_adp.headers["content-disposition"]
+    assert "strategies.csv" in strategies.headers["content-disposition"]
+    assert {"player_name", "exposure_pct", "share", "leagues"} <= set(
+        next(csv.DictReader(io.StringIO(exposure.text)))
+    )
+    assert {
+        "team_name", "draft_value_capture_espn", "draft_value_capture_ffc",
+    } <= set(next(csv.DictReader(io.StringIO(draft_adp.text))))
+    assert {"primary_label", "secondary_label", "triggering_picks"} <= set(
+        next(csv.DictReader(io.StringIO(strategies.text)))
+    )

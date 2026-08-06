@@ -30,6 +30,10 @@ class Settings(BaseSettings):
 
     # ESPN read API host — hardcoded in exactly one place (SPEC 2.2).
     espn_api_host: str = "https://lm-api-reads.fantasy.espn.com"
+    # Fantasy Football Calculator ADP host — free/no-key source with attribution
+    # (SPEC 2.9). Kept in one place just like ESPN's host.
+    ffc_api_host: str = "https://fantasyfootballcalculator.com"
+    ffc_adp_ttl_hours: int = 24
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000

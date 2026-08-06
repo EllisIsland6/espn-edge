@@ -149,6 +149,45 @@ def edge_index_weight(key: str) -> float:
 def edge_index_label(key: str) -> str:
     return EDGE_INDEX_LABELS.get(key, key)
 
+
+# --- Phase 23: deterministic draft strategy fingerprints (SPEC §6.3 / §7) ----
+# These labels mirror the fixed AI enum, but this classifier is deterministic
+# metrics code. It never consumes model output.
+STRATEGY_LABELS: tuple[str, ...] = (
+    "Zero RB",
+    "Hero RB",
+    "Robust RB",
+    "Anchor WR",
+    "Elite TE",
+    "Late-Round QB",
+    "Balanced/BPA",
+    "Autodraft/Absent",
+)
+STRATEGY_PRIMARY_PRECEDENCE: tuple[str, ...] = (
+    "Autodraft/Absent",
+    "Zero RB",
+    "Hero RB",
+    "Robust RB",
+    "Balanced/BPA",
+)
+STRATEGY_SECONDARY_PRECEDENCE: tuple[str, ...] = (
+    "Elite TE",
+    "Late-Round QB",
+    "Anchor WR",
+)
+
+# Round-equivalent thresholds are normalized as overall_pick / league_size. A threshold
+# of 5.0 means "through the END of round 5", not merely into the 5th round. The Zero RB
+# rule is intentionally strict: no RB through the end of round 5.
+STRATEGY_ZERO_RB_NO_RB_THROUGH = 5.0
+STRATEGY_HERO_RB_ONE_RB_THROUGH = 5.0
+STRATEGY_HERO_RB_SECOND_RB_AFTER = 5.0
+STRATEGY_ROBUST_RB_THREE_RB_THROUGH = 5.0
+STRATEGY_ROBUST_RB_TWO_RB_THROUGH = 2.0
+STRATEGY_ELITE_TE_THROUGH = 3.0
+STRATEGY_LATE_QB_AFTER = 8.0
+STRATEGY_ANCHOR_WR_THROUGH = 5.0
+
 # Verdict thresholds on the 0–100 edge_score (SPEC §6).
 VERDICT_ADVANTAGED_MIN = 65.0
 VERDICT_NEUTRAL_MIN = 45.0

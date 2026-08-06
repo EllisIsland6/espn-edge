@@ -5,30 +5,14 @@ multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0–22 v1 complete** — scaffold, ESPN sync pipeline, Portfolio Board +
-> League detail UI, deterministic Edge analytics, the optional AI layer (surfaced through
-> in-app AI panels), Monte Carlo playoff odds + exports, CI + Playwright smoke suite, Phase 7 private-beta
-> reliability (re-auth + sync diagnostics), Phase 8 beta-readiness polish (read-only
-> System Status page + a [live-smoke runbook](docs/live-smoke.md)), and **Phase 9 Edge
-> Score [component breakdown](docs/phase-9-edge-components.md) in League detail, and
-> Phase 10 [draft value foundation](docs/phase-10-draft-value.md) (persisted ADP /
-> value delta + a draft-surplus metric; Draft Board shows player names), and **Phase 11
-> [preseason Edge](docs/phase-11-preseason-edge.md) blending roster projection + draft
-> surplus for drafted/no-games leagues, Phase 12 [all-play + luck
-> metrics](docs/phase-12-all-play-luck.md) in the Matchups tab, Phase 13 [lineup
-> efficiency](docs/phase-13-lineup-efficiency.md) (started vs optimal) in the Teams tab, and
-> Phase 14 [MyEdge v1](docs/phase-14-my-edge-foundation.md) — a separate blended score in
-> the Overview, Phase 15 [LeagueSoftness v1](docs/phase-15-league-softness-foundation.md)
-> — how exploitable your opponents are, Phase 16 [full Edge Index
-> v1](docs/phase-16-edge-index-composite.md) — 0.5×MyEdge + 0.5×LeagueSoftness, and
-> **Phase 17 [Portfolio Board Edge Index transition](docs/phase-17-portfolio-edge-index-transition.md)
-> — Edge Index is now the board's primary score (legacy `edge_score` kept alongside)**, Phase 18
-> [AI Edge Index grounding](docs/phase-18-ai-edge-index-grounding.md) (brief + verdict grounded on
-> the Edge Index model), Phase 19 [AI weekly-recap grounding](docs/phase-19-ai-weekly-recap-grounding.md)
-> (recap grounded on all-play, luck & waivers), Phase 20 [weekly-recap panel](docs/phase-20-weekly-recap-ui.md)
-> in the AI Brief, Phase 21 [Trade Finder panel](docs/phase-21-trade-finder-ui.md) (per-opponent, in-app),
-> and **Phase 22 [Trade Finder roster-snapshot grounding](docs/phase-22-trade-finder-grounding.md)
-> — grounded on the latest shared lineup snapshot with player-name validation.**
+> Status: **Phases 0-26 v1 complete** - scaffold, ESPN sync pipeline, Portfolio Board,
+> League detail UI, deterministic Edge analytics, optional AI panels, Monte Carlo playoff
+> odds + exports, CI + Playwright smoke, private-beta reliability, and read-only System
+> Status are in place. Recent analytics milestones: Phase 23
+> [Portfolio Draft Analytics backend](docs/phase-23-draft-analytics.md), Phase 24
+> [Analytics UI + exports](docs/phase-24-analytics-ui.md), Phase 25
+> [Analytics leverage](docs/phase-25-analytics-leverage.md), and Phase 26
+> [Leverage normalization](docs/phase-26-leverage-normalization.md).
 
 ## Quick start
 
@@ -307,6 +291,36 @@ proposed player is validated against the supplied rosters (invalid ones dropped 
 storage); the UI shows a "Week N roster snapshot" / fallback chip. No ESPN-view or DB change.
 See **[docs/phase-22-trade-finder-grounding.md](docs/phase-22-trade-finder-grounding.md)**.
 
+## Analytics (draft portfolio)
+
+**Phases 23-26** provide the Analytics page at `/analytics`:
+multi-league player exposure (`GET /api/portfolio/exposure`), draft ADP analytics
+(`GET /api/portfolio/draft-adp`), and deterministic strategy fingerprints
+(`GET /api/portfolio/strategies`). The endpoints use the same portfolio filters as the
+board (`season`, `account_id`, Edge Index `verdict`) and return denominator/coverage blocks
+with every percentage.
+
+The page uses a sortable exposure table that defaults to players I roster. `EXPOSURE` and
+`FIELD` both use drafted leagues as the denominator; `FIELD SLOTS` keeps the separate
+opponent-team intensity rate, and `LEVERAGE` is signed percentage points. A "Field owns"
+view surfaces players with field exposure and zero portfolio exposure, and "All players"
+keeps the full drafted universe available. NFL team concentration is split into capped
+team penetration and a separate players-per-team rate. Headline cards, positional capital,
+small-multiple draft fingerprints, ADP distribution markers, strategy uncertainty, and
+league/team links are all backed by server-computed fields.
+
+ADP source language is intentionally strict: ESPN deltas are **vs. draft-time ADP** from the
+sync-stamped ESPN market; FFC deltas are **vs. current market ADP** from the latest
+`adp_snapshots` row. They are never blended. Fantasy Football Calculator ADP uses the free
+REST API with 24h TTL and attribution: [Fantasy Football Calculator](https://fantasyfootballcalculator.com/).
+
+Strategy/Edge Index comparisons are descriptive, not causal. Strategy is confounded with
+draft slot, league, and opponent quality. Full contract:
+**[Phase 23 backend](docs/phase-23-draft-analytics.md)** and
+**[Phase 24 UI/exports](docs/phase-24-analytics-ui.md)**, plus
+**[Phase 25 leverage](docs/phase-25-analytics-leverage.md)** and
+**[Phase 26 leverage normalization](docs/phase-26-leverage-normalization.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or
@@ -316,18 +330,25 @@ directly:
 curl -OJ http://127.0.0.1:8000/api/exports/portfolio.csv    # one row per league
 curl -OJ http://127.0.0.1:8000/api/exports/portfolio.json   # summary + rows + per-league detail
 curl -OJ http://127.0.0.1:8000/api/exports/portfolio.xlsx   # Portfolio sheet + one sheet per league
+curl -OJ 'http://127.0.0.1:8000/api/exports/exposure.csv?scope=me&view=rostered'
+curl -OJ http://127.0.0.1:8000/api/exports/draft-adp.csv
+curl -OJ http://127.0.0.1:8000/api/exports/strategies.csv
 ```
 
-Exports reflect DB/API data exactly (no frontend recomputation) and feed a downstream
+The master JSON includes exposure, ADP, and strategy keys; XLSX adds `Exposure Rostered`,
+`Exposure Field Owns`, `Exposure All`, exposure headline/rollup sheets, `Draft ADP`, and
+`Strategies` sheets. Exports reflect DB/API data exactly and feed a downstream
 Excel/CSV/JSON pipeline. Playoff odds in the exports come from the Phase 5 Monte Carlo
-simulation. Contract: **[docs/phase-5-playoff-exports.md](docs/phase-5-playoff-exports.md)**.
+simulation. Contract:
+**[docs/phase-5-playoff-exports.md](docs/phase-5-playoff-exports.md)**.
 
 ## Layout
 
 ```
 /api    FastAPI: config, db, models, crypto, edge_config, ai_config, ai_schemas,
         routers/, services/ (espn, sync, metrics, ai, exports, …), verify.py
-/web    Vite + React + TS + Tailwind: src/pages (PortfolioBoard, LeagueDetail, Manage),
+/web    Vite + React + TS + Tailwind + Recharts: src/pages (PortfolioBoard, Analytics,
+        LeagueDetail, Manage),
         src/components, src/api.ts, src/tokens.css
 /data   edge.db + raw_cache/   (gitignored — holds session cookies)
 /docs   phase-3-analytics, phase-4-ai, phase-5-playoff-exports (contracts)

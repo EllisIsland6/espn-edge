@@ -240,7 +240,10 @@ def _anthropic_client_with(behavior):
     from api.services.ai import AnthropicLlmClient
 
     class _Messages:
+        last_kwargs = None
+
         def parse(self, **kwargs):
+            self.last_kwargs = kwargs
             return behavior()
 
     class _Sdk:
@@ -252,8 +255,10 @@ def _anthropic_client_with(behavior):
 
 
 class _Resp:
-    def __init__(self, parsed):
+    def __init__(self, parsed, *, stop_reason="end_turn", content=None):
         self.parsed_output = parsed
+        self.stop_reason = stop_reason
+        self.content = content or []
 
 
 def _call(c):
@@ -289,6 +294,21 @@ def test_anthropic_client_missing_parsed_output_becomes_ai_error():
     with pytest.raises(AiError) as ei:
         _call(_anthropic_client_with(lambda: _Resp(None)))
     assert "no parsed output" in str(ei.value)
+
+
+def test_anthropic_client_disables_thinking_for_structured_reports():
+    valid = ai_schemas.LeagueBrief(difficulty_tier="Average", narrative="n", exploit_plan=["a"])
+    anthropic_client = _anthropic_client_with(lambda: _Resp(valid))
+
+    _call(anthropic_client)
+
+    assert anthropic_client._client.messages.last_kwargs["thinking"] == {"type": "disabled"}
+
+
+def test_anthropic_client_token_limit_has_actionable_error():
+    with pytest.raises(AiError) as ei:
+        _call(_anthropic_client_with(lambda: _Resp(None, stop_reason="max_tokens")))
+    assert "output token limit" in str(ei.value)
 
 
 def test_anthropic_client_success_returns_dict():

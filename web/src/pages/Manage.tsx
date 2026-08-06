@@ -185,7 +185,7 @@ function AddAccountForm({ onDone, onError }: { onDone: () => void; onError: (e: 
         <Field value={label} onChange={setLabel} placeholder="Label (e.g. Main)" />
         <Field value={swid} onChange={setSwid} placeholder="SWID {…}" />
         <Field value={s2} onChange={setS2} placeholder="espn_s2" type="password" />
-        <Button type="submit" variant="primary" disabled={busy || !label || !swid || !s2}>
+        <Button type="submit" variant="sync" disabled={busy || !label || !swid || !s2}>
           {busy ? "Adding…" : "Add"}
         </Button>
       </form>
@@ -381,13 +381,14 @@ function AccountRow({
         </span>
         <span className="mono ml-auto text-[11px] text-muted">added {relTime(a.created_at)}</span>
         <Button
+          variant="discover"
           onClick={toggleDiscovery}
           disabled={needsReauth || discovering || importing}
           title={needsReauth ? "Re-authenticate this account before discovering leagues" : undefined}
         >
           {discovering ? "Discovering…" : showDiscovery ? "Hide leagues" : "Discover leagues"}
         </Button>
-        <Button onClick={() => setShowReauth((v) => !v)}>
+        <Button variant="sync" onClick={() => setShowReauth((v) => !v)}>
           {showReauth ? "Cancel" : "Re-auth"}
         </Button>
         <Button
@@ -423,7 +424,12 @@ function AccountRow({
         <div className="mt-3 border-t border-line pt-3" data-testid={`league-discovery-${a.id}`}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-secondary">Leagues ESPN associates with this account</span>
-            <Button onClick={runDiscovery} disabled={discovering || importing} title="Refresh league discovery">
+            <Button
+              variant="sync"
+              onClick={runDiscovery}
+              disabled={discovering || importing}
+              title="Refresh league discovery"
+            >
               Refresh
             </Button>
           </div>
@@ -476,7 +482,7 @@ function AccountRow({
               })}
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Button
-                  variant="primary"
+                  variant="sync"
                   onClick={importSelected}
                   disabled={syncOperation !== null || selectedCount === 0}
                 >
@@ -543,7 +549,7 @@ function ReauthForm({
     >
       <Field value={swid} onChange={setSwid} placeholder="SWID {…}" />
       <Field value={s2} onChange={setS2} placeholder="espn_s2" type="password" />
-      <Button type="submit" variant="primary" disabled={busy || !swid || !s2}>
+      <Button type="submit" variant="sync" disabled={busy || !swid || !s2}>
         {busy ? "Saving…" : "Save cookies"}
       </Button>
     </form>
@@ -597,7 +603,7 @@ function AddLeagueForm({
           ))}
         </select>
         <Field value={season} onChange={setSeason} placeholder="Season" />
-        <Button type="submit" variant="primary" disabled={busy || !ref}>
+        <Button type="submit" variant="sync" disabled={busy || !ref}>
           {busy ? "Adding…" : "Add"}
         </Button>
       </form>
@@ -773,6 +779,7 @@ function LeagueList({
             />
           )}
           <Button
+            variant="sync"
             onClick={() => void syncOne(l)}
             disabled={syncOperation !== null}
           >
@@ -785,7 +792,7 @@ function LeagueList({
       ))}
       <div className="flex flex-wrap items-center gap-3 pt-3">
         <Button
-          variant="primary"
+          variant="sync"
           onClick={() => void syncAll()}
           disabled={syncOperation !== null}
         >

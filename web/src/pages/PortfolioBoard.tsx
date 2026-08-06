@@ -114,8 +114,18 @@ export default function PortfolioBoard() {
   }
 
   return (
-    <div className="flex gap-6">
-      <div className="min-w-0 flex-1">
+    <div className="space-y-4">
+      <header className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="mono text-[9px] uppercase tracking-[0.28em] text-ice">Command center</div>
+          <h1 className="display-face mt-1 text-2xl font-bold tracking-tight text-frost">Portfolio board</h1>
+        </div>
+        <p className="max-w-lg text-xs leading-relaxed text-muted sm:text-right">
+          Every team, ranked by Edge Index. Mint is advantage, blue is position, ash is context.
+        </p>
+      </header>
+      <div className="flex gap-5">
+        <div className="min-w-0 flex-1">
         <ControlBar filter={filter} setFilter={setFilter} query={query} setQuery={setQuery} />
         {error && <div className="mt-4"><ErrorNote message={error} /></div>}
         {warnings.length > 0 && (
@@ -143,7 +153,15 @@ export default function PortfolioBoard() {
           </div>
         )}
         {rows && rows.length > 0 && (
-          <Panel className="mt-4 overflow-hidden">
+          <Panel className="cold-grid mt-4 overflow-hidden border-coldline bg-cold/95">
+            <div className="flex h-11 items-center justify-between border-b border-coldline px-4">
+              <div className="display-face text-sm font-bold text-frost">
+                ESPN <span className="text-ice">Edge</span>
+              </div>
+              <span className="mono rounded-full border border-ice/40 bg-icechip px-2.5 py-1 text-[8px] uppercase tracking-[0.16em] text-icesoft">
+                {summary?.edge_index_scored_count ?? 0} / {summary?.total_leagues ?? 0} scored
+              </span>
+            </div>
             {groups.length === 0 ? (
               <div className="p-4">
                 <EmptyState title="No leagues match this filter." />
@@ -164,8 +182,9 @@ export default function PortfolioBoard() {
             )}
           </Panel>
         )}
+        </div>
+        <RightRail summary={summary} syncing={syncing} onSyncAll={syncAll} />
       </div>
-      <RightRail summary={summary} syncing={syncing} onSyncAll={syncAll} />
     </div>
   );
 }
@@ -182,16 +201,16 @@ function ControlBar({
   setQuery: (q: string) => void;
 }) {
   return (
-    <div className="sticky top-14 z-10 -mx-1 flex flex-wrap items-center gap-2 bg-page/80 px-1 py-2 backdrop-blur">
+    <div className="sticky top-14 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-header/90 p-2 backdrop-blur">
       <div className="flex flex-wrap gap-1">
         {FILTERS.map((f) => (
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`mono rounded-md px-2.5 py-1 text-[11px] tracking-wide transition-colors duration-150 ${
+            className={`mono rounded px-2.5 py-1.5 text-[9px] tracking-[0.12em] transition-colors duration-150 ${
               filter === f.key
-                ? "bg-red text-white"
-                : "border border-line bg-panel text-secondary hover:text-primary"
+                ? "bg-ice text-header"
+                : "border border-line bg-panel text-secondary hover:border-coldline hover:text-primary"
             }`}
           >
             {f.label}
@@ -203,7 +222,7 @@ function ControlBar({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search teams / leagues / accounts"
-          className="min-w-0 flex-1 basis-56 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-primary placeholder:text-muted focus:border-red/60 sm:flex-none"
+          className="min-h-8 min-w-0 flex-1 basis-56 rounded-md border border-line bg-panel px-3 py-1.5 text-xs text-primary placeholder:text-muted focus:border-ice/60 sm:flex-none"
         />
         <div className="flex items-center overflow-hidden rounded-md border border-line">
           <span className="mono px-2 text-[10px] uppercase tracking-wide text-muted">Export</span>
@@ -242,11 +261,11 @@ function BoardRow({ row }: { row: PortfolioRow }) {
   return (
     <Link
       to={`/league/${row.league_id}`}
-      className="relative flex min-h-24 items-center gap-3 border-t border-line py-3 pl-5 pr-4 no-underline first:border-t-0 hover:bg-rowhover focus-visible:bg-rowhover"
+      className="relative grid min-h-[108px] grid-cols-[minmax(0,1fr)_78px] items-center gap-3 border-t border-coldline px-3 py-3 pl-5 no-underline transition-colors duration-150 first:border-t-0 hover:bg-coldpanel/80 focus-visible:bg-coldpanel sm:grid-cols-[minmax(0,1fr)_68px_72px_78px] lg:grid-cols-[minmax(0,1fr)_68px_68px_72px_78px] xl:grid-cols-[minmax(0,1fr)_68px_68px_68px_68px_68px_78px]"
     >
       <span className={`absolute inset-y-0 left-0 w-[3px] ${VERDICT_ACCENT[verdict]}`} />
       {/* Owned team first, then its league context. */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-col">
         <TeamIdentity
           team={{
             name: row.my_team_name,
@@ -257,17 +276,19 @@ function BoardRow({ row }: { row: PortfolioRow }) {
           fallback="Team not detected"
         />
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 pl-11">
-          <span className="truncate text-sm text-secondary">{row.league_name ?? `League ${row.espn_league_id}`}</span>
+          <span className="truncate text-xs text-icesoft">{row.league_name ?? `League ${row.espn_league_id}`}</span>
           <SizePill size={row.size} />
           <LifecycleBadge lifecycle={row.lifecycle} label={LIFECYCLE_LABEL[row.lifecycle] ?? row.lifecycle} />
         </div>
-        <div className="mono mt-0.5 flex flex-wrap items-center gap-x-2 pl-11 text-[11px] text-muted">
+        <div className="mono mt-0.5 flex flex-wrap items-center gap-x-2 pl-11 text-[9px] text-muted">
           <span>{row.account_label ?? "—"}</span>
           <span>·</span>
           <span>{row.season}</span>
+          <span>·</span>
+          <span>{relTime(row.last_synced_at)}</span>
         </div>
         <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-2 pl-11">
-          <AchievementRow achievements={row.achievements} testId={`achievements-${row.league_id}`} />
+          <AchievementRow achievements={row.achievements} testId={`achievements-${row.league_id}`} showLabels />
           {row.edge_score != null && (
             <span className="mono text-[9px] uppercase text-muted">
               Legacy Edge Score {num(row.edge_score, 0)}
@@ -281,10 +302,10 @@ function BoardRow({ row }: { row: PortfolioRow }) {
       <div className="hidden xl:block"><Stat label="PF" value={num(row.points_for)} /></div>
       <div className="hidden xl:block"><Stat label="PA" value={num(row.points_against)} /></div>
       {/* Standing */}
-      <div className="hidden lg:block"><Stat label="STANDING" value={ordinal(row.standing)} /></div>
+      <div className="hidden lg:block"><Stat label="RANK" value={ordinal(row.standing)} /></div>
       {/* Playoff odds */}
-      <div className="hidden lg:block"><Stat label="PLAYOFF" value={row.playoff_odds == null ? DASH : `${Math.round(row.playoff_odds * 100)}%`} /></div>
-      <div className="flex w-24 shrink-0 flex-col items-center gap-1">
+      <div className="hidden sm:block"><Stat label="PLAYOFF" value={row.playoff_odds == null ? DASH : `${Math.round(row.playoff_odds * 100)}%`} /></div>
+      <div className="flex shrink-0 flex-col items-center gap-1">
         <ScoreRing
           value={row.edge_index_score}
           grade={row.edge_index_grade}
@@ -294,23 +315,22 @@ function BoardRow({ row }: { row: PortfolioRow }) {
         />
         <MomentumBadges momentum={row.edge_index_momentum} testId={`momentum-${row.league_id}`} />
       </div>
-      <div className="mono hidden w-16 shrink-0 text-right text-[11px] text-muted sm:block">{relTime(row.last_synced_at)}</div>
     </Link>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex w-14 shrink-0 flex-col items-end">
-      <span className="mono text-sm text-primary">{value}</span>
-      <span className="text-[9px] uppercase tracking-wide text-muted">{label}</span>
+    <div className="flex shrink-0 flex-col items-end">
+      <span className="mono text-xs font-semibold text-frost">{value}</span>
+      <span className="mono text-[7px] uppercase tracking-[0.12em] text-muted">{label}</span>
     </div>
   );
 }
 
 function AccountDivider({ label, count }: { label: string; count: number }) {
   return (
-    <div className="flex items-center gap-3 px-4 pt-5 pb-2">
+    <div className="flex items-center gap-3 border-t border-coldline/70 px-4 pt-4 pb-2 first:border-t-0">
       <span className="mono text-[11px] uppercase tracking-[0.18em] text-secondary">{label}</span>
       <span className="h-px flex-1 bg-line" />
       <span className="mono text-[11px] text-muted">{count}</span>
@@ -329,11 +349,11 @@ const GRADE_TIER_TONE: Record<GradeTier, string> = {
 
 function GradeTierDivider({ grade, count }: { grade: GradeTier; count: number }) {
   return (
-    <div className="flex items-center gap-3 px-4 pt-5 pb-2" data-testid={`grade-tier-${grade.toLowerCase()}`}>
+    <div className="flex items-center gap-3 border-t border-coldline/70 px-4 pt-4 pb-2 first:border-t-0" data-testid={`grade-tier-${grade.toLowerCase()}`}>
       <span className={`mono text-[11px] uppercase tracking-[0.18em] ${GRADE_TIER_TONE[grade]}`}>
         {grade === "PENDING" ? "Pending" : `${grade} tier`}
       </span>
-      <span className="h-px flex-1 bg-line" />
+      <span className="h-px flex-1 bg-coldline" />
       <span className="mono text-[11px] text-muted">{count}</span>
     </div>
   );
@@ -359,15 +379,18 @@ function RightRail({
   const legacyScored = summary?.scored_count ?? 0;
   return (
     <div className="hidden w-[320px] shrink-0 lg:block">
-      <Panel className="sticky top-[4.75rem] p-4">
+      <Panel className="sticky top-[4.75rem] overflow-hidden border-coldline bg-cold/95">
+        <div className="border-b border-coldline bg-coldpanel/65 px-4 py-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-primary">Portfolio</h2>
-          <span className="mono rounded-full bg-red/15 px-2 py-0.5 text-[11px] text-red">
+          <h2 className="display-face text-sm font-bold text-frost">Portfolio pulse</h2>
+          <span className="mono rounded-full border border-mint/30 bg-mintchip px-2 py-0.5 text-[9px] text-mint">
             {advantaged} of {total} advantaged
           </span>
         </div>
+        <p className="mt-1 text-[10px] text-muted">Live position across every synced league.</p>
+        </div>
 
-        <dl className="mt-4 space-y-3">
+        <dl className="space-y-3 p-4">
           <RailStat label="Leagues tracked" value={String(total)} />
           <RailStat
             label="Aggregate record"
@@ -394,12 +417,12 @@ function RightRail({
           />
         </dl>
 
-        <div className="mt-5">
-          <Button variant="primary" onClick={onSyncAll} disabled={syncing || total === 0}>
+        <div className="px-4">
+          <Button variant="sync" onClick={onSyncAll} disabled={syncing || total === 0}>
             {syncing ? "Syncing…" : "Sync all"}
           </Button>
         </div>
-        <p className="mt-3 text-[11px] leading-relaxed text-muted">
+        <p className="mx-4 mt-3 mb-4 border-t border-coldline pt-3 text-[10px] leading-relaxed text-muted">
           Edge Index is the full SPEC §6 composite (0.5 × MyEdge + 0.5 × LeagueSoftness); it
           stays pending until a league has enough drafted/played data. The legacy within-league
           Edge Score is kept alongside for reference.

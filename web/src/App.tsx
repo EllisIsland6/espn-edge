@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import Layout from "./components/Layout";
@@ -7,12 +8,22 @@ import TeamDetail from "./pages/TeamDetail";
 import Manage from "./pages/Manage";
 import Status from "./pages/Status";
 
+const Analytics = lazy(() => import("./pages/Analytics"));
+
 const router = createBrowserRouter([
   {
     path: "/",
     element: <Layout />,
     children: [
       { index: true, element: <PortfolioBoard /> },
+      {
+        path: "analytics",
+        element: (
+          <Suspense fallback={<div className="px-4 py-8 text-sm text-secondary">Loading analytics…</div>}>
+            <Analytics />
+          </Suspense>
+        ),
+      },
       { path: "league/:id", element: <LeagueDetail /> },
       { path: "league/:leagueId/teams/:teamId", element: <TeamDetail /> },
       { path: "manage", element: <Manage /> },

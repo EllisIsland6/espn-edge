@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..edge_config import (
@@ -21,6 +21,17 @@ from ..edge_config import (
     EDGE_INDEX_ORDER,
     LEAGUE_SOFTNESS_ORDER,
     MY_EDGE_ORDER,
+    STRATEGY_ANCHOR_WR_THROUGH,
+    STRATEGY_ELITE_TE_THROUGH,
+    STRATEGY_HERO_RB_ONE_RB_THROUGH,
+    STRATEGY_HERO_RB_SECOND_RB_AFTER,
+    STRATEGY_LABELS,
+    STRATEGY_LATE_QB_AFTER,
+    STRATEGY_PRIMARY_PRECEDENCE,
+    STRATEGY_ROBUST_RB_THREE_RB_THROUGH,
+    STRATEGY_ROBUST_RB_TWO_RB_THROUGH,
+    STRATEGY_SECONDARY_PRECEDENCE,
+    STRATEGY_ZERO_RB_NO_RB_THROUGH,
     component_label,
     component_weight,
     edge_index_label,
@@ -86,6 +97,29 @@ _EDGE_INDEX_ALL_KEYS = (
     EDGE_INDEX_SCORE,
     *(EDGE_INDEX_COMPONENT_PREFIX + k for k in EDGE_INDEX_ORDER),
 )
+# Phase 23: draft ADP capture + strategy fingerprints. These are informational
+# metrics and never feed edge_score / Edge Index.
+DRAFT_VALUE_CAPTURE_ESPN = "draft_value_capture_espn"
+DRAFT_VALUE_CAPTURE_FFC = "draft_value_capture_ffc"
+DRAFT_ADP_SOURCE_DISAGREEMENT = "draft_adp_source_disagreement"
+_DRAFT_ADP_KEYS = (
+    DRAFT_VALUE_CAPTURE_ESPN,
+    DRAFT_VALUE_CAPTURE_FFC,
+    DRAFT_ADP_SOURCE_DISAGREEMENT,
+)
+DRAFT_STRATEGY_PREFIX = "draft_strategy_"
+DRAFT_STRATEGY_RANK_PREFIX = "draft_strategy_rank_"
+DRAFT_STRATEGY_TRIGGER_PREFIX = "draft_strategy_trigger_"
+_STRATEGY_SLUGS: dict[str, str] = {
+    label: (
+        label.lower()
+        .replace("/", "_")
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    for label in STRATEGY_LABELS
+}
+_STRATEGY_BY_SLUG = {slug: label for label, slug in _STRATEGY_SLUGS.items()}
 
 # Lifecycles with completed games (record-based edge is meaningful).
 _RECORD_LIFECYCLES = ("in_season", "complete")
@@ -264,6 +298,266 @@ def compute_draft_surplus(picks: list[tuple[float | None, float | None]]) -> flo
         s for adp, overall in picks if (s := pick_surplus(adp, overall)) is not None
     ]
     return round(sum(surpluses), 3) if surpluses else None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 23: ADP value-capture metrics + deterministic draft strategy fingerprints
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class StrategyPick:
+    overall: int | None
+    position: str | None
+    keeper: bool = False
+    autodraft: bool = False
+    espn_player_id: int | None = None
+    player_name: str | None = None
+
+
+@dataclass(frozen=True)
+class StrategyLabelResult:
+    label: str
+    confidence: float
+    trigger_overalls: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class StrategyClassification:
+    primary: StrategyLabelResult
+    secondary: StrategyLabelResult | None
+    excluded_keepers: int
+    valid_picks: int
+
+
+def _strategy_slug(label: str) -> str:
+    return _STRATEGY_SLUGS[label]
+
+
+def _round_equiv(pick: StrategyPick, league_size: int) -> float | None:
+    if pick.overall is None or league_size <= 0:
+        return None
+    return pick.overall / league_size
+
+
+def _positions_through(
+    picks: list[StrategyPick], league_size: int, pos: str, threshold: float
+) -> list[StrategyPick]:
+    return [
+        p
+        for p in picks
+        if p.position == pos
+        and (round_equiv := _round_equiv(p, league_size)) is not None
+        and round_equiv <= threshold
+    ]
+
+
+def _first_pos(
+    picks: list[StrategyPick], league_size: int, pos: str
+) -> tuple[StrategyPick, float] | None:
+    for p in picks:
+        if p.position != pos:
+            continue
+        round_equiv = _round_equiv(p, league_size)
+        if round_equiv is not None:
+            return p, round_equiv
+    return None
+
+
+def _earliest_trigger(label: StrategyLabelResult) -> int:
+    return min(label.trigger_overalls, default=9999)
+
+
+def _best_axis_label(
+    labels: list[StrategyLabelResult], precedence: tuple[str, ...]
+) -> StrategyLabelResult | None:
+    if not labels:
+        return None
+    order = {label: i for i, label in enumerate(precedence)}
+    return sorted(
+        labels,
+        key=lambda item: (-item.confidence, _earliest_trigger(item), order.get(item.label, 99)),
+    )[0]
+
+
+def classify_draft_strategy(
+    picks: list[StrategyPick],
+    *,
+    league_size: int,
+    team_autodrafted: bool = False,
+    auction: bool = False,
+) -> StrategyClassification | None:
+    """Classify one snake draft into SPEC §7's strategy enum.
+
+    Auction drafts are intentionally not classified by this round-equivalent rule set.
+    Keeper picks are excluded from triggers because keeper slots do not represent a
+    market-timed draft choice.
+    """
+    if auction:
+        return None
+    excluded_keepers = sum(1 for p in picks if p.keeper)
+    valid = sorted(
+        [p for p in picks if not p.keeper and p.overall is not None],
+        key=lambda p: p.overall or 9999,
+    )
+    if team_autodrafted or (valid and all(p.autodraft for p in valid)) or not valid:
+        return StrategyClassification(
+            primary=StrategyLabelResult(
+                "Autodraft/Absent",
+                1.0 if team_autodrafted or valid else 0.8,
+                tuple(p.overall for p in valid[:3] if p.overall is not None),
+            ),
+            secondary=None,
+            excluded_keepers=excluded_keepers,
+            valid_picks=len(valid),
+        )
+
+    rb_labels: list[StrategyLabelResult] = []
+    rb_through_zero = _positions_through(
+        valid, league_size, "RB", STRATEGY_ZERO_RB_NO_RB_THROUGH
+    )
+    first_rb = _first_pos(valid, league_size, "RB")
+    if not rb_through_zero:
+        first_rb_round = first_rb[1] if first_rb else STRATEGY_ZERO_RB_NO_RB_THROUGH + 5.0
+        confidence = min(
+            0.95,
+            0.78
+            + max(0.0, first_rb_round - STRATEGY_ZERO_RB_NO_RB_THROUGH) * 0.03,
+        )
+        triggers = [
+            p.overall
+            for p in valid
+            if (round_equiv := _round_equiv(p, league_size)) is not None
+            and round_equiv <= STRATEGY_ZERO_RB_NO_RB_THROUGH
+        ]
+        if first_rb and first_rb[0].overall is not None:
+            triggers.append(first_rb[0].overall)
+        rb_labels.append(
+            StrategyLabelResult(
+                "Zero RB",
+                round(confidence, 2),
+                tuple(t for t in triggers if t is not None),
+            )
+        )
+
+    rb_through_hero = _positions_through(
+        valid, league_size, "RB", STRATEGY_HERO_RB_ONE_RB_THROUGH
+    )
+    rb_picks = [
+        (p, r)
+        for p in valid
+        if p.position == "RB" and (r := _round_equiv(p, league_size)) is not None
+    ]
+    second_rb_round = rb_picks[1][1] if len(rb_picks) >= 2 else None
+    if len(rb_through_hero) == 1 and (
+        second_rb_round is None or second_rb_round > STRATEGY_HERO_RB_SECOND_RB_AFTER
+    ):
+        first_round = (
+            _round_equiv(rb_through_hero[0], league_size)
+            or STRATEGY_HERO_RB_ONE_RB_THROUGH
+        )
+        confidence = min(
+            0.92,
+            0.78 + max(0.0, STRATEGY_HERO_RB_ONE_RB_THROUGH - first_round) * 0.025,
+        )
+        triggers = [rb_through_hero[0].overall]
+        if len(rb_picks) >= 2:
+            triggers.append(rb_picks[1][0].overall)
+        rb_labels.append(
+            StrategyLabelResult(
+                "Hero RB",
+                round(confidence, 2),
+                tuple(t for t in triggers if t is not None),
+            )
+        )
+
+    rb_through_six = _positions_through(
+        valid, league_size, "RB", STRATEGY_ROBUST_RB_THREE_RB_THROUGH
+    )
+    rb_through_three = _positions_through(
+        valid, league_size, "RB", STRATEGY_ROBUST_RB_TWO_RB_THROUGH
+    )
+    if len(rb_through_six) >= 3 or len(rb_through_three) >= 2:
+        confidence = 0.82 if len(rb_through_three) >= 2 else 0.78
+        trigger_source = (
+            rb_through_three[:2] if len(rb_through_three) >= 2 else rb_through_six[:3]
+        )
+        triggers = [p.overall for p in trigger_source]
+        rb_labels.append(
+            StrategyLabelResult(
+                "Robust RB", confidence, tuple(t for t in triggers if t is not None)
+            )
+        )
+
+    primary = _best_axis_label(rb_labels, STRATEGY_PRIMARY_PRECEDENCE)
+    if primary is None:
+        primary = StrategyLabelResult(
+            "Balanced/BPA",
+            0.55,
+            tuple(p.overall for p in valid[:3] if p.overall is not None),
+        )
+
+    timing_labels: list[StrategyLabelResult] = []
+    first_te = _first_pos(valid, league_size, "TE")
+    if first_te and first_te[1] <= STRATEGY_ELITE_TE_THROUGH:
+        confidence = min(
+            0.9, 0.76 + max(0.0, STRATEGY_ELITE_TE_THROUGH - first_te[1]) * 0.03
+        )
+        timing_labels.append(
+            StrategyLabelResult("Elite TE", round(confidence, 2), (first_te[0].overall,))
+        )
+    first_qb = _first_pos(valid, league_size, "QB")
+    if first_qb is None or first_qb[1] > STRATEGY_LATE_QB_AFTER:
+        confidence = 0.76 if first_qb else 0.68
+        triggers = (
+            (first_qb[0].overall,)
+            if first_qb and first_qb[0].overall is not None
+            else ()
+        )
+        timing_labels.append(StrategyLabelResult("Late-Round QB", confidence, triggers))
+    first_pick = valid[0]
+    wr_through_anchor = _positions_through(valid, league_size, "WR", STRATEGY_ANCHOR_WR_THROUGH)
+    if first_pick.position == "WR" and len(wr_through_anchor) >= 3:
+        timing_labels.append(
+            StrategyLabelResult(
+                "Anchor WR",
+                0.8,
+                tuple(p.overall for p in wr_through_anchor[:3] if p.overall is not None),
+            )
+        )
+
+    secondary = _best_axis_label(timing_labels, STRATEGY_SECONDARY_PRECEDENCE)
+    return StrategyClassification(
+        primary=primary,
+        secondary=secondary,
+        excluded_keepers=excluded_keepers,
+        valid_picks=len(valid),
+    )
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 3) if values else None
+
+
+def compute_adp_value_capture(
+    picks: list[tuple[float | None, float | None, float | None]]
+) -> tuple[float | None, float | None, float | None]:
+    """Mean value deltas for ESPN draft-time ADP, FFC current market ADP, and their
+    absolute disagreement. Tuple = (espn_mean, ffc_mean, disagreement_mean)."""
+    espn = [
+        value_delta
+        for value_delta, _ffc_delta, _disagreement in picks
+        if value_delta is not None
+    ]
+    ffc = [
+        ffc_delta
+        for _value_delta, ffc_delta, _disagreement in picks
+        if ffc_delta is not None
+    ]
+    disagree = [
+        disagreement
+        for _value_delta, _ffc_delta, disagreement in picks
+        if disagreement is not None
+    ]
+    return _mean_or_none(espn), _mean_or_none(ffc), _mean_or_none(disagree)
 
 
 def compute_edge_scores(
@@ -966,6 +1260,8 @@ def recompute_league(
         )
         for t in teams
     ])
+    draft_adp_map = _draft_adp_capture_by_team(session, league)
+    strategy_map = _draft_strategy_by_team(session, league, teams)
 
     scored = 0
     for stat in stats:
@@ -986,6 +1282,17 @@ def recompute_league(
         _upsert_or_clear(
             session, league.id, stat.team_id, DRAFT_SURPLUS, surplus_map.get(stat.team_id)
         )
+        adp_capture = draft_adp_map.get(stat.team_id, (None, None, None))
+        _upsert_or_clear(
+            session, league.id, stat.team_id, DRAFT_VALUE_CAPTURE_ESPN, adp_capture[0]
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, DRAFT_VALUE_CAPTURE_FFC, adp_capture[1]
+        )
+        _upsert_or_clear(
+            session, league.id, stat.team_id, DRAFT_ADP_SOURCE_DISAGREEMENT, adp_capture[2]
+        )
+        _persist_strategy(session, league.id, stat.team_id, strategy_map.get(stat.team_id))
         # Phase 12: all-play + luck (cleared for a team with no completed all-play sample).
         ap = all_play_map.get(stat.team_id)
         has_sample = ap is not None and ap.all_play_win_pct is not None
@@ -1083,6 +1390,135 @@ def _draft_surplus_by_team(session: Session, league_id: int) -> dict[int, float 
     for tid, adp, overall in rows:
         by_team.setdefault(tid, []).append((adp, overall))
     return {tid: compute_draft_surplus(picks) for tid, picks in by_team.items()}
+
+
+def _draft_adp_capture_by_team(
+    session: Session, league: League
+) -> dict[int, tuple[float | None, float | None, float | None]]:
+    """Per-team mean ADP deltas.
+
+    ESPN value_delta is draft-time ADP (already stamped at sync). FFC is current
+    market ADP from the latest ingested snapshot. Auction leagues and keeper picks
+    are excluded because pick-number deltas are not comparable there.
+    """
+    if (league.draft_type or "").upper() == "AUCTION":
+        return {}
+    rows = session.execute(
+        select(
+            DraftPick.team_id,
+            DraftPick.value_delta,
+            DraftPick.adp_at_draft,
+            DraftPick.overall,
+            Player.ffc_adp,
+        )
+        .join(Player, Player.espn_player_id == DraftPick.espn_player_id, isouter=True)
+        .where(
+            DraftPick.league_id == league.id,
+            DraftPick.team_id.is_not(None),
+            DraftPick.keeper.is_(False),
+            DraftPick.overall.is_not(None),
+        )
+    ).all()
+    by_team: dict[int, list[tuple[float | None, float | None, float | None]]] = {}
+    for team_id, espn_delta, espn_adp, overall, ffc_adp in rows:
+        ffc_delta = (round(float(ffc_adp) - float(overall), 1) if ffc_adp is not None else None)
+        disagreement = (
+            abs(float(espn_adp) - float(ffc_adp))
+            if espn_adp is not None and ffc_adp is not None
+            else None
+        )
+        by_team.setdefault(team_id, []).append((espn_delta, ffc_delta, disagreement))
+    return {team_id: compute_adp_value_capture(picks) for team_id, picks in by_team.items()}
+
+
+def _draft_strategy_by_team(
+    session: Session, league: League, teams: list[Team]
+) -> dict[int, StrategyClassification | None]:
+    """Classify every team in one league. Auction leagues return pending/None."""
+    if (league.draft_type or "").upper() == "AUCTION":
+        return {team.id: None for team in teams}
+    rows = session.execute(
+        select(
+            DraftPick.team_id,
+            DraftPick.overall,
+            DraftPick.keeper,
+            DraftPick.autodraft,
+            DraftPick.espn_player_id,
+            Player.name,
+            Player.position,
+        )
+        .join(Player, Player.espn_player_id == DraftPick.espn_player_id, isouter=True)
+        .where(DraftPick.league_id == league.id, DraftPick.team_id.is_not(None))
+        .order_by(DraftPick.overall)
+    ).all()
+    by_team: dict[int, list[StrategyPick]] = {team.id: [] for team in teams}
+    for team_id, overall, keeper, autodraft, player_id, name, position in rows:
+        by_team.setdefault(team_id, []).append(
+            StrategyPick(
+                overall=overall,
+                position=position,
+                keeper=bool(keeper),
+                autodraft=bool(autodraft),
+                espn_player_id=player_id,
+                player_name=name,
+            )
+        )
+    team_by_id = {team.id: team for team in teams}
+    league_size = int(league.size or max(len(teams), 1))
+    out: dict[int, StrategyClassification | None] = {}
+    for team_id, picks in by_team.items():
+        if not picks:
+            out[team_id] = None
+            continue
+        out[team_id] = classify_draft_strategy(
+            picks,
+            league_size=league_size,
+            team_autodrafted=bool(team_by_id[team_id].autodrafted),
+            auction=False,
+        )
+    return out
+
+
+def _clear_strategy_rows(session: Session, league_id: int, team_id: int) -> None:
+    session.execute(
+        delete(Metric).where(
+            Metric.league_id == league_id,
+            Metric.team_id == team_id,
+            Metric.week.is_(None),
+            Metric.key.startswith(DRAFT_STRATEGY_PREFIX),
+        )
+    )
+
+
+def _persist_strategy(
+    session: Session,
+    league_id: int,
+    team_id: int,
+    strategy: StrategyClassification | None,
+) -> None:
+    """Persist selected primary/secondary labels + ranks + trigger pick overalls."""
+    _clear_strategy_rows(session, league_id, team_id)
+    if strategy is None:
+        return
+    labels = [(strategy.primary, 1.0)]
+    if strategy.secondary is not None:
+        labels.append((strategy.secondary, 2.0))
+    for label, rank in labels:
+        slug = _strategy_slug(label.label)
+        _upsert_or_clear(
+            session, league_id, team_id, DRAFT_STRATEGY_PREFIX + slug, label.confidence
+        )
+        _upsert_or_clear(
+            session, league_id, team_id, DRAFT_STRATEGY_RANK_PREFIX + slug, rank
+        )
+        for i, overall in enumerate(label.trigger_overalls[:5], start=1):
+            _upsert_or_clear(
+                session,
+                league_id,
+                team_id,
+                f"{DRAFT_STRATEGY_TRIGGER_PREFIX}{slug}_{i}",
+                float(overall),
+            )
 
 
 def _roster_projection_by_team(session: Session, league_id: int) -> dict[int, float]:
@@ -1377,3 +1813,74 @@ def team_edge_index(session: Session, league_id: int, team_id: int | None) -> Te
         )
     )
     return TeamEdgeIndex(score, grade_for(score), verdict_for(score))
+
+
+@dataclass
+class DraftStrategyReadRow:
+    team_id: int
+    primary_label: str
+    primary_confidence: float
+    secondary_label: str | None
+    secondary_confidence: float | None
+    triggers: dict[str, list[int]]
+
+
+def _label_from_strategy_key(key: str, prefix: str) -> str | None:
+    rest = key.removeprefix(prefix)
+    if prefix == DRAFT_STRATEGY_TRIGGER_PREFIX:
+        rest = rest.rsplit("_", 1)[0]
+    return _STRATEGY_BY_SLUG.get(rest)
+
+
+def read_draft_strategies(session: Session, league_id: int) -> list[DraftStrategyReadRow]:
+    """Read persisted draft strategy labels, ordered by primary rank then team id.
+
+    Reconstructs primary/secondary from `draft_strategy_rank_<label>` rows; no
+    classification is performed here.
+    """
+    rows = session.execute(
+        select(Metric.team_id, Metric.key, Metric.value_float).where(
+            Metric.league_id == league_id,
+            Metric.key.startswith(DRAFT_STRATEGY_PREFIX),
+            Metric.week.is_(None),
+        )
+    ).all()
+    by_team: dict[int, dict[str, float]] = {}
+    for team_id, key, value in rows:
+        if team_id is not None and value is not None:
+            by_team.setdefault(team_id, {})[key] = value
+
+    out: list[DraftStrategyReadRow] = []
+    for team_id, data in by_team.items():
+        ranks: list[tuple[float, str, float]] = []
+        triggers: dict[str, list[int]] = {}
+        for key, value in data.items():
+            if key.startswith(DRAFT_STRATEGY_RANK_PREFIX):
+                label = _label_from_strategy_key(key, DRAFT_STRATEGY_RANK_PREFIX)
+                if label is not None:
+                    confidence = data.get(DRAFT_STRATEGY_PREFIX + _strategy_slug(label))
+                    if confidence is not None:
+                        ranks.append((value, label, confidence))
+            elif key.startswith(DRAFT_STRATEGY_TRIGGER_PREFIX):
+                label = _label_from_strategy_key(key, DRAFT_STRATEGY_TRIGGER_PREFIX)
+                if label is not None:
+                    triggers.setdefault(label, []).append(int(value))
+        ranks.sort(key=lambda item: (item[0], -item[2], item[1]))
+        if not ranks:
+            continue
+        primary = ranks[0]
+        secondary = ranks[1] if len(ranks) > 1 else None
+        for values in triggers.values():
+            values.sort()
+        out.append(
+            DraftStrategyReadRow(
+                team_id=team_id,
+                primary_label=primary[1],
+                primary_confidence=primary[2],
+                secondary_label=secondary[1] if secondary else None,
+                secondary_confidence=secondary[2] if secondary else None,
+                triggers=triggers,
+            )
+        )
+    out.sort(key=lambda row: row.team_id)
+    return out

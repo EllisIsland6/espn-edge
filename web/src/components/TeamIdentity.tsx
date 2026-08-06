@@ -37,7 +37,7 @@ export function TeamAvatar({
   }[size];
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-rowhover font-semibold text-muted ${dimensions}`}
+      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-coldline bg-coldpanel font-semibold text-icesoft ${dimensions}`}
       title={label}
       data-testid="team-avatar"
     >
@@ -74,7 +74,7 @@ export function TeamIdentity({
   return (
     <span className="flex min-w-0 items-center gap-2">
       <TeamAvatar name={name} logoUrl={team?.logo_url ?? null} size={size} />
-      <span className={`min-w-0 truncate ${team?.is_me ? "font-semibold" : ""} ${tone}`}>
+      <span className={`display-face min-w-0 truncate tracking-tight ${team?.is_me ? "font-bold" : "font-semibold"} ${tone}`}>
         {name}
         {showMe && team?.is_me && <span className="text-red"> ·me</span>}
       </span>

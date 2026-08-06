@@ -414,3 +414,337 @@ class PortfolioSummary(BaseModel):
     scored_count: int
     best_edge_score: float | None = None
     worst_edge_score: float | None = None
+
+
+# ---- Phase 23 portfolio draft analytics -----------------------------------
+class ExposureLeagueBreakdownOut(BaseModel):
+    league_id: int
+    league_name: str | None
+    team_id: int
+    team_name: str | None
+    overall: int | None
+    round: int | None
+    round_pick: int | None
+    draft_type: str | None
+    keeper: bool
+
+
+class PlayerExposureOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    rostered_teams: int
+    teams_in_scope: int
+    exposure_pct: float
+    share: str
+    rostered_leagues: int
+    leagues_in_scope: int
+    league_exposure_pct: float
+    league_share: str
+    my_rostered_teams: int
+    my_teams_in_scope: int
+    my_rostered_leagues: int
+    my_leagues_in_scope: int
+    my_exposure_pct: float
+    my_share: str
+    field_rostered_teams: int
+    field_teams_in_scope: int
+    field_rostered_leagues: int
+    field_leagues_in_scope: int
+    field_exposure_pct: float
+    field_share: str
+    field_slot_pct: float
+    field_slot_share: str
+    leverage_pp: float
+    avg_overall: float | None
+    min_overall: int | None
+    max_overall: int | None
+    avg_pick_value: float | None
+    auction_rosters: int
+    leagues: list[ExposureLeagueBreakdownOut]
+
+
+class ExposureCoverageOut(BaseModel):
+    league_count: int
+    teams_in_scope: int
+    my_teams_in_scope: int
+    field_teams_in_scope: int
+    auction_teams: int
+    auction_picks: int
+    keeper_picks: int
+    pick_value_picks: int
+    pre_draft_leagues_excluded: int
+    notes: list[str] = Field(default_factory=list)
+
+
+class PositionSpendOut(BaseModel):
+    position: str
+    pick_count: int
+    pick_value: float
+    pick_value_pct: float
+    total_pick_value: float
+    field_pick_count: int
+    field_pick_value: float
+    field_pick_value_pct: float
+    field_total_pick_value: float
+    leverage_pp: float
+
+
+class RoundFingerprintOut(BaseModel):
+    bucket: str
+    position: str
+    pick_count: int
+    picks_per_team: float
+    pick_pct: float
+    bucket_picks: int
+    field_pick_count: int
+    field_picks_per_team: float
+    field_pick_pct: float
+    field_bucket_picks: int
+    leverage_pp: float
+
+
+class NflTeamConcentrationOut(BaseModel):
+    nfl_team: str
+    rostered_teams: int
+    teams_in_scope: int
+    exposure_pct: float
+    share: str
+    teams_with_player: int
+    player_team_instances: int
+    penetration_pct: float
+    penetration_share: str
+    players_per_team: float
+    players_per_team_share: str
+
+
+class CoreDartOut(BaseModel):
+    core_players: int
+    dart_players: int
+    core_definition: str
+    dart_definition: str
+
+
+class ExposureLeverageHeadlineOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    exposure_pct: float
+    field_exposure_pct: float
+    leverage_pp: float
+    share: str
+    field_share: str
+    field_slot_pct: float
+    field_slot_share: str
+
+
+class PositionalCapitalHeadlineOut(BaseModel):
+    position: str
+    pick_value_pct: float
+    field_pick_value_pct: float
+    leverage_pp: float
+    pick_count: int
+    field_pick_count: int
+
+
+class MarketMoveHeadlineOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    draft_time_adp: float
+    current_ffc_adp: float
+    market_move: float
+    market_move_abs: float
+    market_move_label: str
+    exposure_pct: float
+    share: str
+
+
+class ExposureViewOut(BaseModel):
+    row_count: int
+    default_sort: str
+
+
+class ExposureViewsOut(BaseModel):
+    rostered: ExposureViewOut
+    field_owned: ExposureViewOut
+    all: ExposureViewOut
+
+
+class ExposureHeadlinesOut(BaseModel):
+    highest_leverage: ExposureLeverageHeadlineOut | None
+    most_underowned: ExposureLeverageHeadlineOut | None
+    positional_capital_vs_field: PositionalCapitalHeadlineOut | None
+    most_concentrated_nfl_team: NflTeamConcentrationOut | None
+    largest_market_move: MarketMoveHeadlineOut | None
+
+
+class PortfolioExposureOut(BaseModel):
+    scope: Literal["me", "opponents"]
+    season: int
+    teams_in_scope: int
+    coverage: ExposureCoverageOut
+    headlines: ExposureHeadlinesOut
+    views: ExposureViewsOut
+    players: list[PlayerExposureOut]
+    positional_spend: list[PositionSpendOut]
+    round_fingerprint: list[RoundFingerprintOut]
+    nfl_team_concentration: list[NflTeamConcentrationOut]
+    core_dart: CoreDartOut
+
+
+class DraftAdpCoverageOut(BaseModel):
+    teams_in_scope: int
+    auction_teams: int
+    keeper_picks: int
+    eligible_picks: int
+    picks_with_espn_adp: int
+    picks_with_ffc_adp: int
+    picks_without_espn_adp: int
+    picks_without_ffc_adp: int
+    ffc_matched_players: int
+    ffc_unmatched_players: int
+    ffc_snapshot_excluded_players: int
+    ffc_resolution_failures: int
+    notes: list[str] = Field(default_factory=list)
+
+
+class FfcSourceSetOut(BaseModel):
+    requested_format: str
+    requested_teams: int
+    used_format: str
+    used_teams: int
+    year: int
+    exact_match: bool
+    pulled_at: datetime | None
+    stale: bool
+
+
+class DraftAdpTeamOut(BaseModel):
+    league_id: int
+    league_name: str | None
+    team_id: int
+    team_name: str | None
+    draft_type: str | None
+    draft_value_capture_espn: float | None
+    draft_value_capture_ffc: float | None
+    draft_adp_source_disagreement: float | None
+    draft_value_capture_espn_portfolio_median: float | None
+    draft_value_capture_espn_vs_portfolio_median: float | None
+    draft_value_capture_ffc_portfolio_median: float | None
+    draft_value_capture_ffc_vs_portfolio_median: float | None
+    draft_adp_source_disagreement_portfolio_median: float | None
+    draft_adp_source_disagreement_vs_portfolio_median: float | None
+
+
+class DraftAdpBucketOut(BaseModel):
+    source: Literal["espn", "ffc"]
+    source_label: str
+    bucket: str
+    avg_delta: float | None
+    picks_with_adp: int
+    eligible_picks: int
+    portfolio_median_delta: float | None
+    portfolio_p25_delta: float | None
+    portfolio_p75_delta: float | None
+    mean_percentile: float | None
+
+
+class DraftAdpPickOut(BaseModel):
+    source: Literal["espn", "ffc"]
+    source_label: str
+    league_id: int
+    league_name: str | None
+    team_id: int
+    team_name: str | None
+    espn_player_id: int | None
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    overall: int | None
+    round: int | None
+    adp: float | None
+    delta: float
+    draft_type: str | None
+
+
+class DraftAdpUnmatchedPlayerOut(BaseModel):
+    espn_player_id: int | None
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    reason: Literal["not_in_snapshot", "missing_adp", "resolution_failed"]
+
+
+class PortfolioDraftAdpOut(BaseModel):
+    season: int
+    teams_in_scope: int
+    coverage: DraftAdpCoverageOut
+    source_sets: list[FfcSourceSetOut]
+    teams: list[DraftAdpTeamOut]
+    by_round: list[DraftAdpBucketOut]
+    by_position: list[DraftAdpBucketOut]
+    biggest_values: list[DraftAdpPickOut]
+    biggest_reaches: list[DraftAdpPickOut]
+    unmatched_players: list[DraftAdpUnmatchedPlayerOut]
+
+
+class StrategyCoverageOut(BaseModel):
+    teams_in_scope: int
+    qualifying_teams: int
+    auction_teams: int
+    keeper_picks: int
+    missing_strategy_teams: int
+    notes: list[str] = Field(default_factory=list)
+
+
+class StrategyDistributionOut(BaseModel):
+    label: str
+    count: int
+    pct: float
+
+
+class StrategyEdgeSummaryOut(BaseModel):
+    label: str
+    mean_edge_index_score: float | None
+    mean_edge_index_score_unrounded: float | None
+    stddev_edge_index_score: float | None
+    ci95_low: float | None
+    ci95_high: float | None
+    teams_with_edge_index: int
+
+
+class StrategyTriggerPickOut(BaseModel):
+    overall: int
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+
+
+class StrategyTeamOut(BaseModel):
+    league_id: int
+    league_name: str | None
+    team_id: int
+    team_name: str | None
+    draft_type: str | None
+    primary_label: str
+    primary_confidence: float
+    secondary_label: str | None
+    secondary_confidence: float | None
+    edge_index_score: float | None
+    triggering_picks: dict[str, list[StrategyTriggerPickOut]]
+
+
+class PortfolioStrategiesOut(BaseModel):
+    season: int
+    teams_in_scope: int
+    coverage: StrategyCoverageOut
+    primary_distribution: list[StrategyDistributionOut]
+    secondary_distribution: list[StrategyDistributionOut]
+    mean_edge_index_by_primary: list[StrategyEdgeSummaryOut]
+    comparison_note: str
+    uncertainty_note: str
+    teams: list[StrategyTeamOut]

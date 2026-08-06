@@ -153,19 +153,6 @@ export default function Status() {
           />
         </div>
       )}
-
-      <p className="mt-6 text-[11px] leading-relaxed text-muted">
-        ADP and projections use ESPN&apos;s own data, cross-checked against{" "}
-        <a
-          href="https://fantasyfootballcalculator.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-secondary hover:text-primary"
-        >
-          Fantasy Football Calculator
-        </a>{" "}
-        (free ADP API, used with attribution per SPEC §2.9).
-      </p>
     </div>
   );
 }

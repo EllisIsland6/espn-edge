@@ -63,6 +63,10 @@ class AnthropicLlmClient:
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 output_format=schema,
+                # These are short, grounded classifications. Sonnet 5 otherwise enables
+                # adaptive thinking by default, which shares this output-token budget and
+                # can consume it before the structured text block is emitted.
+                thinking={"type": "disabled"},
             )
         except anthropic.APIError as exc:
             log.warning("anthropic API error: %s", type(exc).__name__)
@@ -76,7 +80,17 @@ class AnthropicLlmClient:
 
         parsed = getattr(resp, "parsed_output", None)
         if parsed is None:
-            log.warning("anthropic returned no parsed output")
+            stop_reason = getattr(resp, "stop_reason", None)
+            content_types = [
+                getattr(block, "type", "unknown") for block in getattr(resp, "content", [])
+            ]
+            log.warning(
+                "anthropic returned no parsed output (stop_reason=%s, content_types=%s)",
+                stop_reason,
+                content_types,
+            )
+            if stop_reason == "max_tokens":
+                raise AiError("model response reached its output token limit; try again")
             raise AiError("model returned no parsed output")
         try:
             return parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else dict(parsed)

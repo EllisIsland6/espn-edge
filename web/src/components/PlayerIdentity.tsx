@@ -19,25 +19,45 @@ function initials(name: string): string {
 export function PlayerAvatar({
   player,
   size = "sm",
+  variant = "avatar",
 }: {
   player: PlayerReference;
   size?: "xs" | "sm" | "md";
+  variant?: "avatar" | "portrait";
 }) {
   const src = espnPlayerImageUrl(player.espn_player_id);
   const [imageFailed, setImageFailed] = useState(false);
   useEffect(() => setImageFailed(false), [src]);
   const defense = (player.espn_player_id ?? 0) < 0;
-  const dimensions = {
-    xs: "h-6 w-6 text-[9px]",
-    sm: "h-11 w-11 text-xs",
-    md: "h-14 w-14 text-sm",
-  }[size];
+  const dimensions = variant === "portrait"
+    ? {
+        xs: "h-10 w-12 text-[9px]",
+        sm: "h-14 w-16 text-xs",
+        md: "h-16 w-20 text-sm",
+      }[size]
+    : {
+        xs: "h-6 w-6 text-[9px]",
+        sm: "h-11 w-11 text-xs",
+        md: "h-14 w-14 text-sm",
+      }[size];
+  const frame = variant === "portrait"
+    ? "rounded-none border-transparent bg-transparent"
+    : "rounded-full border-line bg-rowhover";
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-rowhover font-semibold text-muted ${dimensions}`}
+      className={`relative inline-flex shrink-0 items-end justify-center overflow-hidden border font-semibold text-muted ${frame} ${dimensions}`}
       title={player.name}
     >
-      {(!src || imageFailed) && <span aria-hidden="true">{initials(player.name)}</span>}
+      {(!src || imageFailed) && (
+        <span
+          aria-hidden="true"
+          className={variant === "portrait"
+            ? "mb-1 inline-flex aspect-square h-9 items-center justify-center rounded-full border border-line bg-rowhover"
+            : ""}
+        >
+          {initials(player.name)}
+        </span>
+      )}
       {src && (
         <img
           src={src}
@@ -45,7 +65,13 @@ export function PlayerAvatar({
           loading="lazy"
           referrerPolicy="no-referrer"
           decoding="async"
-          className={`absolute inset-0 h-full w-full ${imageFailed ? "hidden" : ""} ${defense ? "object-contain p-1" : "object-cover object-top"}`}
+          className={`absolute inset-0 h-full w-full ${imageFailed ? "hidden" : ""} ${
+            variant === "portrait"
+              ? `object-contain object-bottom ${defense ? "p-2" : ""}`
+              : defense
+                ? "object-contain p-1"
+                : "object-cover object-top"
+          }`}
           onError={() => setImageFailed(true)}
         />
       )}

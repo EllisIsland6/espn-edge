@@ -31,7 +31,69 @@
   Phase 19 v1 (AI weekly recap grounded on all-play, luck & waivers),
   Phase 20 v1 (weekly recap panel in the AI Brief),
   Phase 21 v1 (Trade Finder panel in the AI Brief),
-  Phase 22 v1 (Trade Finder grounding on roster snapshots) implemented.
+  Phase 22 v1 (Trade Finder grounding on roster snapshots),
+  Phase 23 v1 (Portfolio Draft Analytics backend foundation),
+  Phase 24 v1 (Analytics UI + exports),
+  Phase 25 v1 (Analytics correctness + leverage),
+  Phase 26 v1 (Leverage normalization) implemented.
+- Phase 23: backend draft analytics foundation. New read-only endpoints:
+  GET /api/portfolio/exposure, /api/portfolio/draft-adp,
+  /api/portfolio/strategies, all using shared portfolio filters (season/account_id/Edge
+  Index verdict) and returning denominator + coverage blocks. exposure.py aggregates my
+  players and opponents across drafted leagues, includes auction teams for ownership
+  exposure, excludes auction pick-number math from pick-value rollups, and reports
+  positional spend, percentile-of-draft fingerprint, NFL-team concentration, and core/dart.
+  ffc_adp.py adds Fantasy Football Calculator current-market ADP ingestion: one host in
+  config, 24h TTL, deduped (format,teams,year) pulls, adp_snapshots(source='ffc') with
+  pulled_at, exact/fallback metadata, normalized ESPN↔FFC matching (suffix/punctuation/DST),
+  and unmatched reporting; page reads never fetch live. metrics.py adds separate informational
+  keys draft_value_capture_espn ("vs. draft-time ADP"), draft_value_capture_ffc ("vs. current
+  market ADP"), draft_adp_source_disagreement, plus deterministic draft_strategy_* confidence,
+  draft_strategy_rank_*, and draft_strategy_trigger_* rows; strategy rows clear/rewrite on
+  recompute. Strategy precedence: Autodraft/Absent wins; primary RB axis Zero/Hero/Robust RB
+  else Balanced/BPA; secondary timing axis Elite TE/Late-Round QB/Anchor WR; same-axis tie =
+  highest confidence then earliest trigger. Auction teams excluded from ADP means/classifier;
+  keepers excluded from ADP means/triggers. No schema/reset, no ESPN access change, no AI→metrics,
+  no Edge/Index/grade/verdict/playoff semantics change. Contract:
+  docs/phase-23-draft-analytics.md; current DB sanity table:
+  docs/phase-23-strategy-sanity.md.
+- Phase 24: `/analytics` route/nav with typed Phase 23 clients, DataTable exposure and
+  expandable league breakdowns, Recharts draft fingerprint + strategy distribution,
+  complete zero-count strategy legends, distinct ESPN draft-time vs FFC current-market
+  labels/pulled_at, coverage/empty/stale/low-sample states, and descriptive-not-causal
+  strategy/Edge copy. FFC attribution moved to Layout's global footer. Exports add
+  exposure/draft-adp/strategies CSV endpoints, matching master-XLSX sheets, and exposure/
+  draft_adp/strategies keys in portfolio.json via shared row fields. Playwright mocks all
+  three `/api/portfolio/*` endpoints and covers desktop/mobile. No schema/reset, React
+  analytics math, ESPN access, or existing metric changes. Contract:
+  docs/phase-24-analytics-ui.md.
+- Phase 25: analytics correctness + leverage. exposure.py splits NFL team concentration
+  into capped team penetration (`teams_with_player / teams_in_scope`) and players-per-team
+  rate (`player_team_instances / teams_in_scope`), adds my-vs-local-field player exposure
+  fields (`my_exposure_pct`, `field_exposure_pct`, signed `leverage_pp`) and server-computed
+  `headlines`. The field denominator is opponent teams in my synced leagues, not the full
+  ESPN population. Positional spend and draft fingerprint rows carry field comparisons;
+  fingerprint UI defaults to small multiples and Playwright asserts the `100%` axis tick.
+  draft_analytics.py adds ADP bucket spread markers and team-vs-portfolio-median fields;
+  strategy summaries now include unrounded mean, stddev, and 95% CI. Current DB Hero RB
+  mean 47.325 and Robust RB mean 47.34838709677419 round to the same one-decimal `47.3`;
+  intervals overlap, so this is documented as a genuine rounding coincidence. Analytics
+  rows link through to league/team detail, and strategy donut/legend filters classifications.
+  Exports add exposure leverage/ADP median columns plus XLSX headline/rollup sheets. No
+  schema/reset, ESPN access, React analytics math, or Phase 9-17 metric semantic changes.
+  Contract: docs/phase-25-analytics-leverage.md.
+- Phase 26: leverage normalization. `field_exposure_pct` now counts drafted leagues where
+  at least one opponent rosters the player divided by drafted leagues in scope, matching
+  `my_exposure_pct`'s league denominator; the old opponent-team intensity is preserved as
+  `field_slot_pct` / `field_slot_share`. The exposure table defaults to the rostered view,
+  adds a field-owned zero-exposure view with row counts, and keeps All players available.
+  Headlines add `most_underowned`; largest market move is neutral directional wording and
+  requires at least 5% exposure. Draft fingerprint rows include all 0-100 percentile buckets
+  for every position. Exports add the new row fields, CSV `view=`, and XLSX sheets for
+  `Exposure Rostered`, `Exposure Field Owns`, and `Exposure All`. LAC/JAX both penetrate
+  `100 / 114` teams, but differ in instances (`182 / 114` vs `161 / 114`), so the 87.7%
+  match is a coincidence. No schema/reset, ESPN access, React analytics math, or Phase
+  9-17 metric semantic changes. Contract: docs/phase-26-leverage-normalization.md.
 - Phase 22: ai_inputs.trade_finder_input regrounded — the latest lineup_slots week BOTH teams
   share (joined Player, proj_ros; never mixes weeks; dedup by player id; keeps missing-Player
   rows), else a labeled drafted_roster fallback (DraftPick⨝Player), else source="none". Facts
@@ -211,8 +273,9 @@
   input_hash in ai_reports, grounded on DB facts only. Models: standard=claude-sonnet-5,
   bulk=claude-haiku-4-5 (ai_config.py). Contract: docs/phase-4-ai.md. Never log/return the key.
 - Web stack: React+Vite+TS, Tailwind v4 (tokens in src/tokens.css @theme), TanStack
-  Table (src/components/DataTable.tsx), react-router. Pages: PortfolioBoard, LeagueDetail
-  (tabs), Manage. All data from the read-only /api view endpoints; no math in components.
+  Table (src/components/DataTable.tsx), Recharts, react-router. Pages: PortfolioBoard,
+  Analytics, LeagueDetail (tabs), Manage, Status. All data from the read-only /api view
+  endpoints; no math in components.
 - `make dev` runs api (uvicorn) + web (vite) natively with hot reload; docker-compose is provided for parity but not required.
 - Verify CLI: `python -m api.verify --league <id> [--season 2026] [--cross-check] [--label main]`. Public-first, falls back to cookies from ESPN_SWID/ESPN_S2 (.env) or hidden prompt — never argv.
 - Layout: /api (FastAPI), /web (Vite+React+TS), /data (SQLite + raw_cache), /tests (fixtures + unit tests).

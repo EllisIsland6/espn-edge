@@ -417,7 +417,7 @@ export default function TeamDetail() {
             <span>· synced {relTime(league.last_synced_at)}</span>
           </div>
         </div>
-        <Button variant="primary" onClick={() => void sync()} disabled={syncing}>
+        <Button variant="sync" onClick={() => void sync()} disabled={syncing}>
           {syncing ? "Syncing…" : "Sync now"}
         </Button>
       </div>

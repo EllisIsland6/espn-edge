@@ -1,0 +1,39 @@
+{
+  "players": [
+    {
+      "player_id": 9001,
+      "name": "Bijan Robinson",
+      "position": "RB",
+      "team": "ATL",
+      "adp": 2.2
+    },
+    {
+      "player_id": 9002,
+      "name": "Amon-Ra St. Brown",
+      "position": "WR",
+      "team": "DET",
+      "adp": 7.4
+    },
+    {
+      "player_id": 9003,
+      "name": "Patrick Mahomes",
+      "position": "QB",
+      "team": "KC",
+      "adp": 31.0
+    },
+    {
+      "player_id": 9004,
+      "name": "Broncos",
+      "position": "DEF",
+      "team": "DEN",
+      "adp": 145.0
+    },
+    {
+      "player_id": 9005,
+      "name": "Eddy Piñeiro",
+      "position": "PK",
+      "team": "SF",
+      "adp": 157.5
+    }
+  ]
+}

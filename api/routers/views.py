@@ -6,6 +6,8 @@ metric fields are returned null until then. No ESPN traffic in this router.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,12 +29,17 @@ from ..schemas import (
     MetricMomentumOut,
     MyEdgeComponentOut,
     MyEdgeOut,
+    PortfolioDraftAdpOut,
+    PortfolioExposureOut,
     PortfolioRow,
+    PortfolioStrategiesOut,
     PortfolioSummary,
     TeamDetailOut,
     TeamOut,
     TransactionOut,
 )
+from ..services.draft_analytics import build_draft_adp, build_strategies
+from ..services.exposure import build_exposure
 from ..services.metrics import (
     read_all_play,
     read_edge_index,
@@ -45,6 +52,7 @@ from ..services.metrics import (
 from ..services.momentum import EDGE_SCORE, metric_momentum, team_achievements
 from ..services.parse import classify_scoring
 from ..services.portfolio import build_portfolio_rows, build_summary
+from ..services.portfolio_filters import PortfolioFilters
 from ..services.read_models import build_league_out, build_team_detail
 
 router = APIRouter(tags=["views"])
@@ -70,6 +78,47 @@ def portfolio(session: Session = Depends(get_session)) -> list[PortfolioRow]:
 def portfolio_summary(session: Session = Depends(get_session)) -> PortfolioSummary:
     """Aggregate portfolio numbers derived from the same rows the board renders."""
     return build_summary(build_portfolio_rows(session))
+
+
+@router.get("/api/portfolio/exposure", response_model=PortfolioExposureOut)
+def portfolio_exposure(
+    scope: Literal["me", "opponents"] = "me",
+    season: int | None = None,
+    account_id: int | None = None,
+    verdict: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    return build_exposure(
+        session,
+        scope=scope,
+        filters=PortfolioFilters(season=season, account_id=account_id, verdict=verdict),
+    )
+
+
+@router.get("/api/portfolio/draft-adp", response_model=PortfolioDraftAdpOut)
+def portfolio_draft_adp(
+    season: int | None = None,
+    account_id: int | None = None,
+    verdict: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    return build_draft_adp(
+        session,
+        PortfolioFilters(season=season, account_id=account_id, verdict=verdict),
+    )
+
+
+@router.get("/api/portfolio/strategies", response_model=PortfolioStrategiesOut)
+def portfolio_strategies(
+    season: int | None = None,
+    account_id: int | None = None,
+    verdict: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    return build_strategies(
+        session,
+        PortfolioFilters(season=season, account_id=account_id, verdict=verdict),
+    )
 
 
 def _get_league(session: Session, league_id: int) -> League:

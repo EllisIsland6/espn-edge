@@ -279,6 +279,323 @@ export interface TransactionOut {
   executed_at: string | null;
 }
 
+// --- Phase 23/24 portfolio draft analytics --------------------------------
+export type ExposureScope = "me" | "opponents";
+export type ExposureView = "rostered" | "field_owned" | "all";
+
+export interface ExposureLeagueBreakdown {
+  league_id: number;
+  league_name: string | null;
+  team_id: number;
+  team_name: string | null;
+  overall: number | null;
+  round: number | null;
+  round_pick: number | null;
+  draft_type: string | null;
+  keeper: boolean;
+}
+
+export interface PlayerExposure {
+  espn_player_id: number;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  rostered_teams: number;
+  teams_in_scope: number;
+  exposure_pct: number;
+  share: string;
+  rostered_leagues: number;
+  leagues_in_scope: number;
+  league_exposure_pct: number;
+  league_share: string;
+  my_rostered_teams: number;
+  my_teams_in_scope: number;
+  my_rostered_leagues: number;
+  my_leagues_in_scope: number;
+  my_exposure_pct: number;
+  my_share: string;
+  field_rostered_teams: number;
+  field_teams_in_scope: number;
+  field_rostered_leagues: number;
+  field_leagues_in_scope: number;
+  field_exposure_pct: number;
+  field_share: string;
+  field_slot_pct: number;
+  field_slot_share: string;
+  leverage_pp: number;
+  avg_overall: number | null;
+  min_overall: number | null;
+  max_overall: number | null;
+  avg_pick_value: number | null;
+  auction_rosters: number;
+  leagues: ExposureLeagueBreakdown[];
+}
+
+export interface NflTeamConcentration {
+  nfl_team: string;
+  rostered_teams: number;
+  teams_in_scope: number;
+  exposure_pct: number;
+  share: string;
+  teams_with_player: number;
+  player_team_instances: number;
+  penetration_pct: number;
+  penetration_share: string;
+  players_per_team: number;
+  players_per_team_share: string;
+}
+
+export interface PortfolioExposure {
+  scope: ExposureScope;
+  season: number;
+  teams_in_scope: number;
+  coverage: {
+    league_count: number;
+    teams_in_scope: number;
+    my_teams_in_scope: number;
+    field_teams_in_scope: number;
+    auction_teams: number;
+    auction_picks: number;
+    keeper_picks: number;
+    pick_value_picks: number;
+    pre_draft_leagues_excluded: number;
+    notes: string[];
+  };
+  headlines: {
+    highest_leverage: {
+      espn_player_id: number;
+      player_name: string | null;
+      position: string | null;
+      nfl_team: string | null;
+      exposure_pct: number;
+      field_exposure_pct: number;
+      leverage_pp: number;
+      share: string;
+      field_share: string;
+      field_slot_pct: number;
+      field_slot_share: string;
+    } | null;
+    most_underowned: {
+      espn_player_id: number;
+      player_name: string | null;
+      position: string | null;
+      nfl_team: string | null;
+      exposure_pct: number;
+      field_exposure_pct: number;
+      leverage_pp: number;
+      share: string;
+      field_share: string;
+      field_slot_pct: number;
+      field_slot_share: string;
+    } | null;
+    positional_capital_vs_field: {
+      position: string;
+      pick_value_pct: number;
+      field_pick_value_pct: number;
+      leverage_pp: number;
+      pick_count: number;
+      field_pick_count: number;
+    } | null;
+    most_concentrated_nfl_team: NflTeamConcentration | null;
+    largest_market_move: {
+      espn_player_id: number;
+      player_name: string | null;
+      position: string | null;
+      nfl_team: string | null;
+      draft_time_adp: number;
+      current_ffc_adp: number;
+      market_move: number;
+      market_move_abs: number;
+      market_move_label: string;
+      exposure_pct: number;
+      share: string;
+    } | null;
+  };
+  views: Record<ExposureView, {
+    row_count: number;
+    default_sort: string;
+  }>;
+  players: PlayerExposure[];
+  positional_spend: Array<{
+    position: string;
+    pick_count: number;
+    pick_value: number;
+    pick_value_pct: number;
+    total_pick_value: number;
+    field_pick_count: number;
+    field_pick_value: number;
+    field_pick_value_pct: number;
+    field_total_pick_value: number;
+    leverage_pp: number;
+  }>;
+  round_fingerprint: Array<{
+    bucket: string;
+    position: string;
+    pick_count: number;
+    picks_per_team: number;
+    pick_pct: number;
+    bucket_picks: number;
+    field_pick_count: number;
+    field_picks_per_team: number;
+    field_pick_pct: number;
+    field_bucket_picks: number;
+    leverage_pp: number;
+  }>;
+  nfl_team_concentration: NflTeamConcentration[];
+  core_dart: {
+    core_players: number;
+    dart_players: number;
+    core_definition: string;
+    dart_definition: string;
+  };
+}
+
+export interface DraftAdpTeam {
+  league_id: number;
+  league_name: string | null;
+  team_id: number;
+  team_name: string | null;
+  draft_type: string | null;
+  draft_value_capture_espn: number | null;
+  draft_value_capture_ffc: number | null;
+  draft_adp_source_disagreement: number | null;
+  draft_value_capture_espn_portfolio_median: number | null;
+  draft_value_capture_espn_vs_portfolio_median: number | null;
+  draft_value_capture_ffc_portfolio_median: number | null;
+  draft_value_capture_ffc_vs_portfolio_median: number | null;
+  draft_adp_source_disagreement_portfolio_median: number | null;
+  draft_adp_source_disagreement_vs_portfolio_median: number | null;
+}
+
+export interface DraftAdpPick {
+  source: "espn" | "ffc";
+  source_label: string;
+  league_id: number;
+  league_name: string | null;
+  team_id: number;
+  team_name: string | null;
+  espn_player_id: number | null;
+  player_name: string | null;
+  position: string | null;
+  nfl_team: string | null;
+  overall: number | null;
+  round: number | null;
+  adp: number | null;
+  delta: number;
+  draft_type: string | null;
+}
+
+export interface PortfolioDraftAdp {
+  season: number;
+  teams_in_scope: number;
+  coverage: {
+    teams_in_scope: number;
+    auction_teams: number;
+    keeper_picks: number;
+    eligible_picks: number;
+    picks_with_espn_adp: number;
+    picks_with_ffc_adp: number;
+    picks_without_espn_adp: number;
+    picks_without_ffc_adp: number;
+    ffc_matched_players: number;
+    ffc_unmatched_players: number;
+    ffc_snapshot_excluded_players: number;
+    ffc_resolution_failures: number;
+    notes: string[];
+  };
+  source_sets: Array<{
+    requested_format: string;
+    requested_teams: number;
+    used_format: string;
+    used_teams: number;
+    year: number;
+    exact_match: boolean;
+    pulled_at: string | null;
+    stale: boolean;
+  }>;
+  teams: DraftAdpTeam[];
+  by_round: Array<{
+    source: "espn" | "ffc";
+    source_label: string;
+    bucket: string;
+    avg_delta: number | null;
+    picks_with_adp: number;
+    eligible_picks: number;
+    portfolio_median_delta: number | null;
+    portfolio_p25_delta: number | null;
+    portfolio_p75_delta: number | null;
+    mean_percentile: number | null;
+  }>;
+  by_position: Array<{
+    source: "espn" | "ffc";
+    source_label: string;
+    bucket: string;
+    avg_delta: number | null;
+    picks_with_adp: number;
+    eligible_picks: number;
+    portfolio_median_delta: number | null;
+    portfolio_p25_delta: number | null;
+    portfolio_p75_delta: number | null;
+    mean_percentile: number | null;
+  }>;
+  biggest_values: DraftAdpPick[];
+  biggest_reaches: DraftAdpPick[];
+  unmatched_players: Array<{
+    espn_player_id: number | null;
+    player_name: string | null;
+    position: string | null;
+    nfl_team: string | null;
+    reason: "not_in_snapshot" | "missing_adp" | "resolution_failed";
+  }>;
+}
+
+export interface PortfolioStrategies {
+  season: number;
+  teams_in_scope: number;
+  coverage: {
+    teams_in_scope: number;
+    qualifying_teams: number;
+    auction_teams: number;
+    keeper_picks: number;
+    missing_strategy_teams: number;
+    notes: string[];
+  };
+  primary_distribution: Array<{ label: string; count: number; pct: number }>;
+  secondary_distribution: Array<{ label: string; count: number; pct: number }>;
+  mean_edge_index_by_primary: Array<{
+    label: string;
+    mean_edge_index_score: number | null;
+    mean_edge_index_score_unrounded: number | null;
+    stddev_edge_index_score: number | null;
+    ci95_low: number | null;
+    ci95_high: number | null;
+    teams_with_edge_index: number;
+  }>;
+  comparison_note: string;
+  uncertainty_note: string;
+  teams: Array<{
+    league_id: number;
+    league_name: string | null;
+    team_id: number;
+    team_name: string | null;
+    draft_type: string | null;
+    primary_label: string;
+    primary_confidence: number;
+    secondary_label: string | null;
+    secondary_confidence: number | null;
+    edge_index_score: number | null;
+    triggering_picks: Record<
+      string,
+      Array<{
+        overall: number;
+        player_name: string | null;
+        position: string | null;
+        nfl_team: string | null;
+      }>
+    >;
+  }>;
+}
+
 export interface AccountOut {
   id: number;
   label: string;
@@ -438,6 +755,12 @@ async function errorText(res: Response, path: string): Promise<string> {
 // Reads (view endpoints — every number comes from the DB; no ESPN, no math here).
 export const getPortfolio = () => get<PortfolioRow[]>("/api/portfolio");
 export const getPortfolioSummary = () => get<PortfolioSummary>("/api/portfolio/summary");
+export const getPortfolioExposure = (scope: ExposureScope = "me") =>
+  get<PortfolioExposure>(`/api/portfolio/exposure?scope=${scope}`);
+export const getPortfolioDraftAdp = () =>
+  get<PortfolioDraftAdp>("/api/portfolio/draft-adp");
+export const getPortfolioStrategies = () =>
+  get<PortfolioStrategies>("/api/portfolio/strategies");
 export const getLeagues = () => get<LeagueOut[]>("/api/leagues");
 export const getLeagueOverview = (id: number) =>
   get<LeagueOverview>(`/api/leagues/${id}/overview`);
@@ -489,8 +812,26 @@ export const EXPORT_ENDPOINTS = {
 export type ExportKind = keyof typeof EXPORT_ENDPOINTS;
 
 export function downloadExport(kind: ExportKind): void {
+  downloadPath(EXPORT_ENDPOINTS[kind]);
+}
+
+export type AnalyticsCsvKind = "exposure" | "draft-adp" | "strategies";
+
+export function downloadAnalyticsCsv(
+  kind: AnalyticsCsvKind,
+  scope: ExposureScope = "me",
+  view: ExposureView = "all",
+): void {
+  const path =
+    kind === "exposure"
+      ? `/api/exports/exposure.csv?scope=${scope}&view=${view}`
+      : `/api/exports/${kind}.csv`;
+  downloadPath(path);
+}
+
+function downloadPath(path: string): void {
   const a = document.createElement("a");
-  a.href = `${BASE}${EXPORT_ENDPOINTS[kind]}`;
+  a.href = `${BASE}${path}`;
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();

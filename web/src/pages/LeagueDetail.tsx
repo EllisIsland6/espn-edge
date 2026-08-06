@@ -219,12 +219,12 @@ export default function LeagueDetail() {
   return (
     <div>
       <div className="flex items-center gap-3">
-        <Link to="/" className="text-sm text-secondary hover:text-primary">
+        <Link to="/" className="mono text-[10px] text-secondary transition-colors duration-150 hover:text-ice">
           ← Portfolio
         </Link>
       </div>
-      <div className="mt-3">
-        <h1 className="text-xl font-semibold">
+      <div className="mt-4">
+        <h1 className="display-face text-2xl font-bold tracking-tight text-frost">
           <LinkedTeamIdentity
             leagueId={leagueId}
             tab={tab}
@@ -234,7 +234,7 @@ export default function LeagueDetail() {
           />
         </h1>
         <div className="mt-1 flex flex-wrap items-center gap-2 pl-16">
-          <span className="text-sm text-secondary">{lg.name ?? `League ${lg.espn_league_id}`}</span>
+          <span className="text-sm text-icesoft">{lg.name ?? `League ${lg.espn_league_id}`}</span>
           <SizePill size={lg.size} />
           <LifecycleBadge lifecycle={lg.lifecycle} label={LIFECYCLE_LABEL[lg.lifecycle] ?? lg.lifecycle} />
           {ov.scoring && (
@@ -243,11 +243,11 @@ export default function LeagueDetail() {
             </span>
           )}
         </div>
-        <div className="mono mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-16 text-[11px] text-muted">
+        <div className="mono mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-16 text-[9px] uppercase tracking-wider text-muted">
           <span>{ov.account_label ?? "public"}</span>
           <span>· {lg.season}</span>
           <span>· synced {relTime(lg.last_synced_at)}</span>
-          <Button variant="primary" onClick={sync} disabled={syncing}>
+          <Button variant="sync" onClick={sync} disabled={syncing}>
             {syncing ? "Syncing…" : "Sync now"}
           </Button>
         </div>
@@ -268,12 +268,12 @@ export default function LeagueDetail() {
         </div>
       )}
 
-      <div className="mt-4 flex flex-nowrap gap-1 overflow-x-auto border-b border-line">
+      <div className="mt-6 flex flex-nowrap gap-1 overflow-x-auto border-b border-line">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => selectTab(t.key)}
-            className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm transition-colors duration-150 ${
+            className={`display-face -mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-semibold tracking-wide transition-colors duration-150 ${
               tab === t.key
                 ? "border-red text-primary"
                 : "border-transparent text-secondary hover:text-primary"
@@ -284,7 +284,7 @@ export default function LeagueDetail() {
         ))}
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4">
         {tab === "overview" && <OverviewTab ov={ov} leagueId={leagueId} />}
         {tab === "draft" && <DraftTab leagueId={leagueId} teamName={teamName} myTeamId={lg.my_team_id} />}
         {tab === "teams" && <TeamsTab teams={ov.teams} leagueId={leagueId} myTeamId={lg.my_team_id} />}
@@ -334,98 +334,110 @@ function OverviewTab({ ov, leagueId }: { ov: LeagueOverview; leagueId: number })
     { accessorKey: "points_against", header: "PA", cell: (c) => <span className="mono">{num(c.getValue<number>())}</span> },
   ];
   return (
-    <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-      <Panel className="overflow-hidden">
-        <div className="border-b border-line px-4 py-2 text-xs uppercase tracking-wide text-muted">
-          Standings
-        </div>
-        <div className="p-1">
-          <DataTable
-            data={ov.teams}
-            columns={cols}
-            ariaLabel="League standings"
-            initialSort={[{ id: "standing", desc: false }]}
-            rowClassName={(t) => (t.is_me ? "bg-greenchip/40" : "")}
-            columnClassName={(columnId) =>
-              columnId === "points_for" || columnId === "points_against"
-                ? "hidden sm:table-cell"
-                : ""
-            }
-          />
-        </div>
-      </Panel>
-      <Panel className="p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Edge breakdown</h3>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-4">
-          <ScoreRing
-            value={ov.edge_score}
-            grade={ov.grade}
-            label="Edge Score"
-            testId="overview-score-ring"
-          />
-          <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
-            <MomentumBadges momentum={ov.momentum} testId="overview-momentum" />
-            <AchievementRow achievements={ov.achievements} testId="overview-achievements" />
-            <div className="flex flex-wrap items-center gap-3">
-              <ValueChip
-                primary={ov.playoff_odds == null ? DASH : `${Math.round(ov.playoff_odds * 100)}%`}
-                secondary="Playoff odds"
-                muted={ov.playoff_odds == null}
-              />
-              {ov.verdict && (
-                <span className="mono text-xs uppercase tracking-wide text-secondary">{ov.verdict}</span>
-              )}
-            </div>
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
+        <Panel className="overflow-hidden">
+          <div className="mono border-b border-line px-4 py-3 text-[9px] uppercase tracking-[0.16em] text-muted">
+            Standings
           </div>
-        </div>
-        <div className="mt-4">
-          {ov.components.length > 0 ? (
-            <>
-              <div className="text-[10px] uppercase tracking-wide text-muted">
-                Components (within-league percentile)
-              </div>
-              <div className="mt-2 space-y-2">
-                {ov.components.map((c) => (
-                  <div key={c.key}>
-                    <div className="flex items-baseline justify-between text-[11px]">
-                      <span className="text-secondary">{c.label}</span>
-                      <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
-                    </div>
-                    <ValueBar
-                      value={c.percentile}
-                      max={100}
-                      label={`${num(c.percentile, 0)} pct`}
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-[11px] leading-relaxed text-muted">
-                Edge Score is the weighted mean of these within-league percentiles.
-                The fuller Edge Index composite appears below and drives Portfolio ranking.
-              </p>
-            </>
-          ) : (
-            <EmptyState
-              title={
-                ov.league.lifecycle === "pre_draft"
-                  ? "Edge Score pending — league hasn't drafted"
-                  : "Edge Score pending — not enough data yet"
+          <div className="p-1">
+            <DataTable
+              data={ov.teams}
+              columns={cols}
+              ariaLabel="League standings"
+              initialSort={[{ id: "standing", desc: false }]}
+              rowClassName={(t) => (t.is_me ? "bg-highlight" : "")}
+              columnClassName={(columnId) =>
+                columnId === "points_for" || columnId === "points_against"
+                  ? "hidden sm:table-cell"
+                  : ""
               }
-              hint="Within-league score; the Edge Index below appears once its inputs are available."
             />
-          )}
+          </div>
+          <div className="flex items-center gap-2 border-t border-line bg-icechip/45 px-4 py-2">
+            <span className="mono text-[8px] uppercase tracking-[0.16em] text-ice">Next up</span>
+            <span className="truncate text-[10px] text-icesoft">
+              Standings and scoring context update on the next successful sync.
+            </span>
+          </div>
+        </Panel>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MyEdgePanel leagueId={leagueId} />
+          <LeagueSoftnessPanel leagueId={leagueId} />
         </div>
-      </Panel>
       </div>
-      <EdgeIndexPanel leagueId={leagueId} />
-      <div className="grid gap-5 lg:grid-cols-2">
-        <MyEdgePanel leagueId={leagueId} />
-        <LeagueSoftnessPanel leagueId={leagueId} />
-      </div>
+      <aside className="space-y-4">
+        <EdgeIndexPanel leagueId={leagueId} />
+        <LegacyEdgePanel ov={ov} />
+      </aside>
     </div>
+  );
+}
+
+function LegacyEdgePanel({ ov }: { ov: LeagueOverview }) {
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="display-face text-sm font-bold">
+          Edge Score <span className="mono text-[8px] uppercase tracking-wide text-muted">legacy</span>
+        </h3>
+        {ov.verdict && (
+          <span className="mono text-[8px] uppercase tracking-[0.14em] text-secondary">{ov.verdict}</span>
+        )}
+      </div>
+      <div className="mt-3 flex items-center gap-4">
+        <ScoreRing
+          value={ov.edge_score}
+          grade={ov.grade}
+          label="Edge Score"
+          size="sm"
+          testId="overview-score-ring"
+        />
+        <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+          <MomentumBadges momentum={ov.momentum} testId="overview-momentum" />
+          <AchievementRow achievements={ov.achievements} testId="overview-achievements" />
+          <ValueChip
+            primary={ov.playoff_odds == null ? DASH : `${Math.round(ov.playoff_odds * 100)}%`}
+            secondary="Playoff odds"
+            muted={ov.playoff_odds == null}
+          />
+        </div>
+      </div>
+      <div className="mt-4">
+        {ov.components.length > 0 ? (
+          <>
+            <div className="mono text-[8px] uppercase tracking-[0.14em] text-muted">
+              Components (within-league percentile)
+            </div>
+            <div className="mt-2 space-y-2.5">
+              {ov.components.map((c) => (
+                <div key={c.key}>
+                  <div className="flex items-baseline justify-between text-[10px]">
+                    <span className="text-secondary">{c.label}</span>
+                    <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+                  </div>
+                  <ValueBar
+                    value={c.percentile}
+                    max={100}
+                    label={`${num(c.percentile, 0)} pct`}
+                    tone="ice"
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            title={
+              ov.league.lifecycle === "pre_draft"
+                ? "Edge Score pending — league hasn't drafted"
+                : "Edge Score pending — not enough data yet"
+            }
+            hint="Appears when within-league scoring has enough data."
+          />
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -440,39 +452,52 @@ function EdgeIndexPanel({ leagueId }: { leagueId: number }) {
   if (!rows) return <Spinner />;
   const mine = rows.find((r) => r.is_me) ?? null;
   return (
-    <Panel className="p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">
-          Edge Index <span className="text-[10px] uppercase tracking-wide text-muted">v1</span>
+    <Panel className="overflow-hidden border-mint/35 bg-coldpanel/55">
+      <div className="flex items-center justify-between border-b border-coldline px-4 py-3">
+        <h3 className="display-face text-sm font-bold text-frost">
+          Edge Index <span className="mono text-[8px] uppercase tracking-wide text-muted">v1</span>
         </h3>
-        {mine && (
-          <div className="flex items-center gap-2">
-            <ValueChip primary={num(mine.edge_index_score, 0)} secondary="Edge Index" />
-            <GradePill grade={mine.grade} />
-            {mine.verdict && (
-              <span className="mono text-xs uppercase tracking-wide text-secondary">{mine.verdict}</span>
-            )}
-          </div>
-        )}
+        <span className="mono rounded-full border border-mint/35 bg-mintchip px-2 py-1 text-[8px] uppercase tracking-[0.14em] text-mint">
+          advanced
+        </span>
       </div>
       {mine ? (
-        <div className="mt-3 space-y-2">
-          {mine.components.map((c) => (
-            <div key={c.key}>
-              <div className="flex items-baseline justify-between text-[11px]">
-                <span className="text-secondary">{c.label}</span>
-                <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+        <div className="p-4">
+          <div className="flex items-center gap-4">
+            <ScoreRing
+              value={mine.edge_index_score}
+              grade={mine.grade}
+              label="Composite"
+            />
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <GradePill grade={mine.grade} />
+                {mine.verdict && (
+                  <span className="mono text-[9px] uppercase tracking-[0.12em] text-mint">{mine.verdict}</span>
+                )}
               </div>
-              <ValueBar value={c.value} max={100} label={num(c.value, 0)} />
+              <span className="mono rounded border border-mint/30 bg-mintchip px-2 py-1 text-[8px] uppercase tracking-[0.14em] text-mint">
+                Edge Index
+              </span>
             </div>
-          ))}
-          <p className="mt-3 text-[11px] leading-relaxed text-muted">
-            The full SPEC §6 Edge Index: 0.5 × MyEdge + 0.5 × LeagueSoftness. This v1
-            composite is the primary Portfolio ranking; Edge Score remains available for reference.
+          </div>
+          <div className="mt-4 space-y-2.5">
+            {mine.components.map((c) => (
+              <div key={c.key}>
+                <div className="flex items-baseline justify-between text-[10px]">
+                  <span className="text-secondary">{c.label}</span>
+                  <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
+                </div>
+                <ValueBar value={c.value} max={100} label={`${num(c.value, 0)} pct`} tone="mint" />
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 border-t border-coldline pt-3 text-[10px] leading-relaxed text-muted">
+            0.5 × MyEdge + 0.5 × LeagueSoftness. This is the primary Portfolio ranking.
           </p>
         </div>
       ) : (
-        <div className="mt-3">
+        <div className="p-4">
           <EmptyState
             title="Edge Index pending"
             hint="Appears once MyEdge or LeagueSoftness has enough data."
@@ -494,10 +519,10 @@ function MyEdgePanel({ leagueId }: { leagueId: number }) {
   if (!rows) return <Spinner />;
   const mine = rows.find((r) => r.is_me) ?? null;
   return (
-    <Panel className="p-4">
+    <Panel className="min-h-full p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">
-          MyEdge <span className="text-[10px] uppercase tracking-wide text-muted">v1</span>
+        <h3 className="display-face text-sm font-bold">
+          MyEdge <span className="mono text-[8px] uppercase tracking-wide text-muted">v1</span>
         </h3>
         {mine && <ValueChip primary={num(mine.my_edge_score, 0)} secondary="MyEdge" />}
       </div>
@@ -505,11 +530,11 @@ function MyEdgePanel({ leagueId }: { leagueId: number }) {
         <div className="mt-3 space-y-2">
           {mine.components.map((c) => (
             <div key={c.key}>
-              <div className="flex items-baseline justify-between text-[11px]">
+              <div className="flex items-baseline justify-between text-[10px]">
                 <span className="text-secondary">{c.label}</span>
                 <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
               </div>
-              <ValueBar value={c.percentile} max={100} label={`${num(c.percentile, 0)} pct`} />
+              <ValueBar value={c.percentile} max={100} label={`${num(c.percentile, 0)} pct`} tone="ice" />
             </div>
           ))}
           <p className="mt-3 text-[11px] leading-relaxed text-muted">
@@ -540,10 +565,10 @@ function LeagueSoftnessPanel({ leagueId }: { leagueId: number }) {
   if (!rows) return <Spinner />;
   const mine = rows.find((r) => r.is_me) ?? null;
   return (
-    <Panel className="p-4">
+    <Panel className="min-h-full p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">
-          LeagueSoftness <span className="text-[10px] uppercase tracking-wide text-muted">v1</span>
+        <h3 className="display-face text-sm font-bold">
+          LeagueSoftness <span className="mono text-[8px] uppercase tracking-wide text-muted">v1</span>
         </h3>
         {mine && <ValueChip primary={num(mine.league_softness_score, 0)} secondary="Softness" />}
       </div>
@@ -551,11 +576,11 @@ function LeagueSoftnessPanel({ leagueId }: { leagueId: number }) {
         <div className="mt-3 space-y-2">
           {mine.components.map((c) => (
             <div key={c.key}>
-              <div className="flex items-baseline justify-between text-[11px]">
+              <div className="flex items-baseline justify-between text-[10px]">
                 <span className="text-secondary">{c.label}</span>
                 <span className="mono text-muted">weight {Math.round(c.weight * 100)}%</span>
               </div>
-              <ValueBar value={c.percentile} max={100} label={`${num(c.percentile, 0)} pct`} />
+              <ValueBar value={c.percentile} max={100} label={`${num(c.percentile, 0)} pct`} tone="ash" />
             </div>
           ))}
           <p className="mt-3 text-[11px] leading-relaxed text-muted">

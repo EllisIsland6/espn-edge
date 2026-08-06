@@ -271,6 +271,254 @@ const ACTIVITY = [
   },
 ];
 
+const EXPOSURE = {
+  scope: "me",
+  season: 2026,
+  teams_in_scope: 4,
+  coverage: {
+    league_count: 4, teams_in_scope: 4, auction_teams: 1, auction_picks: 12,
+    my_teams_in_scope: 4, field_teams_in_scope: 12,
+    keeper_picks: 1, pick_value_picks: 48, pre_draft_leagues_excluded: 1,
+    notes: [],
+  },
+  headlines: {
+    highest_leverage: {
+      espn_player_id: 104, player_name: "Leverage Sleeper", position: "TE", nfl_team: "LV",
+      exposure_pct: 25.0, field_exposure_pct: 0.0, leverage_pp: 25.0,
+      share: "1 / 4", field_share: "0 / 4",
+      field_slot_pct: 0.0, field_slot_share: "0 / 12",
+    },
+    most_underowned: {
+      espn_player_id: 103, player_name: "Field Favorite", position: "WR", nfl_team: "DET",
+      exposure_pct: 0.0, field_exposure_pct: 100.0, leverage_pp: -100.0,
+      share: "0 / 4", field_share: "4 / 4",
+      field_slot_pct: 50.0, field_slot_share: "6 / 12",
+    },
+    positional_capital_vs_field: {
+      position: "RB", pick_value_pct: 52.2, field_pick_value_pct: 39.0,
+      leverage_pp: 13.2, pick_count: 20, field_pick_count: 44,
+    },
+    most_concentrated_nfl_team: {
+      nfl_team: "ATL", rostered_teams: 2, teams_in_scope: 4, exposure_pct: 50.0,
+      share: "2 / 4", teams_with_player: 2, player_team_instances: 3,
+      penetration_pct: 50.0, penetration_share: "2 / 4",
+      players_per_team: 0.75, players_per_team_share: "3 / 4",
+    },
+    largest_market_move: {
+      espn_player_id: 102, player_name: "Puka Nacua", position: "WR", nfl_team: "LAR",
+      draft_time_adp: 6.0, current_ffc_adp: 2.0, market_move: -4.0,
+      market_move_abs: 4.0, market_move_label: "rose 4.0 picks since draft",
+      exposure_pct: 25.0, share: "1 / 4",
+    },
+  },
+  views: {
+    rostered: { row_count: 3, default_sort: "leverage_desc" },
+    field_owned: { row_count: 1, default_sort: "field_exposure_desc" },
+    all: { row_count: 4, default_sort: "leverage_desc" },
+  },
+  players: [
+    {
+      espn_player_id: 101, player_name: "Bijan Robinson", position: "RB", nfl_team: "ATL",
+      rostered_teams: 2, teams_in_scope: 4, exposure_pct: 50.0, share: "2 / 4",
+      rostered_leagues: 2, leagues_in_scope: 4, league_exposure_pct: 50.0,
+      league_share: "2 / 4",
+      my_rostered_teams: 2, my_teams_in_scope: 4, my_rostered_leagues: 2,
+      my_leagues_in_scope: 4, my_exposure_pct: 50.0, my_share: "2 / 4",
+      field_rostered_teams: 2, field_teams_in_scope: 12, field_rostered_leagues: 2,
+      field_leagues_in_scope: 4, field_exposure_pct: 50.0,
+      field_share: "2 / 4", field_slot_pct: 16.7, field_slot_share: "2 / 12",
+      leverage_pp: 0.0,
+      avg_overall: 3.5, min_overall: 2, max_overall: 5, avg_pick_value: 90.2,
+      auction_rosters: 0,
+      leagues: [
+        {
+          league_id: 1, league_name: "Alpha League", team_id: 1, team_name: "My Team",
+          overall: 2, round: 1, round_pick: 2, draft_type: "SNAKE", keeper: false,
+        },
+        {
+          league_id: 2, league_name: "Beta League", team_id: 2, team_name: "My Team 2",
+          overall: 5, round: 1, round_pick: 5, draft_type: "SNAKE", keeper: false,
+        },
+      ],
+    },
+    {
+      espn_player_id: 102, player_name: "Puka Nacua", position: "WR", nfl_team: "LAR",
+      rostered_teams: 1, teams_in_scope: 4, exposure_pct: 25.0, share: "1 / 4",
+      rostered_leagues: 1, leagues_in_scope: 4, league_exposure_pct: 25.0,
+      league_share: "1 / 4",
+      my_rostered_teams: 1, my_teams_in_scope: 4, my_rostered_leagues: 1,
+      my_leagues_in_scope: 4, my_exposure_pct: 25.0, my_share: "1 / 4",
+      field_rostered_teams: 5, field_teams_in_scope: 12, field_rostered_leagues: 3,
+      field_leagues_in_scope: 4, field_exposure_pct: 75.0,
+      field_share: "3 / 4", field_slot_pct: 41.7, field_slot_share: "5 / 12",
+      leverage_pp: -50.0,
+      avg_overall: 4.0, min_overall: 4, max_overall: 4, avg_pick_value: 86.9,
+      auction_rosters: 0,
+      leagues: [
+        {
+          league_id: 3, league_name: "Gamma League", team_id: 3, team_name: "My Team 3",
+          overall: 4, round: 1, round_pick: 4, draft_type: "SNAKE", keeper: false,
+        },
+      ],
+    },
+    {
+      espn_player_id: 103, player_name: "Field Favorite", position: "WR", nfl_team: "DET",
+      rostered_teams: 0, teams_in_scope: 4, exposure_pct: 0.0, share: "0 / 4",
+      rostered_leagues: 0, leagues_in_scope: 4, league_exposure_pct: 0.0,
+      league_share: "0 / 4",
+      my_rostered_teams: 0, my_teams_in_scope: 4, my_rostered_leagues: 0,
+      my_leagues_in_scope: 4, my_exposure_pct: 0.0, my_share: "0 / 4",
+      field_rostered_teams: 6, field_teams_in_scope: 12, field_rostered_leagues: 4,
+      field_leagues_in_scope: 4, field_exposure_pct: 100.0,
+      field_share: "4 / 4", field_slot_pct: 50.0, field_slot_share: "6 / 12",
+      leverage_pp: -100.0,
+      avg_overall: null, min_overall: null, max_overall: null, avg_pick_value: null,
+      auction_rosters: 0, leagues: [],
+    },
+    {
+      espn_player_id: 104, player_name: "Leverage Sleeper", position: "TE", nfl_team: "LV",
+      rostered_teams: 1, teams_in_scope: 4, exposure_pct: 25.0, share: "1 / 4",
+      rostered_leagues: 1, leagues_in_scope: 4, league_exposure_pct: 25.0,
+      league_share: "1 / 4",
+      my_rostered_teams: 1, my_teams_in_scope: 4, my_rostered_leagues: 1,
+      my_leagues_in_scope: 4, my_exposure_pct: 25.0, my_share: "1 / 4",
+      field_rostered_teams: 0, field_teams_in_scope: 12, field_rostered_leagues: 0,
+      field_leagues_in_scope: 4, field_exposure_pct: 0.0,
+      field_share: "0 / 4", field_slot_pct: 0.0, field_slot_share: "0 / 12",
+      leverage_pp: 25.0,
+      avg_overall: 72.0, min_overall: 72, max_overall: 72, avg_pick_value: 8.7,
+      auction_rosters: 0,
+      leagues: [
+        {
+          league_id: 4, league_name: "Delta League", team_id: 4, team_name: "My Team 4",
+          overall: 72, round: 8, round_pick: 2, draft_type: "SNAKE", keeper: false,
+        },
+      ],
+    },
+  ],
+  positional_spend: [
+    { position: "RB", pick_count: 20, pick_value: 600, pick_value_pct: 52.2, total_pick_value: 1149.4, field_pick_count: 44, field_pick_value: 890, field_pick_value_pct: 39.0, field_total_pick_value: 2282.0, leverage_pp: 13.2 },
+    { position: "WR", pick_count: 18, pick_value: 430, pick_value_pct: 37.4, total_pick_value: 1149.4, field_pick_count: 54, field_pick_value: 980, field_pick_value_pct: 42.9, field_total_pick_value: 2282.0, leverage_pp: -5.5 },
+    { position: "QB", pick_count: 5, pick_value: 70, pick_value_pct: 6.1, total_pick_value: 1149.4, field_pick_count: 12, field_pick_value: 180, field_pick_value_pct: 7.9, field_total_pick_value: 2282.0, leverage_pp: -1.8 },
+    { position: "TE", pick_count: 5, pick_value: 49.4, pick_value_pct: 4.3, total_pick_value: 1149.4, field_pick_count: 10, field_pick_value: 132, field_pick_value_pct: 5.8, field_total_pick_value: 2282.0, leverage_pp: -1.5 },
+  ],
+  round_fingerprint: [
+    { bucket: "1", position: "RB", pick_count: 3, picks_per_team: 0.75, pick_pct: 60.0, bucket_picks: 5, field_pick_count: 4, field_picks_per_team: 0.33, field_pick_pct: 40.0, field_bucket_picks: 10, leverage_pp: 20.0 },
+    { bucket: "1", position: "WR", pick_count: 2, picks_per_team: 0.5, pick_pct: 40.0, bucket_picks: 5, field_pick_count: 4, field_picks_per_team: 0.33, field_pick_pct: 40.0, field_bucket_picks: 10, leverage_pp: 0.0 },
+    { bucket: "2", position: "RB", pick_count: 2, picks_per_team: 0.5, pick_pct: 40.0, bucket_picks: 5, field_pick_count: 3, field_picks_per_team: 0.25, field_pick_pct: 30.0, field_bucket_picks: 10, leverage_pp: 10.0 },
+    { bucket: "2", position: "WR", pick_count: 2, picks_per_team: 0.5, pick_pct: 40.0, bucket_picks: 5, field_pick_count: 5, field_picks_per_team: 0.42, field_pick_pct: 50.0, field_bucket_picks: 10, leverage_pp: -10.0 },
+    { bucket: "2", position: "TE", pick_count: 1, picks_per_team: 0.25, pick_pct: 20.0, bucket_picks: 5, field_pick_count: 2, field_picks_per_team: 0.17, field_pick_pct: 20.0, field_bucket_picks: 10, leverage_pp: 0.0 },
+  ],
+  nfl_team_concentration: [
+    { nfl_team: "ATL", rostered_teams: 2, teams_in_scope: 4, exposure_pct: 50.0, share: "2 / 4", teams_with_player: 2, player_team_instances: 3, penetration_pct: 50.0, penetration_share: "2 / 4", players_per_team: 0.75, players_per_team_share: "3 / 4" },
+    { nfl_team: "LAR", rostered_teams: 1, teams_in_scope: 4, exposure_pct: 25.0, share: "1 / 4", teams_with_player: 1, player_team_instances: 1, penetration_pct: 25.0, penetration_share: "1 / 4", players_per_team: 0.25, players_per_team_share: "1 / 4" },
+  ],
+  core_dart: {
+    core_players: 0, dart_players: 1,
+    core_definition: "rostered on a majority of teams in scope",
+    dart_definition: "rostered on exactly one team in scope",
+  },
+};
+
+const DRAFT_ADP_ANALYTICS = {
+  season: 2026,
+  teams_in_scope: 4,
+  coverage: {
+    teams_in_scope: 4, auction_teams: 1, keeper_picks: 1, eligible_picks: 48,
+    picks_with_espn_adp: 47, picks_with_ffc_adp: 45,
+    picks_without_espn_adp: 1, picks_without_ffc_adp: 3,
+    ffc_matched_players: 39, ffc_unmatched_players: 2,
+    ffc_snapshot_excluded_players: 2, ffc_resolution_failures: 0, notes: [],
+  },
+  source_sets: [
+    {
+      requested_format: "ppr", requested_teams: 10, used_format: "ppr", used_teams: 10,
+      year: 2026, exact_match: true, pulled_at: NOW, stale: false,
+    },
+  ],
+  teams: [
+    {
+      league_id: 1, league_name: "Alpha League", team_id: 1, team_name: "My Team",
+      draft_type: "SNAKE", draft_value_capture_espn: 3.2,
+      draft_value_capture_ffc: 1.4, draft_adp_source_disagreement: 8.1,
+      draft_value_capture_espn_portfolio_median: 2.0,
+      draft_value_capture_espn_vs_portfolio_median: 1.2,
+      draft_value_capture_ffc_portfolio_median: 0.5,
+      draft_value_capture_ffc_vs_portfolio_median: 0.9,
+      draft_adp_source_disagreement_portfolio_median: 6.4,
+      draft_adp_source_disagreement_vs_portfolio_median: 1.7,
+    },
+  ],
+  by_round: [],
+  by_position: [
+    { source: "espn", source_label: "vs. draft-time ADP", bucket: "RB", avg_delta: 3.2, picks_with_adp: 20, eligible_picks: 20, portfolio_median_delta: 2.4, portfolio_p25_delta: 0.8, portfolio_p75_delta: 4.1, mean_percentile: 72.5 },
+    { source: "espn", source_label: "vs. draft-time ADP", bucket: "WR", avg_delta: -1.1, picks_with_adp: 18, eligible_picks: 18, portfolio_median_delta: -0.6, portfolio_p25_delta: -2.0, portfolio_p75_delta: 1.2, mean_percentile: 42.5 },
+    { source: "ffc", source_label: "vs. current market ADP", bucket: "RB", avg_delta: 1.4, picks_with_adp: 19, eligible_picks: 20, portfolio_median_delta: 1.0, portfolio_p25_delta: -0.4, portfolio_p75_delta: 2.8, mean_percentile: 64.0 },
+    { source: "ffc", source_label: "vs. current market ADP", bucket: "WR", avg_delta: -2.0, picks_with_adp: 17, eligible_picks: 18, portfolio_median_delta: -1.5, portfolio_p25_delta: -3.2, portfolio_p75_delta: 0.7, mean_percentile: 37.0 },
+  ],
+  biggest_values: [
+    {
+      source: "espn", source_label: "vs. draft-time ADP", league_id: 1,
+      league_name: "Washington Pro H2H Points PPR League", team_id: 1, team_name: "My Team",
+      espn_player_id: 101, player_name: "Bijan Robinson", position: "RB", nfl_team: "ATL",
+      overall: 2, round: 1, adp: 7.0, delta: 5.0, draft_type: "SNAKE",
+    },
+  ],
+  biggest_reaches: [
+    {
+      source: "ffc", source_label: "vs. current market ADP", league_id: 1,
+      league_name: "New York Pro H2H Points PPR League", team_id: 1, team_name: "My Team",
+      espn_player_id: 102, player_name: "Puka Nacua", position: "WR", nfl_team: "LAR",
+      overall: 4, round: 1, adp: 2.0, delta: -2.0, draft_type: "SNAKE",
+    },
+  ],
+  unmatched_players: [
+    { espn_player_id: -16027, player_name: "Buccaneers D/ST", position: "D/ST", nfl_team: "27", reason: "not_in_snapshot" },
+    { espn_player_id: 4259619, player_name: "Blake Grupe", position: "K", nfl_team: "11", reason: "not_in_snapshot" },
+  ],
+};
+
+const STRATEGIES_ANALYTICS = {
+  season: 2026,
+  teams_in_scope: 5,
+  coverage: {
+    teams_in_scope: 5, qualifying_teams: 4, auction_teams: 1,
+    keeper_picks: 1, missing_strategy_teams: 1, notes: [],
+  },
+  primary_distribution: [
+    { label: "Zero RB", count: 0, pct: 0.0 },
+    { label: "Hero RB", count: 1, pct: 25.0 },
+    { label: "Robust RB", count: 2, pct: 50.0 },
+    { label: "Balanced/BPA", count: 1, pct: 25.0 },
+    { label: "Autodraft/Absent", count: 0, pct: 0.0 },
+  ],
+  secondary_distribution: [
+    { label: "Anchor WR", count: 1, pct: 25.0 },
+    { label: "Elite TE", count: 0, pct: 0.0 },
+    { label: "Late-Round QB", count: 2, pct: 50.0 },
+  ],
+  mean_edge_index_by_primary: [
+    { label: "Zero RB", mean_edge_index_score: null, mean_edge_index_score_unrounded: null, stddev_edge_index_score: null, ci95_low: null, ci95_high: null, teams_with_edge_index: 0 },
+    { label: "Hero RB", mean_edge_index_score: 66.0, mean_edge_index_score_unrounded: 66.0, stddev_edge_index_score: 0.0, ci95_low: null, ci95_high: null, teams_with_edge_index: 1 },
+    { label: "Robust RB", mean_edge_index_score: 61.5, mean_edge_index_score_unrounded: 61.5, stddev_edge_index_score: 4.95, ci95_low: 54.64, ci95_high: 68.36, teams_with_edge_index: 2 },
+    { label: "Balanced/BPA", mean_edge_index_score: 64.0, mean_edge_index_score_unrounded: 64.0, stddev_edge_index_score: 0.0, ci95_low: null, ci95_high: null, teams_with_edge_index: 1 },
+    { label: "Autodraft/Absent", mean_edge_index_score: null, mean_edge_index_score_unrounded: null, stddev_edge_index_score: null, ci95_low: null, ci95_high: null, teams_with_edge_index: 0 },
+  ],
+  comparison_note: "Strategy/Edge Index comparisons are descriptive, not causal; strategy is confounded with draft slot, league, and opponent quality.",
+  uncertainty_note: "Differences are not distinguishable at this sample: at least two 95% confidence intervals overlap.",
+  teams: [
+    {
+      league_id: 1, league_name: "Alpha League", team_id: 1, team_name: "My Team",
+      draft_type: "SNAKE", primary_label: "Robust RB", primary_confidence: 0.82,
+      secondary_label: "Late-Round QB", secondary_confidence: 0.76, edge_index_score: 68.0,
+      triggering_picks: {
+        "Robust RB": [{ overall: 2, player_name: "Bijan Robinson", position: "RB", nfl_team: "ATL" }],
+        "Late-Round QB": [{ overall: 90, player_name: "Late QB", position: "QB", nfl_team: "BUF" }],
+      },
+    },
+  ],
+};
+
 function json(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 }
@@ -296,6 +544,9 @@ async function mockApi(page: Page) {
     json(r, { enabled: false, standard_model: "claude-sonnet-5", bulk_model: "claude-haiku-4-5" }));
   await page.route("**/api/portfolio", (r) => json(r, PORTFOLIO));
   await page.route("**/api/portfolio/summary", (r) => json(r, SUMMARY));
+  await page.route("**/api/portfolio/exposure**", (r) => json(r, EXPOSURE));
+  await page.route("**/api/portfolio/draft-adp**", (r) => json(r, DRAFT_ADP_ANALYTICS));
+  await page.route("**/api/portfolio/strategies**", (r) => json(r, STRATEGIES_ANALYTICS));
   await page.route("**/api/leagues", (r) => json(r, [LEAGUE_1]));
   await page.route("**/api/accounts", (r) => json(r, []));
   await page.route("**/api/leagues/1/overview", (r) => json(r, OVERVIEW));
@@ -325,6 +576,13 @@ async function mockApi(page: Page) {
       headers: { "content-disposition": 'attachment; filename="portfolio.csv"' },
       body: "league_id,league_name\n1,Alpha League\n",
     }));
+  await page.route("**/api/exports/exposure.csv**", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: { "content-disposition": 'attachment; filename="exposure-me.csv"' },
+      body: "player_name,exposure_pct\nBijan Robinson,50.0\n",
+    }));
 }
 
 test.beforeEach(async ({ page }) => {
@@ -343,9 +601,75 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
   expect(leagueBox).not.toBeNull();
   expect(teamBox!.y).toBeLessThan(leagueBox!.y);
   await expect(page.getByText("Leagues tracked")).toBeVisible();
+  const portfolioSync = page.getByRole("button", { name: "Sync all" });
+  await expect(portfolioSync).toHaveAttribute("data-variant", "sync");
+  await expect(portfolioSync).toHaveCSS("background-image", /linear-gradient/);
   for (const label of ["CSV", "JSON", "XLSX"]) {
     await expect(page.getByRole("button", { name: label })).toBeVisible();
   }
+});
+
+test("analytics renders exposure, distinct ADP sources, full strategy enum, and coverage", async ({ page }) => {
+  await page.goto("/analytics");
+  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
+  await expect(page.getByText("Bijan Robinson").first()).toBeVisible();
+  await expect(page.getByRole("img", { name: "Bijan Robinson ESPN portrait" }).first()).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: /Leverage/ })).toBeVisible();
+  await expect(page.getByText("+25.0 pp").first()).toBeVisible();
+  await expect(page.getByText("rose 4.0 picks since draft")).toBeVisible();
+  const exposureTable = page.getByRole("table", { name: "Portfolio player exposure" });
+  await expect(page.getByRole("button", { name: /Rostered\s*3/ })).toBeVisible();
+  await expect(exposureTable.getByText("Field Favorite")).toHaveCount(0);
+  await page.getByRole("button", { name: /Field owns\s*1/ }).click();
+  await expect(exposureTable.getByText("Field Favorite")).toBeVisible();
+  await page.getByRole("button", { name: /Rostered\s*3/ }).click();
+  const firstTablePlayer = async () =>
+    (await exposureTable.locator("tbody tr").first().locator("td").first().innerText())
+      .split("\n")[0]
+      .trim();
+  const leverageHeader = page.getByRole("columnheader", { name: /Leverage/ });
+  if ((await leverageHeader.getAttribute("aria-sort")) !== "descending") {
+    await leverageHeader.getByRole("button").click();
+  }
+  const leverageFirst = await firstTablePlayer();
+  const exposureHeader = page.getByRole("columnheader", { name: /^Exposure/ });
+  await exposureHeader.getByRole("button").click();
+  if ((await exposureHeader.getAttribute("aria-sort")) !== "descending") {
+    await exposureHeader.getByRole("button").click();
+  }
+  const exposureFirst = await firstTablePlayer();
+  expect(leverageFirst).not.toBe(exposureFirst);
+  await expect(page.getByText("0.75x · 3 / 4 players/team")).toBeVisible();
+  await expect(page.getByTestId("round-fingerprint-chart").locator("svg").first()).toBeVisible();
+  await expect(page.getByTestId("round-fingerprint-chart")).toContainText("Draft round");
+  await expect(page.getByTestId("round-fingerprint-chart")).toContainText("Picks / team");
+  await expect(page.getByRole("heading", { name: "vs. draft-time ADP" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "vs. current market ADP" })).toBeVisible();
+  await expect(page.getByText("Jul 9, 2026")).toBeVisible();
+  await expect(page.getByTestId("strategy-distribution-chart").locator("svg")).toBeVisible();
+  await expect(page.getByText("Zero RB", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("0.0% · 0 / 4").first()).toBeVisible();
+  await expect(page.getByText("descriptive, not causal", { exact: false })).toBeVisible();
+  await expect(page.getByText("not listed in FFC snapshot")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fantasy Football Calculator" })).toBeVisible();
+
+  const leverageInfo = page.getByRole("button", { name: "About Highest leverage" });
+  await leverageInfo.hover();
+  await expect(page.getByRole("tooltip")).toContainText("biggest difference from the field");
+  await leverageInfo.click();
+  await page.mouse.move(0, 0);
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+});
+
+test("analytics controls and tables remain usable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/analytics");
+  await expect(page.getByRole("link", { name: "Analytics" })).toBeVisible();
+  await page.getByRole("button", { name: "Opponents" }).click();
+  await expect(page.getByRole("heading", { name: "Opponent roster census" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("portfolio board shows Edge Index as the primary score (Phase 17)", async ({ page }) => {
@@ -514,7 +838,7 @@ test("CSV export button points at the backend export endpoint", async ({ page })
 
 test("manage tab renders the account and league forms", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("link", { name: "Manage" }).click();
+  await page.getByLabel("Top navigation").getByRole("link", { name: "Manage" }).click();
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add league" })).toBeVisible();
   await expect(page.getByTestId("league-achievements-1").getByLabel("Sync healthy")).toBeVisible();
@@ -548,7 +872,9 @@ test("manage individual sync preserves completed-with-issues feedback after relo
 
   await page.goto("/manage");
   const alphaRow = page.getByRole("link", { name: /Alpha League/ }).locator("..");
-  await alphaRow.getByRole("button", { name: "Sync" }).click();
+  const rowSync = alphaRow.getByRole("button", { name: "Sync" });
+  await expect(rowSync).toHaveAttribute("data-variant", "sync");
+  await rowSync.click();
 
   await expect(
     page.getByText("Alpha League: Completed with issues: boxscore fixture unavailable"),
@@ -624,7 +950,9 @@ test("manage discovers, selects, imports, and syncs account leagues", async ({ p
   await expect(discovery.getByText("Added", { exact: true })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Select Alpha League" })).toBeDisabled();
   await expect(gamma).toBeChecked();
-  await page.getByRole("button", { name: "Import & sync 1" }).click();
+  const importSync = page.getByRole("button", { name: "Import & sync 1" });
+  await expect(importSync).toHaveAttribute("data-variant", "sync");
+  await importSync.click();
 
   await expect(page.getByText("Processed 1 league.")).toBeVisible();
   const results = page.getByTestId("league-import-results-1");
@@ -747,6 +1075,7 @@ test("manage bulk sync runs a stable sequential queue with one final reload", as
 
   await page.goto("/manage");
   const bulk = page.getByRole("button", { name: "Sync all 3 leagues" });
+  await expect(bulk).toHaveAttribute("data-variant", "sync");
   await expect(bulk).toBeVisible();
   const initialAccountReads = accountReads;
   const initialLeagueReads = leagueReads;
@@ -1089,6 +1418,7 @@ test("league detail renders standings from mocked API data", async ({ page }) =>
   await expect(heading.getByRole("img", { name: "My Team team logo" })).toBeVisible();
   await expect(standings.getByRole("img", { name: "My Team team logo" })).toBeVisible();
   await expect(standings.getByRole("img", { name: "Rival team logo" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sync now" })).toHaveAttribute("data-variant", "sync");
 });
 
 test("team links open a deep-linked configured roster and return to the source tab", async ({ page }) => {
@@ -1107,6 +1437,7 @@ test("team links open a deep-linked configured roster and return to the source t
   await expect(page.getByText("Week 1 matchup")).toBeVisible();
   await expect(page.getByText("108.4 proj")).toBeVisible();
   await expect(page.getByText("111.2 proj")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sync now" })).toHaveAttribute("data-variant", "sync");
 
   const starters = page.getByRole("table", { name: "Starting lineup roster" });
   await expect(starters).toBeVisible();
@@ -1154,6 +1485,7 @@ test("team detail supports hard refresh, keyboard entry, Escape, and retry", asy
   await link.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/league\/1\/teams\/2$/);
+  await expect(page.getByRole("heading", { name: /Rival/ })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/\/league\/1\?tab=teams$/);
 });
@@ -1639,7 +1971,7 @@ test("status page renders health/AI/account/league counts without leaking secret
     ]));
 
   await page.goto("/");
-  await page.getByRole("link", { name: "Status" }).click();
+  await page.getByLabel("Top navigation").getByRole("link", { name: "Status" }).click();
 
   await expect(page.getByRole("heading", { name: "System status" })).toBeVisible();
   // Health + season + DB path.
@@ -1670,7 +2002,7 @@ test("re-auth form posts new cookies and clears the needs_reauth badge", async (
   });
 
   await page.goto("/");
-  await page.getByRole("link", { name: "Manage" }).click();
+  await page.getByLabel("Top navigation").getByRole("link", { name: "Manage" }).click();
 
   // needs_reauth is shown and the re-auth form is auto-expanded.
   await expect(page.getByTestId("account-status-7")).toHaveText("needs_reauth");

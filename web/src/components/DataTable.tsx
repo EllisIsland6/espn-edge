@@ -37,7 +37,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm" aria-label={ariaLabel}>
-        <thead>
+        <thead className="sticky top-0 z-[1] bg-panel">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id} className="border-b border-line">
               {hg.headers.map((h) => {
@@ -52,7 +52,7 @@ export function DataTable<T>({
                     aria-sort={
                       !canSort ? undefined : sort === "asc" ? "ascending" : sort === "desc" ? "descending" : "none"
                     }
-                    className={`select-none whitespace-nowrap px-2 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted sm:px-3 ${
+                    className={`mono select-none whitespace-nowrap px-2 py-2 text-left text-[9px] font-medium uppercase tracking-[0.14em] text-muted sm:px-3 ${
                       columnClassName?.(h.column.id) ?? ""
                     }`}
                   >
@@ -80,14 +80,14 @@ export function DataTable<T>({
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className={`border-b border-line/60 hover:bg-rowhover ${
+              className={`border-b border-line/70 transition-colors duration-150 hover:bg-rowhover ${
                 rowClassName ? rowClassName(row.original) : ""
               }`}
             >
               {row.getVisibleCells().map((cell) => (
                 <td
                   key={cell.id}
-                  className={`px-2 py-2 align-middle sm:px-3 ${
+                  className={`px-2 py-2.5 align-middle sm:px-3 ${
                     columnClassName?.(cell.column.id) ?? ""
                   }`}
                 >
