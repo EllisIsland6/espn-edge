@@ -39,6 +39,7 @@
   /* Sync actions use the warm coral-to-gold signal from the product reference. */
   --color-syncstart: #f25b63;
   --color-syncend: #dba42e;
+  --color-syncink: #080a0d;
 
   --color-green: #86efac;
   --color-greenchip: #12241a;
@@ -69,6 +70,10 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {

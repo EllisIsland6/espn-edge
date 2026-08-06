@@ -132,7 +132,7 @@ export function Button({
     primary: "min-h-9 rounded-md bg-red px-3 py-1.5 text-sm font-semibold tracking-wide text-white hover:bg-redhover",
     secondary: "min-h-9 rounded-md border border-line bg-panel px-3 py-1.5 text-sm font-semibold tracking-wide text-primary hover:bg-rowhover",
     danger: "min-h-9 rounded-md border border-red/40 px-3 py-1.5 text-sm font-semibold tracking-wide text-red hover:bg-red/10",
-    sync: "h-[30px] rounded-lg bg-gradient-to-r from-syncstart to-syncend px-4 text-[10px] font-black uppercase tracking-[0.15em] text-header shadow-[0_0_16px_color-mix(in_srgb,var(--color-syncstart)_18%,transparent)] hover:brightness-110 active:translate-y-px active:brightness-95 disabled:translate-y-0 disabled:shadow-none disabled:brightness-75",
+    sync: "h-[30px] rounded-lg bg-gradient-to-r from-syncstart to-syncend px-4 text-[10px] font-black uppercase tracking-[0.15em] text-syncink shadow-[0_0_16px_color-mix(in_srgb,var(--color-syncstart)_18%,transparent)] hover:brightness-110 active:translate-y-px active:brightness-95 disabled:translate-y-0 disabled:shadow-none disabled:brightness-75",
     discover: "h-[30px] rounded-lg bg-gradient-to-r from-ice to-rb px-4 text-[10px] font-black uppercase tracking-[0.15em] text-header shadow-[0_0_16px_color-mix(in_srgb,var(--color-ice)_18%,transparent)] hover:brightness-110 active:translate-y-px active:brightness-95 disabled:translate-y-0 disabled:shadow-none disabled:brightness-75",
   };
   return (

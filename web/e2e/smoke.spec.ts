@@ -609,6 +609,39 @@ test("portfolio board loads with rows, summary, and export controls", async ({ p
   }
 });
 
+test("header theme toggle switches modes, stays top-right, and persists", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  const root = page.locator("html");
+  const lightToggle = page.getByRole("button", { name: "Switch to light mode" });
+  await expect(root).toHaveAttribute("data-theme", "dark");
+  await expect(lightToggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(
+    () => root.evaluate((element) => getComputedStyle(element).getPropertyValue("--color-page").trim()),
+  ).toBe("#070b14");
+
+  const toggleBox = await lightToggle.boundingBox();
+  expect(toggleBox).not.toBeNull();
+  expect(toggleBox!.x + toggleBox!.width).toBeGreaterThan(370);
+
+  await lightToggle.click();
+  await expect(root).toHaveAttribute("data-theme", "light");
+  const darkToggle = page.getByRole("button", { name: "Switch to dark mode" });
+  await expect(darkToggle).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(
+    () => root.evaluate((element) => getComputedStyle(element).getPropertyValue("--color-page").trim()),
+  ).toBe("#edf2f4");
+
+  await page.reload();
+  await expect(root).toHaveAttribute("data-theme", "light");
+  await expect(page.getByRole("button", { name: "Switch to dark mode" })).toBeVisible();
+  await expect.poll(
+    () => root.evaluate((element) => getComputedStyle(element).getPropertyValue("--color-page").trim()),
+  ).toBe("#edf2f4");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test("analytics renders exposure, distinct ADP sources, full strategy enum, and coverage", async ({ page }) => {
   await page.goto("/analytics");
   await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();

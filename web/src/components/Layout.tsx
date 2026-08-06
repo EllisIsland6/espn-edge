@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, Outlet, ScrollRestoration, useLocation } from "react-router";
+import { applyTheme, currentTheme, storeTheme, type ThemeMode } from "../lib/theme";
 
 const SIDEBAR_COLLAPSED_KEY = "espn-edge.sidebar-collapsed";
 
@@ -59,6 +60,7 @@ function initialSidebarCollapsed(): boolean {
 
 export default function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
+  const [theme, setTheme] = useState<ThemeMode>(currentTheme);
   const location = useLocation();
 
   function toggleSidebar() {
@@ -72,6 +74,15 @@ export default function Layout() {
       return next;
     });
   }
+
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    storeTheme(next);
+    setTheme(next);
+  }
+
+  const themeToggleLabel = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
 
   return (
     <div className="flex min-h-full flex-col">
@@ -94,6 +105,18 @@ export default function Layout() {
               </NavLink>
             ))}
           </nav>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className={`ml-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-panel/80 transition duration-150 hover:-translate-y-px hover:border-coldline hover:bg-rowhover ${
+              theme === "dark" ? "text-icesoft" : "text-gold"
+            }`}
+            aria-label={themeToggleLabel}
+            aria-pressed={theme === "dark"}
+            title={themeToggleLabel}
+          >
+            <ThemeIcon theme={theme} />
+          </button>
         </div>
       </header>
 
@@ -179,6 +202,34 @@ function SidebarLabel({ collapsed, children }: { collapsed: boolean; children: R
     <span className={collapsed ? "sr-only" : "min-w-0 truncate whitespace-nowrap"}>
       {children}
     </span>
+  );
+}
+
+function ThemeIcon({ theme }: { theme: ThemeMode }) {
+  const shared = {
+    className: "h-[18px] w-[18px]",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (theme === "dark") {
+    return (
+      <svg {...shared}>
+        <path d="M20.4 14.3A8.5 8.5 0 0 1 9.7 3.6 8.5 8.5 0 1 0 20.4 14.3Z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg {...shared}>
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
   );
 }
 
