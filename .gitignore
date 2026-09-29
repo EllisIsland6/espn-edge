@@ -31,3 +31,14 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# Recovery runtime state — lock, scratch staging and the stage machine's
+# current position. Machine-local, rewritten on every run, and the scratch
+# directory holds restored database material.
+/data/recovery-scratch/
+/data/recovery-state.json
+/data/recovery.lock
+.DS_Store
+
+# Claude Code local overrides (settings.json is shared, .local.json is not)
+.claude/settings.local.json
