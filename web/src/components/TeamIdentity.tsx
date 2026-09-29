@@ -21,14 +21,20 @@ export function TeamAvatar({
   name,
   logoUrl,
   size = "sm",
+  fallbackLabel,
 }: {
   name: string | null;
   logoUrl: string | null;
   size?: "xs" | "sm" | "md" | "lg";
+  fallbackLabel?: string;
 }) {
   const label = name ?? "Unknown team";
   const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [logoUrl]);
+  const [imageReady, setImageReady] = useState(false);
+  useEffect(() => {
+    setImageFailed(false);
+    setImageReady(false);
+  }, [logoUrl]);
   const dimensions = {
     xs: "h-7 w-7 text-[9px]",
     sm: "h-9 w-9 text-[10px]",
@@ -41,7 +47,9 @@ export function TeamAvatar({
       title={label}
       data-testid="team-avatar"
     >
-      {(!logoUrl || imageFailed) && <span aria-hidden="true">{initials(label)}</span>}
+      {(!logoUrl || imageFailed || !imageReady) && (
+        <span aria-hidden="true">{fallbackLabel ?? initials(label)}</span>
+      )}
       {logoUrl && (
         <img
           src={logoUrl}
@@ -49,8 +57,12 @@ export function TeamAvatar({
           loading="lazy"
           referrerPolicy="no-referrer"
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-contain p-0.5 ${imageFailed ? "hidden" : ""}`}
-          onError={() => setImageFailed(true)}
+          className={`absolute inset-0 h-full w-full object-contain p-0.5 ${imageFailed || !imageReady ? "opacity-0" : "opacity-100"}`}
+          onLoad={() => setImageReady(true)}
+          onError={() => {
+            setImageReady(false);
+            setImageFailed(true);
+          }}
         />
       )}
     </span>

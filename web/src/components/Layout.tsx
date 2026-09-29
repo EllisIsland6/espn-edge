@@ -177,8 +177,9 @@ export default function Layout() {
           <footer className="border-t border-line">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-2 px-3 py-4 text-[10px] text-muted sm:px-6">
               <span>ESPN Edge · local portfolio analytics</span>
-              <span>
-                Current-market ADP by{" "}
+              <span className="flex flex-wrap items-center gap-x-3">
+                <span>
+                  Current-market ADP by{" "}
                 <a
                   href="https://fantasyfootballcalculator.com/"
                   target="_blank"
@@ -187,6 +188,18 @@ export default function Layout() {
                 >
                   Fantasy Football Calculator
                 </a>
+                </span>
+                <span>
+                  NFL data via{" "}
+                  <a
+                    href="https://nflverse.nflverse.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-secondary hover:text-primary"
+                  >
+                    nflverse (CC BY 4.0)
+                  </a>
+                </span>
               </span>
             </div>
           </footer>

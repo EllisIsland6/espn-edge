@@ -8,8 +8,46 @@ export interface Health {
   db_path: string;
 }
 
+export interface RecoveryStatus {
+  required: boolean;
+  supported_topology: boolean;
+  configured: boolean;
+  target_available: boolean;
+  state: string;
+  last_coverage_at: string | null;
+  last_snapshot_at: string | null;
+  age_seconds: number | null;
+  stale_after_seconds: number;
+  last_result_code: string;
+  artifact_bytes: number | null;
+  format_version: number;
+  schema_fingerprint_short: string | null;
+  retention_configured: boolean;
+  retention_enforced: boolean;
+}
+
+export interface RecoveryBackupResult {
+  result_code: string;
+  artifact_bytes: number;
+  snapshot_created: boolean;
+}
+
 export async function getHealth(): Promise<Health> {
   return get<Health>("/api/health");
+}
+
+export const getRecoveryStatus = () => get<RecoveryStatus>("/api/recovery/status");
+
+export async function triggerRecoveryBackup(
+  reason: "post-clean-portfolio-sync" | "manual",
+): Promise<RecoveryBackupResult> {
+  const path = `/api/recovery/backup?reason=${reason}`;
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "X-ESPN-Edge-Action": "backup" },
+  });
+  if (!res.ok) throw new Error(await errorText(res, path));
+  return res.json() as Promise<RecoveryBackupResult>;
 }
 
 // --- Phase 2 read-only view types (mirror api/schemas.py) ------------------
@@ -596,6 +634,218 @@ export interface PortfolioStrategies {
   }>;
 }
 
+export type OpportunityView = "rostered" | "available" | "all";
+
+export interface OpportunityStatus {
+  season: number;
+  state: "ready" | "partial" | "empty" | "failed" | "skipped";
+  run_id: string | null;
+  fetched_at: string | null;
+  age_hours: number | null;
+  stale: boolean;
+  latest_week: number | null;
+  stored_rows: number;
+  matched_players: number;
+  unmatched_players: number;
+  package_version: string | null;
+  schema_fingerprint: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  last_good_at: string | null;
+}
+
+export interface OpportunityPlayer {
+  espn_player_id: number;
+  player_name: string | null;
+  position: "RB" | "WR" | "TE";
+  nfl_team: string | null;
+  sample_games: number;
+  through_week: number;
+  avg_carry_share: number | null;
+  avg_target_share: number | null;
+  avg_air_yards_share: number | null;
+  avg_wopr: number | null;
+  avg_rushing_epa: number | null;
+  avg_receiving_epa: number | null;
+  ppr_points_per_game: number | null;
+  targets_per_game: number | null;
+  receptions_per_game: number | null;
+  receiving_yards_per_game: number | null;
+  receiving_tds_per_game: number | null;
+  average_depth_of_target: number | null;
+  team_passing_yards_per_game: number | null;
+  opportunity_score: number | null;
+  production_percentile: number | null;
+  opportunity_gap: number | null;
+  signal: "opportunity_ahead" | "production_ahead" | "aligned" | "pending";
+  trend: "rising" | "falling" | "steady" | null;
+  trend_delta_pp: number | null;
+  mine_leagues: number;
+  field_leagues: number;
+  available_leagues: number;
+  unknown_leagues: number;
+}
+
+export interface PortfolioOpportunity {
+  season: number;
+  view: OpportunityView;
+  source: OpportunityStatus;
+  coverage: {
+    leagues_in_scope: number;
+    current_roster_leagues: number;
+    unknown_roster_leagues: number;
+    stored_player_games: number;
+    mapped_players: number;
+    unmatched_players: number;
+    players_returned: number;
+  };
+  warnings: Array<{ code: string; message: string | null; count?: number | null; chart_id?: string | null }>;
+  players: OpportunityPlayer[];
+}
+
+export type OpportunityChartPosition = "RB" | "WR" | "TE";
+export type OpportunityChartId =
+  | "target_air"
+  | "yards_tds"
+  | "adot_targets"
+  | "opportunity_production"
+  | "passing_environment";
+
+export interface OpportunityChartPoint {
+  espn_player_id: number;
+  player_name: string | null;
+  nfl_team: string | null;
+  position: OpportunityChartPosition;
+  espn_rank_ppr: number;
+  sample_games: number;
+  through_week: number;
+  target_share_pct: number | null;
+  air_yards_share_pct: number | null;
+  targets_per_game: number | null;
+  receptions_per_game: number | null;
+  receiving_yards_per_game: number | null;
+  receiving_tds_per_game: number | null;
+  average_depth_of_target: number | null;
+  team_passing_yards_per_game: number | null;
+  opportunity_score: number | null;
+  production_percentile: number | null;
+  opportunity_gap: number | null;
+  signal: OpportunityPlayer["signal"];
+  trend: OpportunityPlayer["trend"];
+  mine_leagues: number;
+  field_leagues: number;
+  available_leagues: number;
+  unknown_leagues: number;
+  [key: string]: string | number | null;
+}
+
+export interface OpportunityChartDefinition {
+  id: OpportunityChartId;
+  title: string;
+  x_key: string;
+  y_key: string;
+  x_label: string;
+  y_label: string;
+  supported_positions: OpportunityChartPosition[];
+  domain: { x_min: number; x_max: number; y_min: number; y_max: number };
+  references: Array<{
+    kind: "x" | "y" | "line";
+    value: number | null;
+    x1: number | null;
+    y1: number | null;
+    x2: number | null;
+    y2: number | null;
+    label: string;
+  }>;
+  quadrants: Array<{
+    key: string;
+    label: string;
+    x_side: "low" | "high";
+    y_side: "low" | "high";
+  }>;
+  point_count: number;
+  population_point_count: number;
+  omitted_count: number;
+  omitted_reasons: Array<{ reason: string; count: number }>;
+}
+
+export interface PortfolioOpportunityCharts {
+  season: number;
+  view: OpportunityView;
+  position: OpportunityChartPosition;
+  window_games: number;
+  through_week: number | null;
+  source: OpportunityStatus;
+  coverage: {
+    rank_limit: number;
+    population_players: number;
+    returned_players: number;
+    current_roster_leagues: number;
+    unknown_roster_leagues: number;
+  };
+  charts: OpportunityChartDefinition[];
+  points: OpportunityChartPoint[];
+  warnings: Array<{ code: string; message: string | null; count?: number | null; chart_id?: string | null }>;
+}
+
+export interface PlayerOpportunity {
+  season: number;
+  player: {
+    espn_player_id: number;
+    player_name: string | null;
+    position: string | null;
+    nfl_team: string | null;
+    gsis_id: string | null;
+    mapping_status: "matched" | "unmatched" | "ambiguous";
+  };
+  summary: OpportunityPlayer | null;
+  weeks: Array<{
+    week: number;
+    game_id: string;
+    team: string | null;
+    opponent_team: string | null;
+    position: string;
+    carries: number | null;
+    carry_share: number | null;
+    targets: number | null;
+    target_share: number | null;
+    air_yards_share: number | null;
+    wopr: number | null;
+    fantasy_points_ppr: number | null;
+    receptions: number | null;
+    receiving_yards: number | null;
+    receiving_tds: number | null;
+    average_depth_of_target: number | null;
+    team_passing_yards: number | null;
+  }>;
+  leagues: Array<{
+    league_id: number;
+    league_name: string | null;
+    state: "mine" | "field" | "available" | "unknown";
+  }>;
+  source: OpportunityStatus;
+}
+
+export interface OpportunityRefreshResult {
+  run_id: string;
+  season: number;
+  state: OpportunityStatus["state"];
+  started_at: string;
+  completed_at: string | null;
+  latest_week: number | null;
+  input_rows: number;
+  stored_rows: number;
+  matched_players: number;
+  unmatched_players: number;
+  retries: number;
+  package_version: string | null;
+  schema_fingerprint: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  details: Record<string, unknown>;
+  last_good_at: string | null;
+}
+
 export interface AccountOut {
   id: number;
   label: string;
@@ -761,6 +1011,28 @@ export const getPortfolioDraftAdp = () =>
   get<PortfolioDraftAdp>("/api/portfolio/draft-adp");
 export const getPortfolioStrategies = () =>
   get<PortfolioStrategies>("/api/portfolio/strategies");
+export const getPortfolioOpportunity = (view: OpportunityView = "all", season?: number) =>
+  get<PortfolioOpportunity>(
+    `/api/portfolio/opportunity?view=${view}${season == null ? "" : `&season=${season}`}`,
+  );
+export const getPortfolioOpportunityCharts = (
+  view: OpportunityView = "all",
+  position: OpportunityChartPosition = "WR",
+  season?: number,
+) => get<PortfolioOpportunityCharts>(
+  `/api/portfolio/opportunity/charts?view=${view}&position=${position}${season == null ? "" : `&season=${season}`}`,
+);
+export const getOpportunityStatus = (season?: number) =>
+  get<OpportunityStatus>(`/api/opportunity/status${season == null ? "" : `?season=${season}`}`);
+export const getPlayerOpportunity = (espnPlayerId: number, season?: number) =>
+  get<PlayerOpportunity>(
+    `/api/players/${espnPlayerId}/opportunity${season == null ? "" : `?season=${season}`}`,
+  );
+export const refreshOpportunity = (force = false, season?: number) =>
+  send<OpportunityRefreshResult>(
+    "POST",
+    `/api/opportunity/refresh?force=${force}${season == null ? "" : `&season=${season}`}`,
+  );
 export const getLeagues = () => get<LeagueOut[]>("/api/leagues");
 export const getLeagueOverview = (id: number) =>
   get<LeagueOverview>(`/api/leagues/${id}/overview`);
@@ -815,16 +1087,18 @@ export function downloadExport(kind: ExportKind): void {
   downloadPath(EXPORT_ENDPOINTS[kind]);
 }
 
-export type AnalyticsCsvKind = "exposure" | "draft-adp" | "strategies";
+export type AnalyticsCsvKind = "exposure" | "draft-adp" | "strategies" | "opportunity";
 
 export function downloadAnalyticsCsv(
   kind: AnalyticsCsvKind,
   scope: ExposureScope = "me",
-  view: ExposureView = "all",
+  view: ExposureView | OpportunityView = "all",
 ): void {
   const path =
     kind === "exposure"
       ? `/api/exports/exposure.csv?scope=${scope}&view=${view}`
+      : kind === "opportunity"
+        ? `/api/exports/opportunity.csv?view=${view}`
       : `/api/exports/${kind}.csv`;
   downloadPath(path);
 }

@@ -9,6 +9,7 @@ import {
   getLeagues,
   reauthAccount,
   syncLeague,
+  triggerRecoveryBackup,
   type AccountOut,
   type DiscoveredLeague,
   type LeagueOut,
@@ -697,6 +698,22 @@ function LeagueList({
             league: label,
             status: "failed",
             message: `Sync request failed: ${syncFailureMessage(e)}`,
+          });
+        }
+      }
+      if (
+        queue.length > 0
+        && results.length === queue.length
+        && results.every((result) => result.status === "success")
+      ) {
+        try {
+          await triggerRecoveryBackup("post-clean-portfolio-sync");
+        } catch (e) {
+          record({
+            leagueId: 0,
+            league: "Recovery point",
+            status: "failed",
+            message: `Sync data updated, but the recovery point failed: ${syncFailureMessage(e)}`,
           });
         }
       }

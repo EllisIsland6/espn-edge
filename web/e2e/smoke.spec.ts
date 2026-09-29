@@ -519,8 +519,168 @@ const STRATEGIES_ANALYTICS = {
   ],
 };
 
+const OPPORTUNITY_STATUS = {
+  season: 2026, state: "ready", run_id: "phase27test", fetched_at: NOW,
+  age_hours: 1.0, stale: false, latest_week: 3, stored_rows: 30,
+  matched_players: 10, unmatched_players: 0, package_version: "0.1.5",
+  schema_fingerprint: "abc123", error_code: null, error_message: null,
+  last_good_at: NOW,
+};
+
+const OPPORTUNITY_ANALYTICS = {
+  season: 2026,
+  view: "all",
+  source: OPPORTUNITY_STATUS,
+  coverage: {
+    leagues_in_scope: 2, current_roster_leagues: 2, unknown_roster_leagues: 0,
+    stored_player_games: 30, mapped_players: 10, unmatched_players: 0,
+    players_returned: 2,
+  },
+  warnings: [],
+  players: [
+    {
+      espn_player_id: 101, player_name: "Bijan Robinson", position: "RB", nfl_team: "ATL",
+      sample_games: 3, through_week: 3, avg_carry_share: 72.0, avg_target_share: 18.0,
+      avg_air_yards_share: 4.0, avg_wopr: 0.42, avg_rushing_epa: 1.2,
+      avg_receiving_epa: 0.5, ppr_points_per_game: 12.0, opportunity_score: 92.0,
+      targets_per_game: 4.0, receptions_per_game: 3.0, receiving_yards_per_game: 25.0,
+      receiving_tds_per_game: 0.2, average_depth_of_target: 6.3,
+      team_passing_yards_per_game: 230.0,
+      production_percentile: 60.0, opportunity_gap: 32.0, signal: "opportunity_ahead",
+      trend: "rising", trend_delta_pp: 7.0, mine_leagues: 1, field_leagues: 0,
+      available_leagues: 1, unknown_leagues: 0,
+    },
+    {
+      espn_player_id: 102, player_name: "Amon-Ra St. Brown", position: "WR", nfl_team: "DET",
+      sample_games: 3, through_week: 3, avg_carry_share: 1.0, avg_target_share: 28.0,
+      avg_air_yards_share: 36.0, avg_wopr: 0.71, avg_rushing_epa: 0.0,
+      avg_receiving_epa: 2.1, ppr_points_per_game: 20.0, opportunity_score: 87.0,
+      targets_per_game: 10.0, receptions_per_game: 7.0, receiving_yards_per_game: 92.0,
+      receiving_tds_per_game: 0.7, average_depth_of_target: 9.4,
+      team_passing_yards_per_game: 275.0,
+      production_percentile: 90.0, opportunity_gap: -3.0, signal: "aligned",
+      trend: "steady", trend_delta_pp: 1.0, mine_leagues: 1, field_leagues: 1,
+      available_leagues: 0, unknown_leagues: 0,
+    },
+  ],
+};
+
+const OPPORTUNITY_CHART_POINTS = [
+  {
+    espn_player_id: 102, player_name: "Amon-Ra St. Brown", nfl_team: "DET", position: "WR",
+    espn_rank_ppr: 8,
+    sample_games: 3, through_week: 3, target_share_pct: 28.0, air_yards_share_pct: 36.0,
+    targets_per_game: 10.0, receptions_per_game: 7.0, receiving_yards_per_game: 92.0,
+    receiving_tds_per_game: 0.7, average_depth_of_target: 9.4,
+    team_passing_yards_per_game: 275.0, opportunity_score: 87.0,
+    production_percentile: 90.0, opportunity_gap: -3.0, signal: "aligned", trend: "steady",
+    mine_leagues: 1, field_leagues: 1, available_leagues: 0, unknown_leagues: 0,
+  },
+  {
+    espn_player_id: 103, player_name: "Drake London", nfl_team: "ATL", position: "WR",
+    espn_rank_ppr: 23,
+    sample_games: 3, through_week: 3, target_share_pct: 31.2, air_yards_share_pct: 43.5,
+    targets_per_game: 11.0, receptions_per_game: 7.3, receiving_yards_per_game: 88.0,
+    receiving_tds_per_game: 0.3, average_depth_of_target: 12.8,
+    team_passing_yards_per_game: 248.0, opportunity_score: 93.0,
+    production_percentile: 72.0, opportunity_gap: 21.0, signal: "opportunity_ahead", trend: "rising",
+    mine_leagues: 0, field_leagues: 1, available_leagues: 1, unknown_leagues: 0,
+  },
+  {
+    espn_player_id: 104, player_name: "Puka Nacua", nfl_team: "LAR", position: "WR",
+    espn_rank_ppr: 5,
+    sample_games: 3, through_week: 3, target_share_pct: 33.5, air_yards_share_pct: 31.0,
+    targets_per_game: 12.0, receptions_per_game: 8.0, receiving_yards_per_game: 105.0,
+    receiving_tds_per_game: 0.7, average_depth_of_target: 8.7,
+    team_passing_yards_per_game: 292.0, opportunity_score: 96.0,
+    production_percentile: 95.0, opportunity_gap: 1.0, signal: "aligned", trend: "steady",
+    mine_leagues: 1, field_leagues: 0, available_leagues: 1, unknown_leagues: 0,
+  },
+  {
+    espn_player_id: 105, player_name: "Garrett Wilson", nfl_team: "NYJ", position: "WR",
+    espn_rank_ppr: 31,
+    sample_games: 3, through_week: 3, target_share_pct: 24.0, air_yards_share_pct: 28.0,
+    targets_per_game: 8.0, receptions_per_game: 5.0, receiving_yards_per_game: 88.0,
+    receiving_tds_per_game: 0.3, average_depth_of_target: 11.5,
+    team_passing_yards_per_game: 205.0, opportunity_score: 70.0,
+    production_percentile: 45.0, opportunity_gap: 25.0, signal: "opportunity_ahead", trend: "falling",
+    mine_leagues: 0, field_leagues: 0, available_leagues: 2, unknown_leagues: 0,
+  },
+];
+
+function opportunityChartDefinition(
+  id: string,
+  title: string,
+  xKey: string,
+  yKey: string,
+  xLabel: string,
+  yLabel: string,
+) {
+  const percentile = id === "opportunity_production";
+  return {
+    id, title, x_key: xKey, y_key: yKey, x_label: xLabel, y_label: yLabel,
+    supported_positions: percentile ? ["RB", "WR", "TE"] : ["WR"],
+    domain: percentile
+      ? { x_min: 0, x_max: 100, y_min: 0, y_max: 100 }
+      : id === "passing_environment"
+        ? { x_min: 190, x_max: 310, y_min: 20, y_max: 38 }
+        : id === "yards_tds"
+          ? { x_min: 50, x_max: 115, y_min: -0.1, y_max: 0.8 }
+          : id === "adot_targets"
+            ? { x_min: 7, x_max: 14, y_min: 7, y_max: 13 }
+            : { x_min: 20, x_max: 37, y_min: 24, y_max: 47 },
+    references: percentile
+      ? [
+          { kind: "line", value: null, x1: 0, y1: 0, x2: 100, y2: 100, label: "Opportunity = production" },
+          { kind: "line", value: null, x1: 15, y1: 0, x2: 100, y2: 85, label: "Opportunity +15" },
+          { kind: "line", value: null, x1: 0, y1: 15, x2: 85, y2: 100, label: "Production +15" },
+        ]
+      : [
+          { kind: "x", value: id === "passing_environment" ? 262 : 28, x1: null, y1: null, x2: null, y2: null, label: "Position median" },
+          { kind: "y", value: id === "yards_tds" ? 0.5 : id === "adot_targets" ? 10.5 : 32, x1: null, y1: null, x2: null, y2: null, label: "Position median" },
+        ],
+    quadrants: percentile ? [] : [
+      { key: "high_high", label: "High + high", x_side: "high", y_side: "high" },
+      { key: "low_low", label: "Lower recent sample", x_side: "low", y_side: "low" },
+    ],
+    point_count: 4, population_point_count: 4, omitted_count: 0, omitted_reasons: [],
+  };
+}
+
+const OPPORTUNITY_CHARTS = {
+  season: 2026, view: "all", position: "WR", window_games: 3, through_week: 3,
+  source: OPPORTUNITY_STATUS,
+  coverage: { rank_limit: 250, population_players: 4, returned_players: 4, current_roster_leagues: 2, unknown_roster_leagues: 0 },
+  charts: [
+    opportunityChartDefinition("target_air", "Target share vs air-yards share", "target_share_pct", "air_yards_share_pct", "Target share", "Air-yards share"),
+    opportunityChartDefinition("yards_tds", "Receiving yards vs touchdowns", "receiving_yards_per_game", "receiving_tds_per_game", "Receiving yards/game", "Receiving TDs/game"),
+    opportunityChartDefinition("adot_targets", "Target depth vs volume", "average_depth_of_target", "targets_per_game", "Target-weighted aDOT", "Targets/game"),
+    opportunityChartDefinition("opportunity_production", "Opportunity vs production", "opportunity_score", "production_percentile", "Opportunity percentile", "Production percentile"),
+    opportunityChartDefinition("passing_environment", "Passing environment vs target share", "team_passing_yards_per_game", "target_share_pct", "Team QB passing yards/game", "Target share"),
+  ],
+  points: OPPORTUNITY_CHART_POINTS,
+  warnings: [],
+};
+
 function json(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
+}
+
+function recordPortfolioAnalyticsRequests(page: Page): string[] {
+  const paths: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if ([
+      "/api/portfolio/exposure",
+      "/api/portfolio/draft-adp",
+      "/api/portfolio/strategies",
+      "/api/portfolio/opportunity",
+      "/api/portfolio/opportunity/charts",
+    ].includes(path)) {
+      paths.push(path);
+    }
+  });
+  return paths;
 }
 
 async function mockApi(page: Page) {
@@ -533,6 +693,12 @@ async function mockApi(page: Page) {
       status: 200,
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#d9dde5"/></svg>',
+    }));
+  await page.route("**/api/players/team-logo/*", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="18" fill="#d9dde5"/></svg>',
     }));
   await page.route("**/mock-team-logo/*", (r) =>
     r.fulfill({
@@ -547,6 +713,72 @@ async function mockApi(page: Page) {
   await page.route("**/api/portfolio/exposure**", (r) => json(r, EXPOSURE));
   await page.route("**/api/portfolio/draft-adp**", (r) => json(r, DRAFT_ADP_ANALYTICS));
   await page.route("**/api/portfolio/strategies**", (r) => json(r, STRATEGIES_ANALYTICS));
+  await page.route("**/api/portfolio/opportunity**", (r) => json(r, OPPORTUNITY_ANALYTICS));
+  await page.route("**/api/portfolio/opportunity/charts**", (r) => {
+    const url = new URL(r.request().url());
+    const position = url.searchParams.get("position") ?? "WR";
+    if (position === "WR") return json(r, OPPORTUNITY_CHARTS);
+    const pointPosition = position === "TE" ? "TE" : "RB";
+    return json(r, {
+      ...OPPORTUNITY_CHARTS,
+      position: pointPosition,
+      charts: [OPPORTUNITY_CHARTS.charts[3]],
+      points: OPPORTUNITY_CHART_POINTS.slice(0, 2).map((point, index) => ({
+        ...point,
+        espn_player_id: point.espn_player_id + (pointPosition === "TE" ? 1000 : 2000),
+        player_name: `${pointPosition} Chart Player ${index + 1}`,
+        position: pointPosition,
+      })),
+      coverage: { ...OPPORTUNITY_CHARTS.coverage, population_players: 2, returned_players: 2 },
+    });
+  });
+  await page.route("**/api/opportunity/status**", (r) => json(r, OPPORTUNITY_STATUS));
+  await page.route("**/api/opportunity/refresh**", (r) => json(r, OPPORTUNITY_STATUS));
+  await page.route("**/api/recovery/status", (r) => json(r, {
+    required: true,
+    supported_topology: true,
+    configured: true,
+    target_available: true,
+    state: "ready",
+    last_coverage_at: NOW,
+    last_snapshot_at: NOW,
+    age_seconds: 60,
+    stale_after_seconds: 86400,
+    last_result_code: "recovery_ok",
+    artifact_bytes: 4096,
+    format_version: 1,
+    schema_fingerprint_short: "0123456789ab",
+    retention_configured: true,
+    retention_enforced: true,
+  }));
+  await page.route("**/api/recovery/backup**", (r) => json(r, {
+    result_code: "recovery_ok",
+    artifact_bytes: 4096,
+    snapshot_created: true,
+  }));
+  await page.route("**/api/players/*/opportunity**", (r) => {
+    const playerId = Number(new URL(r.request().url()).pathname.split("/").at(-2));
+    const player = OPPORTUNITY_ANALYTICS.players.find((row) => row.espn_player_id === playerId)
+      ?? OPPORTUNITY_ANALYTICS.players[0];
+    return json(r, {
+      season: 2026,
+      player: {
+        espn_player_id: player.espn_player_id, player_name: player.player_name,
+        position: player.position, nfl_team: player.nfl_team, gsis_id: "00-TEST",
+        mapping_status: "matched",
+      },
+      summary: player,
+      weeks: [1, 2, 3].map((week) => ({
+        week, game_id: `game-${week}`, team: player.nfl_team, opponent_team: "CAR",
+        position: player.position, carries: 15, carry_share: 60, targets: 5,
+        target_share: 20, air_yards_share: 10, wopr: 0.4, fantasy_points_ppr: 14,
+        receptions: 4, receiving_yards: 68, receiving_tds: 1,
+        average_depth_of_target: 9.5, team_passing_yards: 250,
+      })),
+      leagues: [{ league_id: 1, league_name: "Alpha League", state: "mine" }],
+      source: OPPORTUNITY_STATUS,
+    });
+  });
   await page.route("**/api/leagues", (r) => json(r, [LEAGUE_1]));
   await page.route("**/api/accounts", (r) => json(r, []));
   await page.route("**/api/leagues/1/overview", (r) => json(r, OVERVIEW));
@@ -582,6 +814,27 @@ async function mockApi(page: Page) {
       contentType: "text/csv",
       headers: { "content-disposition": 'attachment; filename="exposure-me.csv"' },
       body: "player_name,exposure_pct\nBijan Robinson,50.0\n",
+    }));
+  await page.route("**/api/exports/draft-adp.csv", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: { "content-disposition": 'attachment; filename="draft-adp.csv"' },
+      body: "team_name,draft_value_capture_espn\nMy Team,2.5\n",
+    }));
+  await page.route("**/api/exports/strategies.csv", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: { "content-disposition": 'attachment; filename="strategies.csv"' },
+      body: "team_name,primary_label\nMy Team,Hero RB\n",
+    }));
+  await page.route("**/api/exports/opportunity.csv**", (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: { "content-disposition": 'attachment; filename="opportunity-all.csv"' },
+      body: "player_name,opportunity_score\nBijan Robinson,92.0\n",
     }));
 }
 
@@ -642,9 +895,14 @@ test("header theme toggle switches modes, stays top-right, and persists", async 
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("analytics renders exposure, distinct ADP sources, full strategy enum, and coverage", async ({ page }) => {
+test("analytics defaults to the dedicated leverage page", async ({ page }) => {
+  const requests = recordPortfolioAnalyticsRequests(page);
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
+  await expect(page).toHaveURL(/\/analytics\/leverage$/);
+  await expect(page.getByRole("heading", { name: "Analytics", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Leverage", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Portfolio leverage against the local field" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Draft value capture by source" })).toHaveCount(0);
   await expect(page.getByText("Bijan Robinson").first()).toBeVisible();
   await expect(page.getByRole("img", { name: "Bijan Robinson ESPN portrait" }).first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: /Leverage/ })).toBeVisible();
@@ -676,15 +934,24 @@ test("analytics renders exposure, distinct ADP sources, full strategy enum, and 
   await expect(page.getByTestId("round-fingerprint-chart").locator("svg").first()).toBeVisible();
   await expect(page.getByTestId("round-fingerprint-chart")).toContainText("Draft round");
   await expect(page.getByTestId("round-fingerprint-chart")).toContainText("Picks / team");
-  await expect(page.getByRole("heading", { name: "vs. draft-time ADP" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "vs. current market ADP" })).toBeVisible();
-  await expect(page.getByText("Jul 9, 2026")).toBeVisible();
-  await expect(page.getByTestId("strategy-distribution-chart").locator("svg")).toBeVisible();
-  await expect(page.getByText("Zero RB", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("0.0% · 0 / 4").first()).toBeVisible();
-  await expect(page.getByText("descriptive, not causal", { exact: false })).toBeVisible();
-  await expect(page.getByText("not listed in FFC snapshot")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Fantasy Football Calculator" })).toBeVisible();
+  await expect(page.getByTestId("nfl-team-concentration-fill").first()).toHaveCSS(
+    "background-color",
+    "rgb(255, 138, 76)",
+  );
+  await expect(page.getByTestId("nfl-team-concentration-fill").first()).toHaveCSS(
+    "animation-name",
+    "lava-bar-flow",
+  );
+  await expect(
+    page.getByTestId("nfl-team-concentration-row").first().getByRole("img", { name: "ATL team logo" }),
+  ).toBeVisible();
+
+  const [exposureDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Exposure CSV" }).click(),
+  ]);
+  expect(exposureDownload.suggestedFilename()).toBe("exposure-me.csv");
+  expect([...new Set(requests)]).toEqual(["/api/portfolio/exposure"]);
 
   const leverageInfo = page.getByRole("button", { name: "About Highest leverage" });
   await leverageInfo.hover();
@@ -696,9 +963,348 @@ test("analytics renders exposure, distinct ADP sources, full strategy enum, and 
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 });
 
+test("ADP capture has its own route and only loads ADP data", async ({ page }) => {
+  const requests = recordPortfolioAnalyticsRequests(page);
+  await page.goto("/analytics/adp");
+  await expect(page.getByRole("link", { name: "ADP capture", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "vs. draft-time ADP" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "vs. current market ADP" })).toBeVisible();
+  await expect(page.getByText("Jul 9, 2026", { exact: true })).toBeVisible();
+  await expect(page.getByText("not listed in FFC snapshot")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Portfolio leverage against the local field" })).toHaveCount(0);
+  await expect(page.getByTestId("draft-time-adp-fill").first()).toHaveCSS(
+    "background-color",
+    "rgb(255, 138, 76)",
+  );
+  await expect(page.getByTestId("draft-time-adp-fill").first()).toHaveCSS(
+    "animation-name",
+    "lava-bar-flow",
+  );
+  await expect(page.getByTestId("current-market-adp-fill").first()).toHaveCSS(
+    "background-color",
+    "rgb(255, 138, 76)",
+  );
+  await expect(page.getByTestId("current-market-adp-fill").first()).toHaveCSS(
+    "animation-name",
+    "lava-bar-flow",
+  );
+
+  const [adpDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "ADP CSV" }).click(),
+  ]);
+  expect(adpDownload.suggestedFilename()).toBe("draft-adp.csv");
+  expect([...new Set(requests)]).toEqual(["/api/portfolio/draft-adp"]);
+});
+
+test("strategy has its own route and only loads strategy data", async ({ page }) => {
+  const requests = recordPortfolioAnalyticsRequests(page);
+  await page.goto("/analytics/strategy");
+  await expect(page.getByRole("link", { name: "Strategy", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("strategy-distribution-chart").locator("svg")).toBeVisible();
+  await expect(page.getByTestId("primary-rb-structure-fill").first()).toHaveCSS(
+    "animation-name",
+    "lava-color-pulse",
+  );
+  await expect(page.getByTestId("primary-rb-structure-fill").first()).toHaveAttribute(
+    "fill",
+    "var(--color-green)",
+  );
+  await expect(page.getByTestId("secondary-timing-signal-fill").first()).toHaveCSS(
+    "background-color",
+    "rgb(134, 239, 172)",
+  );
+  await expect(page.getByTestId("secondary-timing-signal-fill").first()).toHaveCSS(
+    "animation-name",
+    "lava-color-pulse, lava-original-drift",
+  );
+  await expect(page.getByText("Zero RB", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("0.0% · 0 / 4").first()).toBeVisible();
+  await expect(page.getByText("descriptive, not causal", { exact: false })).toBeVisible();
+
+  const [strategyDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Strategy CSV" }).click(),
+  ]);
+  expect(strategyDownload.suggestedFilename()).toBe("strategies.csv");
+  expect([...new Set(requests)]).toEqual(["/api/portfolio/strategies"]);
+});
+
+test("opportunity has its own route and keeps its filters, detail, refresh, and export", async ({ page }, testInfo) => {
+  const requests = recordPortfolioAnalyticsRequests(page);
+  await page.goto("/analytics/opportunity");
+  await expect(page.getByRole("link", { name: "Opportunity", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Opportunity analytics" })).toBeVisible();
+  const opportunitySeason = page.getByLabel("Opportunity season");
+  await expect(opportunitySeason.getByRole("button", { name: "2025 complete" })).toHaveClass(/bg-icechip/);
+  await opportunitySeason.getByRole("button", { name: "2026 current" }).click();
+  await expect(opportunitySeason.getByRole("button", { name: "2026 current" })).toHaveClass(/bg-icechip/);
+  await opportunitySeason.getByRole("button", { name: "2025 complete" }).click();
+  await expect(page.getByTestId("opportunity-chart-plot")).toBeVisible();
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(4);
+  await expect(page.getByTestId("opportunity-chart-portrait")).toHaveCount(4);
+  await expect(page.getByText("ESPN PPR top 250")).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Targets \+ air yards/ })).toHaveAttribute("aria-selected", "true");
+  const chartMarker = page.getByTestId("opportunity-chart-marker").nth(1);
+  await chartMarker.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("opportunity-chart-selection")).toContainText("Drake London");
+  await expect(page.getByTestId("opportunity-chart-selection")).toContainText("ESPN PPR #23");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveText("1.5×");
+  await page.getByRole("button", { name: "Reset zoom" }).click();
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveText("1×");
+  const opportunityPlot = page.getByTestId("opportunity-chart-plot");
+  await opportunityPlot.dispatchEvent("wheel", { deltaY: -40, deltaMode: 0 });
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveText("1×");
+  await opportunityPlot.dispatchEvent("wheel", {
+    deltaY: -40,
+    deltaMode: 0,
+    ctrlKey: true,
+    clientX: 480,
+    clientY: 300,
+  });
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveText("1.5×");
+  await opportunityPlot.dispatchEvent("wheel", {
+    deltaY: 40,
+    deltaMode: 0,
+    ctrlKey: true,
+    clientX: 480,
+    clientY: 300,
+  });
+  await expect(page.getByRole("button", { name: "Reset zoom" })).toHaveText("1×");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("opportunity-chart-selection")).toHaveCount(0);
+  await page.getByLabel("Opportunity team").selectOption("ATL");
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(1);
+  await page.getByLabel("Opportunity team").selectOption("ALL");
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(4);
+  await page.getByRole("tab", { name: /Yards \+ TDs/ }).click();
+  await expect(page.getByRole("img", { name: /Receiving yards vs touchdowns/ })).toBeVisible();
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(3);
+  await expect(page.getByTestId("opportunity-chart-cluster")).toHaveCount(1);
+  if (process.env.PHASE29_VISUAL) {
+    await page.screenshot({ path: testInfo.outputPath("phase29-opportunity.png"), fullPage: true });
+  }
+  const labelBoxes = await page.getByTestId("opportunity-chart-label").evaluateAll((labels) =>
+    labels.map((label) => {
+      const box = (label as SVGGElement).getBBox();
+      return { x: box.x, y: box.y, width: box.width, height: box.height };
+    }));
+  for (let left = 0; left < labelBoxes.length; left += 1) {
+    for (let right = left + 1; right < labelBoxes.length; right += 1) {
+      const a = labelBoxes[left];
+      const b = labelBoxes[right];
+      const intersects = !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+      expect(intersects).toBe(false);
+    }
+  }
+  const [chartDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("opportunity-chart-export").click(),
+  ]);
+  expect(chartDownload.suggestedFilename()).toBe("opportunity-yards_tds-WR-2026-w3.png");
+  await expect(page.getByRole("table", { name: "Opportunity analytics by player" })).toBeVisible();
+  await expect(page.getByText("opportunity ahead", { exact: true })).toBeVisible();
+  const opportunityTable = page.getByRole("table", { name: "Opportunity analytics by player" });
+  await opportunityTable.getByText("Bijan Robinson").click();
+  await expect(opportunityTable.getByText("Latest games", { exact: false })).toBeVisible();
+  await page.getByLabel("Opportunity position").getByRole("button", { name: "WR" }).click();
+  await expect(opportunityTable.getByText("Amon-Ra St. Brown")).toBeVisible();
+  await expect(opportunityTable.getByText("20.0 PPR · 7.0/10.0 rec/tgt")).toBeVisible();
+  await expect(opportunityTable.getByText("92.0 yd · 0.7 TD · 9.4 aDOT", { exact: false })).toBeVisible();
+  await expect(opportunityTable.getByText("Bijan Robinson")).toHaveCount(0);
+  await page.getByLabel("Opportunity position").getByRole("button", { name: "ALL" }).click();
+  const refreshOpportunity = page.getByRole("button", { name: "Refresh opportunity data" });
+  await expect(refreshOpportunity).toBeVisible();
+  await refreshOpportunity.click();
+  await expect(refreshOpportunity).toBeEnabled();
+  const [opportunityDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Opportunity CSV" }).click(),
+  ]);
+  expect(opportunityDownload.suggestedFilename()).toBe("opportunity-all.csv");
+  await expect(page.getByRole("link", { name: "Fantasy Football Calculator" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "nflverse" })).toBeVisible();
+  expect([...new Set(requests)]).toEqual([
+    "/api/portfolio/opportunity",
+    "/api/portfolio/opportunity/charts",
+  ]);
+});
+
+test("opportunity charts stay bounded on mobile and fall back when portraits are unavailable", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/players/*/portrait", (route) => route.fulfill({ status: 404 }));
+  await page.goto("/analytics/opportunity");
+  await expect(page.getByTestId("opportunity-chart-plot")).toBeVisible();
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(4);
+  await expect(page.locator("[data-portrait-fallback='true']").first()).toBeVisible();
+  await expect(page.getByTestId("opportunity-chart-label")).toHaveCount(0);
+  await page.getByTestId("opportunity-chart-marker").first().click();
+  await expect(page.getByTestId("opportunity-chart-label")).toHaveCount(1);
+  const dimensions = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
+});
+
+test("opportunity chart ignores incomplete points without crashing the route", async ({ page }) => {
+  await page.route("**/api/portfolio/opportunity/charts**", (route) => json(route, {
+    ...OPPORTUNITY_CHARTS,
+    charts: [{
+      ...OPPORTUNITY_CHARTS.charts[0],
+      population_point_count: 5,
+      omitted_count: 1,
+      omitted_reasons: [{ code: "OPP-CHART-INCOMPLETE", count: 1 }],
+    }],
+    points: [
+      ...OPPORTUNITY_CHART_POINTS,
+      {
+        ...OPPORTUNITY_CHART_POINTS[0],
+        espn_player_id: 9999,
+        player_name: "Incomplete Receiver",
+        target_share_pct: null,
+      },
+    ],
+    coverage: { ...OPPORTUNITY_CHARTS.coverage, population_players: 5, returned_players: 4 },
+    warnings: [{
+      code: "OPP-CHART-INCOMPLETE",
+      message: "A player was omitted because a chart metric was unavailable.",
+      count: 1,
+      chart_id: "target_air",
+    }],
+  }));
+
+  await page.goto("/analytics/opportunity");
+  await expect(page.getByTestId("opportunity-chart-plot")).toBeVisible();
+  await expect(page.getByTestId("opportunity-chart-marker")).toHaveCount(4);
+  await expect(page.getByText("OPP-CHART-INCOMPLETE")).toBeVisible();
+  await expect(page.getByText("Unexpected Application Error!")).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Opportunity analytics by player" })).toBeVisible();
+});
+
+test("one-game raw opportunity points remain in the table while chart eligibility gates plotting", async ({ page }) => {
+  const points = OPPORTUNITY_CHART_POINTS.slice(0, 3).map((point, index) => ({
+    ...point,
+    espn_player_id: 90001 + index,
+    player_name: `Synthetic Player P000${index + 1}`,
+    nfl_team: "SYN",
+    sample_games: index === 2 ? 1 : 2,
+    through_week: 2,
+  }));
+  const rawTable = {
+    ...OPPORTUNITY_ANALYTICS,
+    source: { ...OPPORTUNITY_STATUS, run_id: "synthetic-eligibility", latest_week: 1 },
+    players: [{
+      ...OPPORTUNITY_ANALYTICS.players[1],
+      espn_player_id: points[2].espn_player_id,
+      player_name: points[2].player_name,
+      nfl_team: "SYN", sample_games: 1, through_week: 1,
+    }],
+  };
+  await page.route("**/api/portfolio/opportunity?**", (route) => json(route, rawTable));
+  let response = {
+    ...OPPORTUNITY_CHARTS,
+    source: rawTable.source,
+    through_week: 1,
+    charts: [{ ...OPPORTUNITY_CHARTS.charts[0], point_count: 0, population_point_count: 0 }],
+    points: points.map((point) => ({ ...point, sample_games: 1, through_week: 1 })),
+    warnings: [{ code: "OPP-CHART-NO-SAMPLE", message: "Not enough comparable players to draw this chart yet.", count: 0 }],
+  };
+  await page.route("**/api/portfolio/opportunity/charts**", (route) => json(route, response));
+  const table = page.getByRole("table", { name: "Opportunity analytics by player" });
+  const empty = page.getByTestId("opportunity-chart-empty");
+  const markers = page.getByTestId("opportunity-chart-marker");
+  async function expectPending() {
+    await expect(empty).toContainText("Not enough comparable players to draw this chart yet");
+    await expect(page.getByTestId("opportunity-chart-plot")).toHaveCount(0);
+    await expect(markers).toHaveCount(0);
+    await expect(page.getByTestId("opportunity-chart-export")).toBeDisabled();
+    await expect(table).toBeVisible();
+    await expect(table).toContainText("Synthetic Player P0003");
+  }
+  await page.goto("/analytics/opportunity");
+  await expectPending();
+  await expect(page.getByText("OPP-CHART-NO-SAMPLE", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Opportunity team" }).selectOption("SYN");
+  await expectPending();
+
+  for (const counts of [
+    { point_count: 1, population_point_count: 3 },
+    { point_count: 2, population_point_count: 2 },
+  ]) {
+    response = { ...response, charts: [{ ...response.charts[0], ...counts }], points };
+    await page.reload();
+    await expectPending();
+  }
+  response = {
+    ...response, through_week: 2, warnings: [],
+    charts: [{ ...response.charts[0], point_count: 2, population_point_count: 3 }],
+    points: [
+      ...points,
+      { ...points[0], espn_player_id: 90004, player_name: "Synthetic Player P0004", target_share_pct: null },
+    ],
+  };
+  await page.reload();
+  await expect(page.getByTestId("opportunity-chart-plot")).toBeVisible();
+  await expect(markers).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^Synthetic Player P0001,/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Synthetic Player P0002,/ })).toBeVisible();
+  await expect(page.locator('[data-testid="opportunity-chart-marker"][aria-label^="Synthetic Player P0003,"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="opportunity-chart-marker"][aria-label^="Synthetic Player P0004,"]')).toHaveCount(0);
+  await expect(page.getByTestId("opportunity-chart-export")).toBeEnabled();
+  await expect(table).toContainText("Synthetic Player P0003");
+});
+
+test("opportunity chart sparse and failed states keep the data table usable", async ({ page }) => {
+  await page.route("**/api/portfolio/opportunity/charts**", (route) => json(route, {
+    ...OPPORTUNITY_CHARTS,
+    charts: [{ ...OPPORTUNITY_CHARTS.charts[0], point_count: 0, population_point_count: 0 }],
+    points: [],
+    coverage: { ...OPPORTUNITY_CHARTS.coverage, population_players: 0, returned_players: 0 },
+    warnings: [{ code: "OPP-CHART-NO-SAMPLE", message: "Not enough comparable players to draw this chart yet.", count: 0 }],
+  }));
+  await page.goto("/analytics/opportunity");
+  await expect(page.getByTestId("opportunity-chart-empty")).toContainText("Not enough comparable players");
+  await expect(page.getByRole("table", { name: "Opportunity analytics by player" })).toBeVisible();
+
+  await page.route("**/api/portfolio/opportunity/charts**", (route) => route.fulfill({
+    status: 500,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "fixture render failure" }),
+  }));
+  await page.reload();
+  await expect(page.getByText("OPP-CHART-RENDER")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Opportunity analytics by player" })).toBeVisible();
+});
+
+test("analytics navigation resets scroll and legacy section hashes reach the new pages", async ({ page }) => {
+  const legacyRoutes = [
+    ["exposure-heading", "leverage", "Portfolio leverage against the local field"],
+    ["adp-heading", "adp", "Draft value capture by source"],
+    ["strategy-heading", "strategy", "Draft strategy distribution"],
+    ["opportunity-heading", "opportunity", "Opportunity analytics"],
+  ] as const;
+
+  for (const [hash, route, heading] of legacyRoutes) {
+    await page.goto(`/analytics#${hash}`);
+    await expect(page).toHaveURL(new RegExp(`/analytics/${route}$`));
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+  }
+
+  await page.goto("/analytics/leverage");
+  await expect(page.getByRole("heading", { name: "Portfolio leverage against the local field" })).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await page.getByRole("link", { name: "ADP capture", exact: true }).click();
+  await expect(page).toHaveURL(/\/analytics\/adp$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
 test("analytics controls and tables remain usable on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/analytics");
+  await page.goto("/analytics/leverage");
   await expect(page.getByRole("link", { name: "Analytics" })).toBeVisible();
   await page.getByRole("button", { name: "Opponents" }).click();
   await expect(page.getByRole("heading", { name: "Opponent roster census" })).toBeVisible();
@@ -2009,7 +2615,7 @@ test("status page renders health/AI/account/league counts without leaking secret
   await expect(page.getByRole("heading", { name: "System status" })).toBeVisible();
   // Health + season + DB path.
   await expect(page.getByText("/data/edge.db")).toBeVisible();
-  await expect(page.getByText("2026")).toBeVisible();
+  await expect(page.getByText("2026", { exact: true })).toBeVisible();
   // AI model names from the mocked ai/status (enabled:false).
   await expect(page.getByText("claude-sonnet-5")).toBeVisible();
   await expect(page.getByText("claude-haiku-4-5")).toBeVisible();
@@ -2017,9 +2623,36 @@ test("status page renders health/AI/account/league counts without leaking secret
   await expect(page.getByText("Need re-auth", { exact: true })).toBeVisible();
   await expect(page.getByText("Last sync failed", { exact: true })).toBeVisible();
   await expect(page.getByText("Tracked", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Opportunity data" })).toBeVisible();
+  await expect(page.getByText("Stored player-games", { exact: true })).toBeVisible();
+  await expect(page.getByText("OPP-", { exact: false })).toHaveCount(0);
   // No cookie/secret ever reaches the DOM.
   await expect(page.locator("body")).not.toContainText(FAKE_SWID);
   await expect(page.locator("body")).not.toContainText(FAKE_S2);
+});
+
+test("private recovery status and manual point are operable without exposing custody data", async ({ page }) => {
+  const forbidden = "repository-secret-path-or-cookie";
+  await page.goto("/status");
+  const card = page.getByRole("heading", { name: "Private recovery" }).locator("..");
+  await expect(card.getByText("ready", { exact: true })).toBeVisible();
+  await expect(card.getByText("enforced", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Create recovery point" }).click();
+  await expect(card.getByText("New recovery point verified.")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(forbidden);
+  await expect(page.locator("body")).not.toContainText("espn_s2");
+});
+
+test("recovery status failure does not hide the existing system cards", async ({ page }) => {
+  await page.route("**/api/recovery/status", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "synthetic recovery failure" }),
+  }));
+  await page.goto("/status");
+  await expect(page.getByRole("heading", { name: "API" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(page.getByText("Recovery status unavailable")).toBeVisible();
 });
 
 test("re-auth form posts new cookies and clears the needs_reauth badge", async ({ page }) => {

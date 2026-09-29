@@ -5,13 +5,18 @@ import {
   getAccounts,
   getAiStatus,
   getHealth,
+  getOpportunityStatus,
   getPortfolio,
+  getRecoveryStatus,
+  triggerRecoveryBackup,
   type AccountOut,
   type AiStatus,
   type Health,
+  type OpportunityStatus,
   type PortfolioRow,
+  type RecoveryStatus,
 } from "../api";
-import { EmptyState, ErrorNote, Panel, Spinner } from "../components/ui";
+import { Button, EmptyState, ErrorNote, Panel, Spinner } from "../components/ui";
 
 // System Status is read-only and secret-free: it only *composes* what the API already
 // exposes (health, AI status, accounts, portfolio). No ESPN calls, no math, no cookies.
@@ -20,29 +25,60 @@ export default function Status() {
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
   const [rows, setRows] = useState<PortfolioRow[] | null>(null);
+  const [opportunity, setOpportunity] = useState<OpportunityStatus | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
+  const [backingUp, setBackingUp] = useState(false);
+  const [recoveryNote, setRecoveryNote] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       setError(null);
       try {
-        const [h, a, acc, p] = await Promise.all([
+        const [h, a, acc, p, o] = await Promise.all([
           getHealth(),
           getAiStatus(),
           getAccounts(),
           getPortfolio(),
+          getOpportunityStatus(),
         ]);
         setHealth(h);
         setAi(a);
         setAccounts(acc);
         setRows(p);
+        setOpportunity(o);
       } catch (e) {
         setError(String(e));
       }
     })();
+    (async () => {
+      setRecoveryError(null);
+      try {
+        setRecovery(await getRecoveryStatus());
+      } catch (e) {
+        setRecoveryError(String(e));
+      }
+    })();
   }, []);
 
-  const loading = !error && (!health || !ai || !accounts || !rows);
+  const loading = !error && (!health || !ai || !accounts || !rows || !opportunity);
+
+  async function manualBackup() {
+    setBackingUp(true);
+    setRecoveryNote(null);
+    try {
+      const result = await triggerRecoveryBackup("manual");
+      setRecoveryNote(
+        result.snapshot_created ? "New recovery point verified." : "Existing recovery point reverified.",
+      );
+      setRecovery(await getRecoveryStatus());
+    } catch (e) {
+      setRecoveryNote(`Recovery point failed: ${String(e)}`);
+    } finally {
+      setBackingUp(false);
+    }
+  }
 
   const needsReauth = accounts?.filter((a) => a.status === "needs_reauth").length ?? 0;
   const failedSync = rows?.filter((r) => r.last_sync_ok === false).length ?? 0;
@@ -57,7 +93,7 @@ export default function Status() {
       {error && <div className="mt-4"><ErrorNote message={error} /></div>}
       {loading && <Spinner label="Checking status…" />}
 
-      {!loading && !error && health && ai && accounts && rows && (
+      {!loading && !error && health && ai && accounts && rows && opportunity && (
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <StatusCard title="API">
             <Row label="Health" value={health.status} ok={health.status === "ok"} />
@@ -106,6 +142,94 @@ export default function Status() {
               ok={failedSync === 0}
               warn={failedSync > 0}
             />
+          </StatusCard>
+
+          <StatusCard title="Opportunity data">
+            <Row
+              label="State"
+              value={opportunity.state}
+              ok={["ready", "partial", "skipped", "empty"].includes(opportunity.state)}
+              warn={opportunity.state === "failed" || opportunity.stale}
+            />
+            <Row
+              label="Latest NFL week"
+              value={opportunity.latest_week == null ? "not published" : String(opportunity.latest_week)}
+            />
+            <Row label="Stored player-games" value={String(opportunity.stored_rows)} />
+            <Row
+              label="Player mapping"
+              value={`${opportunity.matched_players} matched · ${opportunity.unmatched_players} missing`}
+              warn={opportunity.unmatched_players > 0}
+            />
+            <Row
+              label="Last good import"
+              value={opportunity.last_good_at ? new Date(opportunity.last_good_at).toLocaleString() : "none yet"}
+            />
+            {opportunity.error_code && (
+              <Row label="Diagnostic" value={opportunity.error_code} warn mono />
+            )}
+            <Row label="Run ID" value={opportunity.run_id ?? "none"} mono />
+            <Row
+              label="Adapter / schema"
+              value={`${opportunity.package_version ?? "unknown"} / ${opportunity.schema_fingerprint ?? "none"}`}
+              mono
+            />
+            {opportunity.error_message && (
+              <p className="mt-2 text-[11px] text-muted">{opportunity.error_message}</p>
+            )}
+            <p className="mt-2 text-[11px] text-muted">
+              Troubleshoot with <code className="mono">python -m api.opportunity doctor --json</code>.
+            </p>
+          </StatusCard>
+
+          <StatusCard title="Private recovery">
+            {recoveryError && <ErrorNote message={`Recovery status unavailable: ${recoveryError}`} />}
+            {!recovery && !recoveryError && <Spinner label="Checking recovery…" />}
+            {recovery && <>
+            <Row
+              label="State"
+              value={recovery.state.replace(/_/g, " ")}
+              ok={recovery.state === "ready" || recovery.state === "not_required"}
+              warn={!['ready', 'not_required'].includes(recovery.state)}
+            />
+            <Row
+              label="Latest coverage"
+              value={
+                recovery.last_coverage_at
+                  ? new Date(recovery.last_coverage_at).toLocaleString()
+                  : "none"
+              }
+            />
+            <Row
+              label="Age"
+              value={
+                recovery.age_seconds == null
+                  ? "unknown"
+                  : `${Math.floor(recovery.age_seconds / 3600)}h ${Math.floor((recovery.age_seconds % 3600) / 60)}m`
+              }
+              warn={
+                recovery.age_seconds != null
+                && recovery.age_seconds >= recovery.stale_after_seconds
+              }
+            />
+            <Row
+              label="Retention"
+              value={recovery.retention_enforced ? "enforced" : "not proven"}
+              ok={recovery.retention_enforced}
+              warn={recovery.required && !recovery.retention_enforced}
+            />
+            <div className="pt-2" aria-live="polite">
+              <Button
+                type="button"
+                variant="sync"
+                disabled={backingUp || !recovery.supported_topology || !recovery.configured}
+                onClick={() => void manualBackup()}
+              >
+                {backingUp ? "Backing up…" : "Create recovery point"}
+              </Button>
+              {recoveryNote && <p className="mt-2 text-[11px] text-muted">{recoveryNote}</p>}
+            </div>
+            </>}
           </StatusCard>
 
           <StatusCard title="Exports">

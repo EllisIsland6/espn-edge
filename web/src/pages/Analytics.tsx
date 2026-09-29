@@ -1,6 +1,6 @@
 import { type ColumnDef } from "@tanstack/react-table";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import {
   CartesianGrid,
   Cell,
@@ -18,19 +18,31 @@ import {
   downloadExport,
   getPortfolioDraftAdp,
   getPortfolioExposure,
+  getPortfolioOpportunity,
   getPortfolioStrategies,
+  getPlayerOpportunity,
+  refreshOpportunity,
   type DraftAdpPick,
   type DraftAdpTeam,
   type ExposureScope,
   type ExposureView,
+  type OpportunityPlayer,
+  type OpportunityView,
   type PlayerExposure,
+  type PlayerOpportunity,
   type PlayerReference,
   type PortfolioDraftAdp,
   type PortfolioExposure,
+  type PortfolioOpportunity,
   type PortfolioStrategies,
 } from "../api";
 import { DataTable } from "../components/DataTable";
+import {
+  OpportunityChartBoundary,
+  OpportunityChartExplorer,
+} from "../components/OpportunityChartExplorer";
 import { PlayerAvatar } from "../components/PlayerIdentity";
+import { TeamAvatar } from "../components/TeamIdentity";
 import { EmptyState, ErrorNote, InfoTip, Panel, PositionPill, Spinner } from "../components/ui";
 import { DASH, num } from "../lib/format";
 
@@ -71,10 +83,11 @@ const COVERAGE_HELP: Record<string, string> = {
 };
 
 const CARD_HELP = {
-  analytics: "This page turns all your league data into simple clues. Use it to see what makes your teams different and how well your drafts matched player value.",
+  analytics: "These pages turn all your league data into simple clues. Use them to see what makes your teams different and how well your drafts matched player value.",
   exposure: "This section shows which players you have more or less often than other teams. Green means you have more than the field, and red means you have less.",
   adp: "ADP means average draft position. This section checks if you picked players earlier or later than draft guides said they would go.",
   strategy: "This section groups teams by the way they were built in the draft. It can show which draft plans were common and how those teams scored.",
+  opportunity: "This section compares recent carries and targets with recent fantasy production. It can flag players whose role is stronger or weaker than their point totals, but it is not a projection.",
   highestLeverage: "This player gives your teams the biggest difference from the field. You roster the player much more often than the other teams do.",
   mostUnderowned: "This is the player the field has much more often than you do. A large red number means this player could hurt many of your teams if he does well.",
   rbCapital: "Draft capital tells how much valuable draft space was spent. This card compares how much you spent on running backs with how much the field spent.",
@@ -164,42 +177,21 @@ function playerReference(
   };
 }
 
+const ANALYTICS_PAGES = [
+  { to: "/analytics/leverage", label: "Leverage" },
+  { to: "/analytics/adp", label: "ADP capture" },
+  { to: "/analytics/strategy", label: "Strategy" },
+  { to: "/analytics/opportunity", label: "Opportunity" },
+] as const;
+
+const LEGACY_ANALYTICS_HASHES: Record<string, string> = {
+  "#exposure-heading": "/analytics/leverage",
+  "#adp-heading": "/analytics/adp",
+  "#strategy-heading": "/analytics/strategy",
+  "#opportunity-heading": "/analytics/opportunity",
+};
+
 export default function Analytics() {
-  const [scope, setScope] = useState<ExposureScope>("me");
-  const [exposureView, setExposureView] = useState<ExposureView>("rostered");
-  const [exposure, setExposure] = useState<PortfolioExposure | null>(null);
-  const [adp, setAdp] = useState<PortfolioDraftAdp | null>(null);
-  const [strategies, setStrategies] = useState<PortfolioStrategies | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    setExposureView(scope === "me" ? "rostered" : "all");
-    setExposure(null);
-    getPortfolioExposure(scope)
-      .then((result) => active && setExposure(result))
-      .catch((reason) => active && setError(String(reason)));
-    return () => {
-      active = false;
-    };
-  }, [scope]);
-
-  useEffect(() => {
-    let active = true;
-    Promise.all([getPortfolioDraftAdp(), getPortfolioStrategies()])
-      .then(([draftAdp, strategyData]) => {
-        if (!active) return;
-        setAdp(draftAdp);
-        setStrategies(strategyData);
-      })
-      .catch((reason) => active && setError(String(reason)));
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const loading = !error && (!exposure || !adp || !strategies);
-
   return (
     <div className="cold-grid overflow-hidden rounded-lg border border-coldline bg-cold/35">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-coldline bg-header/55 px-4 py-5 sm:px-5">
@@ -210,70 +202,199 @@ export default function Analytics() {
             <InfoTip label="Analytics" description={CARD_HELP.analytics} />
           </h1>
           <p className="mt-1 text-xs text-secondary">
-            Draft exposure, market capture, and strategy mix for the active portfolio.
+            Leverage, draft value, strategy, and opportunity for the active portfolio.
           </p>
         </div>
-        <ExportControls scope={scope} exposureView={exposureView} />
+        <MasterExportControls />
       </div>
 
-      <nav className="flex overflow-x-auto border-b border-coldline bg-coldpanel/40 px-4" aria-label="Analytics sections">
-        <a href="#exposure-heading" className="display-face border-b-2 border-red px-3 py-2 text-xs font-bold uppercase tracking-wide text-primary">
-          Leverage
-        </a>
-        <a href="#adp-heading" className="display-face border-b-2 border-transparent px-3 py-2 text-xs font-bold uppercase tracking-wide text-secondary hover:text-primary">
-          ADP capture
-        </a>
-        <a href="#strategy-heading" className="display-face border-b-2 border-transparent px-3 py-2 text-xs font-bold uppercase tracking-wide text-secondary hover:text-primary">
-          Strategy
-        </a>
+      <nav className="flex overflow-x-auto border-b border-coldline bg-coldpanel/40 px-4" aria-label="Analytics pages">
+        {ANALYTICS_PAGES.map((page) => (
+          <NavLink
+            key={page.to}
+            to={page.to}
+            className={({ isActive }) => `display-face whitespace-nowrap border-b-2 px-3 py-2 text-xs font-bold uppercase tracking-wide transition-colors duration-150 ${
+              isActive
+                ? "border-red text-primary"
+                : "border-transparent text-secondary hover:text-primary"
+            }`}
+          >
+            {page.label}
+          </NavLink>
+        ))}
       </nav>
 
-      {error && <div className="m-5"><ErrorNote message={error} /></div>}
-      {loading && <Spinner label="Loading portfolio analytics…" />}
-      {!loading && !error && exposure && adp && strategies && (
-        <div className="divide-y divide-coldline px-4 sm:px-5">
-          <ExposureSection
-            data={exposure}
-            scope={scope}
-            setScope={setScope}
-            view={exposureView}
-            setView={setExposureView}
-          />
-          <AdpSection data={adp} />
-          <StrategySection data={strategies} />
-        </div>
-      )}
+      <Routes>
+        <Route index element={<AnalyticsIndexRedirect />} />
+        <Route path="leverage" element={<LeveragePage />} />
+        <Route path="adp" element={<AdpPage />} />
+        <Route path="strategy" element={<StrategyPage />} />
+        <Route path="opportunity" element={<OpportunityPage />} />
+        <Route path="*" element={<Navigate to="/analytics/leverage" replace />} />
+      </Routes>
     </div>
   );
 }
 
-function ExportControls({
-  scope,
-  exposureView,
+function AnalyticsIndexRedirect() {
+  const { hash } = useLocation();
+  return <Navigate to={LEGACY_ANALYTICS_HASHES[hash] ?? "/analytics/leverage"} replace />;
+}
+
+function LeveragePage() {
+  const [scope, setScope] = useState<ExposureScope>("me");
+  const [exposureView, setExposureView] = useState<ExposureView>("rostered");
+  const [exposure, setExposure] = useState<PortfolioExposure | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setExposureView(scope === "me" ? "rostered" : "all");
+    setExposure(null);
+    setError(null);
+    getPortfolioExposure(scope)
+      .then((result) => active && setExposure(result))
+      .catch((reason) => active && setError(String(reason)));
+    return () => {
+      active = false;
+    };
+  }, [scope]);
+
+  return (
+    <AnalyticsPageState loading={!error && !exposure} error={error} label="Loading leverage analytics…">
+      {exposure && (
+        <ExposureSection
+          data={exposure}
+          scope={scope}
+          setScope={setScope}
+          view={exposureView}
+          setView={setExposureView}
+        />
+      )}
+    </AnalyticsPageState>
+  );
+}
+
+function AdpPage() {
+  const [adp, setAdp] = useState<PortfolioDraftAdp | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getPortfolioDraftAdp()
+      .then((result) => active && setAdp(result))
+      .catch((reason) => active && setError(String(reason)));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <AnalyticsPageState loading={!error && !adp} error={error} label="Loading ADP analytics…">
+      {adp && <AdpSection data={adp} />}
+    </AnalyticsPageState>
+  );
+}
+
+function StrategyPage() {
+  const [strategies, setStrategies] = useState<PortfolioStrategies | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getPortfolioStrategies()
+      .then((result) => active && setStrategies(result))
+      .catch((reason) => active && setError(String(reason)));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <AnalyticsPageState loading={!error && !strategies} error={error} label="Loading strategy analytics…">
+      {strategies && <StrategySection data={strategies} />}
+    </AnalyticsPageState>
+  );
+}
+
+function OpportunityPage() {
+  const [opportunityView, setOpportunityView] = useState<OpportunityView>("all");
+  const [opportunitySeason, setOpportunitySeason] = useState(2025);
+  const [opportunity, setOpportunity] = useState<PortfolioOpportunity | null>(null);
+  const [refreshingOpportunity, setRefreshingOpportunity] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setError(null);
+    getPortfolioOpportunity(opportunityView, opportunitySeason)
+      .then((result) => active && setOpportunity(result))
+      .catch((reason) => active && setError(String(reason)));
+    return () => {
+      active = false;
+    };
+  }, [opportunityView, opportunitySeason]);
+
+  async function handleOpportunityRefresh() {
+    setRefreshingOpportunity(true);
+    setError(null);
+    try {
+      await refreshOpportunity(true, opportunitySeason);
+      setOpportunity(await getPortfolioOpportunity(opportunityView, opportunitySeason));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setRefreshingOpportunity(false);
+    }
+  }
+
+  return (
+    <AnalyticsPageState
+      loading={!error && !opportunity}
+      error={error}
+      label="Loading opportunity analytics…"
+    >
+      {opportunity && (
+        <OpportunitySection
+          data={opportunity}
+          view={opportunityView}
+          setView={setOpportunityView}
+          season={opportunitySeason}
+          setSeason={setOpportunitySeason}
+          refreshing={refreshingOpportunity}
+          onRefresh={handleOpportunityRefresh}
+        />
+      )}
+    </AnalyticsPageState>
+  );
+}
+
+function AnalyticsPageState({
+  loading,
+  error,
+  label,
+  children,
 }: {
-  scope: ExposureScope;
-  exposureView: ExposureView;
+  loading: boolean;
+  error: string | null;
+  label: string;
+  children: ReactNode;
 }) {
+  return (
+    <div className="px-4 sm:px-5">
+      {error && <div className="py-5"><ErrorNote message={error} /></div>}
+      {loading && <Spinner label={label} />}
+      {!loading && !error && children}
+    </div>
+  );
+}
+
+function MasterExportControls() {
   return (
     <div className="flex max-w-full flex-wrap items-center overflow-hidden rounded-md border border-coldline bg-cold/70">
       <span className="mono px-2 py-1.5 text-[8px] uppercase tracking-[0.14em] text-muted">
-        Export
+        Portfolio export
       </span>
-      <ExportButton
-        label="Exposure CSV"
-        title={`Download ${scope === "me" ? "my" : "opponent"} exposure as CSV`}
-        onClick={() => downloadAnalyticsCsv("exposure", scope, exposureView)}
-      />
-      <ExportButton
-        label="ADP CSV"
-        title="Download team ADP capture as CSV"
-        onClick={() => downloadAnalyticsCsv("draft-adp")}
-      />
-      <ExportButton
-        label="Strategy CSV"
-        title="Download team strategy labels as CSV"
-        onClick={() => downloadAnalyticsCsv("strategies")}
-      />
       <ExportButton
         label="JSON"
         title="Download master portfolio JSON with analytics"
@@ -285,6 +406,28 @@ function ExportControls({
         onClick={() => downloadExport("xlsx")}
       />
     </div>
+  );
+}
+
+function CsvExportButton({
+  label,
+  title,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="display-face rounded border border-coldline bg-cold px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-secondary transition-colors duration-150 hover:bg-icechip hover:text-icesoft"
+    >
+      <span aria-hidden="true" className="mr-1 text-ice">⇩</span>
+      {label}
+    </button>
   );
 }
 
@@ -483,7 +626,7 @@ function ExposureSection({
                 <div key={`${league.league_id}-${league.team_id}`} className="flex justify-between gap-4">
                   <Link
                     to={`/league/${league.league_id}/teams/${league.team_id}`}
-                    state={{ returnTo: "/analytics" }}
+                    state={{ returnTo: "/analytics/leverage" }}
                     className="min-w-0 truncate text-secondary hover:text-red"
                   >
                     {league.league_name ?? league.team_name ?? "League"}
@@ -573,7 +716,16 @@ function ExposureSection({
         title={scope === "me" ? "Portfolio leverage against the local field" : "Opponent roster census"}
         description={CARD_HELP.exposure}
         titleId="exposure-heading"
-        action={<ScopeControl scope={scope} setScope={setScope} />}
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <ScopeControl scope={scope} setScope={setScope} />
+            <CsvExportButton
+              label="Exposure CSV"
+              title={`Download ${scope === "me" ? "my" : "opponent"} exposure as CSV`}
+              onClick={() => downloadAnalyticsCsv("exposure", scope, activeView)}
+            />
+          </div>
+        )}
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <CoverageChip label="my teams" value={String(data.coverage.my_teams_in_scope)} />
@@ -938,17 +1090,23 @@ function ExposureRollups({ data }: { data: PortfolioExposure }) {
       <CardTitle title="NFL team concentration" description={CARD_HELP.teamConcentration} />
       <div className="mt-3 space-y-3">
         {data.nfl_team_concentration.slice(0, 7).map((row) => (
-          <div key={row.nfl_team}>
-            <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
-              <span className="mono text-secondary">{row.nfl_team}</span>
+          <div key={row.nfl_team} data-testid="nfl-team-concentration-row">
+            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+              <TeamAvatar
+                name={row.nfl_team}
+                logoUrl={`/api/players/team-logo/${encodeURIComponent(row.nfl_team)}`}
+                size="sm"
+                fallbackLabel={row.nfl_team}
+              />
               <span className="mono text-primary">
                 {num(row.penetration_pct)}% · {row.penetration_share} teams
               </span>
             </div>
             <div className="h-1.5 overflow-hidden rounded bg-rowhover">
               <div
-                className="h-full rounded bg-greenbar"
+                className="lava-bar-glow h-full rounded bg-frostorange"
                 style={{ width: `${row.penetration_pct}%` }}
+                data-testid="nfl-team-concentration-fill"
               />
             </div>
             <div className="mono mt-1 text-right text-[10px] text-muted">
@@ -1009,6 +1167,13 @@ function AdpSection({ data }: { data: PortfolioDraftAdp }) {
         title="Draft value capture by source"
         description={CARD_HELP.adp}
         titleId="adp-heading"
+        action={(
+          <CsvExportButton
+            label="ADP CSV"
+            title="Download team ADP capture as CSV"
+            onClick={() => downloadAnalyticsCsv("draft-adp")}
+          />
+        )}
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <CoverageChip label="teams in scope" value={String(data.coverage.teams_in_scope)} />
@@ -1142,6 +1307,7 @@ function AdpSourcePanel({
   rows: PortfolioDraftAdp["by_position"];
 }) {
   const description = heading.includes("draft-time") ? CARD_HELP.draftTimeAdp : CARD_HELP.currentAdp;
+  const draftTime = heading.includes("draft-time");
   return (
     <Panel className="min-w-0 border-coldline bg-cold/60 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -1160,9 +1326,10 @@ function AdpSourcePanel({
             </div>
             <div className="mt-2 h-1.5 rounded bg-rowhover">
               <div
-                className="h-full rounded bg-greenbar"
+                className="lava-bar-glow h-full rounded bg-frostorange"
                 style={{ width: `${row.mean_percentile ?? 0}%` }}
                 title={`Mean percentile ${num(row.mean_percentile)}%`}
+                data-testid={draftTime ? "draft-time-adp-fill" : "current-market-adp-fill"}
               />
             </div>
             <div className="mono mt-1 text-[9px] text-muted">
@@ -1313,6 +1480,13 @@ function StrategySection({ data }: { data: PortfolioStrategies }) {
         title="Draft strategy distribution"
         description={CARD_HELP.strategy}
         titleId="strategy-heading"
+        action={(
+          <CsvExportButton
+            label="Strategy CSV"
+            title="Download team strategy labels as CSV"
+            onClick={() => downloadAnalyticsCsv("strategies")}
+          />
+        )}
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <CoverageChip label="teams in scope" value={String(data.coverage.teams_in_scope)} />
@@ -1367,7 +1541,16 @@ function StrategySection({ data }: { data: PortfolioStrategies }) {
                         }}
                       >
                         {data.primary_distribution.map((row, index) => (
-                          <Cell key={row.label} fill={STRATEGY_COLORS[index % STRATEGY_COLORS.length]} />
+                          <Cell
+                            key={row.label}
+                            fill={STRATEGY_COLORS[index % STRATEGY_COLORS.length]}
+                            className="lava-original-glow"
+                            style={{
+                              color: STRATEGY_COLORS[index % STRATEGY_COLORS.length],
+                              animationDelay: `${index * 180}ms`,
+                            }}
+                            data-testid="primary-rb-structure-fill"
+                          />
                         ))}
                       </Pie>
                     </PieChart>
@@ -1404,11 +1587,14 @@ function StrategySection({ data }: { data: PortfolioStrategies }) {
                     </div>
                     <div className="mt-1.5 h-2 overflow-hidden rounded bg-rowhover">
                       <div
-                        className="h-full rounded"
+                        className="lava-original-glow lava-original-bar h-full rounded"
                         style={{
                           width: `${row.pct}%`,
                           backgroundColor: STRATEGY_COLORS[(index + 1) % STRATEGY_COLORS.length],
+                          color: STRATEGY_COLORS[(index + 1) % STRATEGY_COLORS.length],
+                          animationDelay: `${index * 180}ms, ${index * 180}ms`,
                         }}
+                        data-testid="secondary-timing-signal-fill"
                       />
                     </div>
                   </div>
@@ -1460,6 +1646,327 @@ function StrategySection({ data }: { data: PortfolioStrategies }) {
         </>
       )}
     </section>
+  );
+}
+
+function OpportunitySection({
+  data,
+  view,
+  setView,
+  season,
+  setSeason,
+  refreshing,
+  onRefresh,
+}: {
+  data: PortfolioOpportunity;
+  view: OpportunityView;
+  setView: (view: OpportunityView) => void;
+  season: number;
+  setSeason: (season: number) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const [position, setPosition] = useState<"ALL" | "RB" | "WR" | "TE">("ALL");
+  const players = position === "ALL"
+    ? data.players
+    : data.players.filter((player) => player.position === position);
+  const columns = useMemo<ColumnDef<OpportunityPlayer>[]>(
+    () => [
+      {
+        accessorKey: "player_name",
+        header: "Player",
+        cell: ({ row }) => <OpportunityPlayerCell player={row.original} season={season} />,
+      },
+      {
+        accessorKey: "position",
+        header: "Pos",
+        cell: ({ row }) => <PositionPill pos={row.original.position} />,
+      },
+      {
+        accessorKey: "opportunity_score",
+        header: "Opportunity",
+        cell: ({ getValue }) => (
+          <span className="mono font-semibold text-frost">
+            {num(getValue() as number | null)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "opportunity_gap",
+        header: "Gap",
+        cell: ({ getValue }) => {
+          const value = getValue() as number | null;
+          const tone = value == null ? "text-muted" : value >= 15 ? "text-green" : value <= -15 ? "text-red" : "text-secondary";
+          return <span className={`mono font-semibold ${tone}`}>{signed(value)}</span>;
+        },
+      },
+      {
+        accessorKey: "signal",
+        header: "Signal",
+        cell: ({ getValue }) => (
+          <span className="text-xs text-secondary">
+            {String(getValue()).replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "trend",
+        header: "Trend",
+        cell: ({ row }) => (
+          <span className="mono text-xs text-secondary">
+            {row.original.trend === "rising" ? "↑" : row.original.trend === "falling" ? "↓" : row.original.trend === "steady" ? "→" : DASH}
+            {row.original.trend_delta_pp == null ? "" : ` ${signed(row.original.trend_delta_pp)} pp`}
+          </span>
+        ),
+      },
+      {
+        id: "usage",
+        header: "Recent role",
+        accessorFn: (row) => row.position === "RB" ? row.avg_carry_share : row.avg_target_share,
+        cell: ({ row }) => (
+          <span className="mono block whitespace-nowrap text-xs text-secondary">
+            <span className="block">
+              {row.original.position === "RB"
+                ? `C ${num(row.original.avg_carry_share)}% · T ${num(row.original.avg_target_share)}%`
+                : `T ${num(row.original.avg_target_share)}% · Air ${num(row.original.avg_air_yards_share)}%`}
+            </span>
+            {row.original.position === "WR" && (
+              <>
+                <span className="mt-0.5 block text-[9px] text-muted">
+                  {num(row.original.ppr_points_per_game)} PPR · {num(row.original.receptions_per_game)}/{num(row.original.targets_per_game)} rec/tgt
+                </span>
+                <span className="block text-[9px] text-muted">
+                  {num(row.original.receiving_yards_per_game)} yd · {num(row.original.receiving_tds_per_game)} TD · {num(row.original.average_depth_of_target)} aDOT · team {num(row.original.team_passing_yards_per_game)} pass yd
+                </span>
+              </>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: "roster",
+        header: "Portfolio state",
+        accessorFn: (row) => row.available_leagues,
+        cell: ({ row }) => (
+          <span className="mono whitespace-nowrap text-[10px] text-muted">
+            Mine {row.original.mine_leagues} · Field {row.original.field_leagues} · Free {row.original.available_leagues}
+            {row.original.unknown_leagues ? ` · Unknown ${row.original.unknown_leagues}` : ""}
+          </span>
+        ),
+      },
+    ],
+    [season],
+  );
+
+  return (
+    <section className="scroll-mt-28 py-6" aria-labelledby="opportunity-heading">
+      <SectionHeader
+        eyebrow="Recent role"
+        title="Opportunity analytics"
+        description={CARD_HELP.opportunity}
+        titleId="opportunity-heading"
+        action={(
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="display-face rounded border border-coldline bg-cold px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-secondary hover:bg-rowhover hover:text-primary disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "Refresh opportunity data"}
+            </button>
+            <CsvExportButton
+              label="Opportunity CSV"
+              title="Download recent usage and opportunity signals as CSV"
+              onClick={() => downloadAnalyticsCsv("opportunity", "me", view)}
+            />
+          </div>
+        )}
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <CoverageChip label="player games" value={String(data.coverage.stored_player_games)} />
+        <CoverageChip label="mapped players" value={String(data.coverage.mapped_players)} />
+        <CoverageChip
+          label="unmatched players"
+          value={String(data.coverage.unmatched_players)}
+          warn={data.coverage.unmatched_players > 0}
+        />
+        <CoverageChip
+          label="unknown rosters"
+          value={String(data.coverage.unknown_roster_leagues)}
+          warn={data.coverage.unknown_roster_leagues > 0}
+        />
+        <span className="mono ml-auto text-[9px] uppercase tracking-wide text-muted">
+          {data.source.latest_week == null ? "No games imported" : `Through week ${data.source.latest_week} · provisional`}
+          {data.source.fetched_at ? ` · ${shortDate(data.source.fetched_at)}` : ""}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <div className="flex overflow-hidden rounded-md border border-coldline" aria-label="Opportunity season">
+            {[2025, 2026].map((value) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => setSeason(value)}
+                className={`mono border-l border-coldline px-2.5 py-1.5 text-[10px] first:border-l-0 ${
+                  season === value ? "bg-icechip text-icesoft" : "bg-cold text-secondary hover:text-primary"
+                }`}
+              >
+                {value}{value === 2025 ? " complete" : " current"}
+              </button>
+            ))}
+          </div>
+          <div className="flex overflow-hidden rounded-md border border-coldline" aria-label="Opportunity view">
+            {(["rostered", "available", "all"] as OpportunityView[]).map((value) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => setView(value)}
+                className={`display-face border-l border-coldline px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide first:border-l-0 ${
+                  view === value ? "bg-icechip text-icesoft" : "bg-cold text-secondary hover:text-primary"
+                }`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+          <div className="flex overflow-hidden rounded-md border border-coldline" aria-label="Opportunity position">
+            {(["ALL", "RB", "WR", "TE"] as const).map((value) => (
+              <button
+                type="button"
+                key={value}
+                onClick={() => setPosition(value)}
+                className={`mono border-l border-coldline px-2.5 py-1.5 text-[10px] first:border-l-0 ${
+                  position === value ? "bg-icechip text-icesoft" : "bg-cold text-secondary hover:text-primary"
+                }`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="mono text-[9px] uppercase tracking-wide text-muted">
+          Source {data.source.state} · {data.source.package_version ?? "not checked"}
+        </span>
+      </div>
+      {data.warnings.map((warning) => (
+        <div key={warning.code} className="mt-2 rounded border border-gold/35 bg-gold/5 px-3 py-2 text-xs text-gold">
+          <span className="mono mr-2 text-[9px]">{warning.code}</span>
+          {warning.message}
+        </div>
+      ))}
+      {data.source.error_code && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 text-[10px] text-muted">
+          <span className="mono">Run {data.source.run_id ?? "unavailable"}</span>
+          <span>
+            Last good {data.source.last_good_at ? shortDate(data.source.last_good_at) : "none yet"}
+          </span>
+          <Link to="/status" className="text-secondary hover:text-red">View status</Link>
+        </div>
+      )}
+      <OpportunityChartBoundary key={`${season}-${data.source.run_id ?? "empty"}`}>
+        <OpportunityChartExplorer
+          view={view}
+          season={season}
+          sourceRunId={data.source.run_id}
+        />
+      </OpportunityChartBoundary>
+      {players.length ? (
+        <Panel className="mt-4 max-h-[32rem] overflow-y-auto border-coldline bg-cold/60">
+          <DataTable
+            key={view}
+            data={players}
+            columns={columns}
+            initialSort={[{ id: "opportunity_score", desc: true }]}
+            ariaLabel="Opportunity analytics by player"
+          />
+        </Panel>
+      ) : (
+        <div className="mt-4">
+          <EmptyState
+            title={data.source.error_code === "OPP-NOT-PUBLISHED" ? "Opportunity data starts after Week 1" : "No opportunity players in this view"}
+            hint="Refresh after games are published, or sync current rosters to distinguish available players from unknowns."
+          />
+        </div>
+      )}
+      <p className="mt-3 text-[10px] text-muted">
+        RB/WR/TE only; QB/K/DST/IDP are unsupported. Position-relative, last three games;
+        requires two games and ten peers. Usage signal only—not a projection or lineup recommendation.
+      </p>
+      <p className="mt-1 text-[10px] text-muted">
+        WR evidence tracks PPR, targets, receptions, receiving yards/TDs, target share, aDOT,
+        and team passing yards per game. Route participation, YPRR, TPRR, FDRR, motion, and
+        personnel exposure are unavailable in the in-season source and are not estimated.
+      </p>
+    </section>
+  );
+}
+
+function OpportunityPlayerCell({
+  player,
+  season,
+}: {
+  player: OpportunityPlayer;
+  season: number;
+}) {
+  const [detail, setDetail] = useState<PlayerOpportunity | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  function loadDetail() {
+    if (detail || loading || error) return;
+    setLoading(true);
+    getPlayerOpportunity(player.espn_player_id, season)
+      .then(setDetail)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }
+
+  return (
+    <details onToggle={(event) => event.currentTarget.open && loadDetail()}>
+      <summary className="cursor-pointer list-none">
+        <span className="inline-flex min-w-40 items-center gap-2 font-medium text-primary">
+          <PlayerAvatar
+            player={playerReference(
+              player.espn_player_id,
+              player.player_name,
+              player.position,
+            )}
+            size="md"
+            variant="portrait"
+          />
+          <span>
+            {player.player_name ?? "Unknown player"}
+            <span className="mono mt-0.5 block text-[9px] text-muted">
+              {player.nfl_team ?? DASH} · through W{player.through_week}
+            </span>
+          </span>
+        </span>
+      </summary>
+      <div className="mt-2 min-w-72 border-l border-coldline pl-3 text-[10px] text-secondary">
+        {loading && <span>Loading game history…</span>}
+        {error && <span className="text-red">Player detail unavailable. View Status for diagnostics.</span>}
+        {detail && (
+          <>
+            <div className="mono mb-1 text-[9px] uppercase tracking-wide text-muted">
+              Latest games · {detail.player.mapping_status} ID
+            </div>
+            {detail.weeks.slice(-4).reverse().map((week) => (
+              <div key={week.game_id} className="flex justify-between gap-3 py-0.5">
+                <span>W{week.week} {week.team ?? DASH} vs {week.opponent_team ?? DASH}</span>
+                <span className="mono">
+                  C {num(week.carries)} · T {num(week.targets)} · R {num(week.receptions)} · Y {num(week.receiving_yards)} · TD {num(week.receiving_tds)} · aDOT {num(week.average_depth_of_target)} · PPR {num(week.fantasy_points_ppr)}
+                </span>
+              </div>
+            ))}
+            <div className="mt-1 text-muted">
+              {detail.leagues.map((league) => `${league.league_name ?? "League"}: ${league.state}`).join(" · ") || "No leagues in scope"}
+            </div>
+          </>
+        )}
+      </div>
+    </details>
   );
 }
 

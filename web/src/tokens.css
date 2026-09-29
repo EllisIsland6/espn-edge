@@ -25,6 +25,7 @@
   --color-ash: #a5b0b6;
   --color-ashbar: #26313a;
   --color-frost: #eef7f4;
+  --color-frostorange: #ff8a4c;
 
   --color-line: #1b2233;
   --color-linedash: #232c42;
@@ -135,6 +136,77 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes lava-bar-flow {
+  0% {
+    background-position: 0% 50%;
+    filter: saturate(1.05) brightness(1);
+  }
+  50% {
+    filter: saturate(1.3) brightness(1.18);
+  }
+  100% {
+    background-position: 100% 50%;
+    filter: saturate(1.1) brightness(1.06);
+  }
+}
+
+@keyframes lava-color-pulse {
+  0%,
+  100% {
+    filter: saturate(1.02) brightness(1) drop-shadow(0 0 1px currentColor);
+  }
+  45% {
+    filter: saturate(1.28) brightness(1.2) drop-shadow(0 0 6px currentColor);
+  }
+  72% {
+    filter: saturate(1.12) brightness(1.08) drop-shadow(0 0 3px currentColor);
+  }
+}
+
+@keyframes lava-original-drift {
+  from {
+    background-position: 130% 50%;
+  }
+  to {
+    background-position: -130% 50%;
+  }
+}
+
+.lava-bar-glow {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-frostorange),
+    var(--color-syncstart),
+    var(--color-gold),
+    var(--color-frostorange)
+  );
+  background-size: 240% 100%;
+  box-shadow:
+    0 0 5px color-mix(in srgb, var(--color-frostorange) 90%, transparent),
+    0 0 13px color-mix(in srgb, var(--color-syncstart) 55%, transparent),
+    inset 0 0 3px color-mix(in srgb, var(--color-frost) 65%, transparent);
+  animation: lava-bar-flow 3.8s ease-in-out infinite alternate;
+}
+
+.lava-original-glow {
+  animation: lava-color-pulse 4.4s ease-in-out infinite;
+  will-change: filter;
+}
+
+.lava-original-bar {
+  background-image: linear-gradient(
+    105deg,
+    transparent 20%,
+    color-mix(in srgb, var(--color-frost) 42%, transparent) 48%,
+    transparent 72%
+  );
+  background-position: 130% 50%;
+  background-size: 220% 100%;
+  animation:
+    lava-color-pulse 4.4s ease-in-out infinite,
+    lava-original-drift 5.2s ease-in-out infinite;
 }
 
 .ai-reveal {

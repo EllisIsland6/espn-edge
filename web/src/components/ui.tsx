@@ -1,12 +1,12 @@
 // Shared visual primitives — SPEC Section 9.2. All colors come from the @theme
 // tokens; no ad-hoc hex here.
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { DASH, type Verdict } from "../lib/format";
 
-export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Panel({ children, className = "", ...props }: ComponentPropsWithoutRef<"div">) {
   return (
-    <div className={`panel-shadow rounded-lg border border-line bg-panel/95 ${className}`}>{children}</div>
+    <div {...props} className={`panel-shadow rounded-lg border border-line bg-panel/95 ${className}`}>{children}</div>
   );
 }
 

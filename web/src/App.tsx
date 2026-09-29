@@ -17,7 +17,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <PortfolioBoard /> },
       {
-        path: "analytics",
+        path: "analytics/*",
         element: (
           <Suspense fallback={<div className="px-4 py-8 text-sm text-secondary">Loading analytics…</div>}>
             <Analytics />

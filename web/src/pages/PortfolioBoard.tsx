@@ -5,7 +5,9 @@ import {
   getPortfolio,
   getPortfolioSummary,
   getLeagues,
+  refreshOpportunity,
   syncLeague,
+  triggerRecoveryBackup,
   type PortfolioRow,
   type PortfolioSummary,
 } from "../api";
@@ -96,15 +98,36 @@ export default function PortfolioBoard() {
     const msgs: string[] = [];
     try {
       const leagues = await getLeagues();
+      let allClean = leagues.length > 0;
       for (const lg of leagues) {
         // Keep going on failure, but record which leagues failed/partially failed.
         try {
           const s = await syncLeague(lg.id);
           const m = syncSummaryMessage(s);
           if (m) msgs.push(m);
+          if (s.needs_reauth || s.errors.length > 0) allClean = false;
         } catch (e) {
+          allClean = false;
           msgs.push(`${lg.name ?? `League ${lg.espn_league_id}`}: sync request failed — ${e}`);
         }
+      }
+      if (allClean) {
+        try {
+          await triggerRecoveryBackup("post-clean-portfolio-sync");
+        } catch (e) {
+          msgs.push(`Sync data updated, but the recovery point failed — ${e}`);
+        }
+      }
+      try {
+        const opportunity = await refreshOpportunity();
+        if (opportunity.state === "failed") {
+          msgs.push(
+            opportunity.error_message
+              ?? "NFL opportunity refresh failed; the last good import was preserved.",
+          );
+        }
+      } catch (e) {
+        msgs.push(`NFL opportunity refresh request failed — ${e}`);
       }
       await load();
     } finally {
