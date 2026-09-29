@@ -31,7 +31,13 @@ from .db import init_db, session_scope
 from .models import Account, DraftPick, League, Team
 from .parse_helpers import normalize_swid_braced
 from .services.espn import cookies_for_account
+from .services.recovery import (
+    RecoveryAdmissionError,
+    assert_recovery_write_allowed,
+    secret_free_error,
+)
 from .services.sync import SyncService
+from .tenancy import current_tenant_id
 
 
 def _get_or_create_league(session, espn_league_id: str, season: int, account_id: int | None):
@@ -45,6 +51,7 @@ def _get_or_create_league(session, espn_league_id: str, season: int, account_id:
             account_id=account_id,
             is_public=account_id is None,
             lifecycle="pre_draft",
+            tenant_id=current_tenant_id(session),
         )
         session.add(league)
         session.flush()
@@ -72,7 +79,10 @@ def _load_cookies() -> tuple[str, str] | None:
 def _upsert_account(session, label: str, swid: str, espn_s2: str) -> Account:
     account = session.scalar(select(Account).where(Account.label == label))
     if account is None:
-        account = Account(label=label, swid="", espn_s2_encrypted="")
+        account = Account(
+            label=label, swid="", espn_s2_encrypted="",
+            tenant_id=current_tenant_id(session),
+        )
         session.add(account)
     account.swid = normalize_swid_braced(swid)
     account.espn_s2_encrypted = encrypt(espn_s2.strip())
@@ -101,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     season = args.season or get_settings().season
     league_id = str(args.league)
 
+    try:
+        assert_recovery_write_allowed()
+    except RecoveryAdmissionError as exc:
+        print(secret_free_error(exc)["code"])
+        return 3
     init_db()
     with session_scope() as session:
         league = _get_or_create_league(session, league_id, season, account_id=None)
@@ -221,8 +236,10 @@ def _print_report(result: dict, teams: list[Team], pick_count: int) -> None:
     my = next((t for t in teams if t.is_me), None)
     print(line)
     if my:
-        print(f"My team:   {my.name}  (espn_team_id={my.espn_team_id}, "
-              f"record {my.wins}-{my.losses}-{my.ties})")
+        print(
+            f"My team:   {my.name}  (espn_team_id={my.espn_team_id}, "
+            f"record {my.wins}-{my.losses}-{my.ties})"
+        )
     else:
         print("My team:   not detected (public access, or SWID not on any roster)")
 

@@ -11,6 +11,7 @@ from ..db import get_session
 from ..models import Account, League
 from ..parse_helpers import normalize_swid_braced
 from ..schemas import AccountCreate, AccountOut, AccountReauth
+from ..tenancy import current_tenant_id
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -31,6 +32,7 @@ def add_account(payload: AccountCreate, session: Session = Depends(get_session))
         # Store exactly what the user pasted for espn_s2, encrypted (SPEC 2.3).
         espn_s2_encrypted=encrypt(payload.espn_s2.strip()),
         status="active",
+        tenant_id=current_tenant_id(session),
     )
     session.add(account)
     session.commit()

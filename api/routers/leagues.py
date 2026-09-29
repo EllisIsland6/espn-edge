@@ -16,9 +16,11 @@ from ..schemas import (
     SyncSummary,
 )
 from ..services.discovery import DiscoveryAuthError, discover_leagues, parse_league_id
-from ..services.espn import cookies_for_account
+from ..services.espn import EspnReauthRequired, cookies_for_account
 from ..services.read_models import build_league_out
+from ..services.recovery import RecoveryAdmissionError, secret_free_error
 from ..services.sync import SyncService
+from ..tenancy import current_tenant_id
 
 router = APIRouter(prefix="/api/leagues", tags=["leagues"])
 
@@ -35,7 +37,10 @@ def discover(account_id: int, session: Session = Depends(get_session)):
     account = session.get(Account, account_id)
     if account is None:
         raise HTTPException(404, "account not found")
-    cookies = cookies_for_account(account)
+    try:
+        cookies = cookies_for_account(account)
+    except EspnReauthRequired as exc:
+        raise HTTPException(401, "ESPN session expired; re-authenticate this account") from exc
     if cookies is None:
         raise HTTPException(400, "account has no cookies")
     try:
@@ -78,6 +83,9 @@ def add_league(payload: LeagueAdd, session: Session = Depends(get_session)) -> L
         account_id=payload.account_id,
         is_public=payload.account_id is None,
         lifecycle="pre_draft",
+        # Ownership is derived from the session's bound tenant, never from the
+        # request body. A client-supplied tenant is a client-chosen owner.
+        tenant_id=current_tenant_id(session),
     )
     session.add(league)
     session.commit()
@@ -90,7 +98,10 @@ def sync_league(league_id: int, session: Session = Depends(get_session)) -> Sync
     league = session.get(League, league_id)
     if league is None:
         raise HTTPException(404, "league not found")
-    with SyncService(session) as svc:
-        result = svc.sync_league(league)
+    try:
+        with SyncService(session) as svc:
+            result = svc.sync_league(league)
+    except RecoveryAdmissionError as exc:
+        raise HTTPException(503, secret_free_error(exc)) from exc
     session.commit()
     return SyncSummary(**result)

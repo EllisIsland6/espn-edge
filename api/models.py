@@ -26,7 +26,71 @@ from .db import Base
 
 
 def _now() -> datetime:
+    """Aware UTC. Every column that stores one is `DateTime(timezone=True)`.
+
+    Phase 35 measured what a naive column does on PostgreSQL: an aware value is
+    written, a NAIVE value comes back, and `datetime.now(UTC) - stored` raises
+    `TypeError: can't subtract offset-naive and offset-aware datetimes` -- which
+    is exactly what every freshness check in the app does. It did not surface on
+    SQLite in tests because a session's identity map hands back the same aware
+    object that went in; only a fresh read after a commit shows it.
+    """
     return datetime.now(UTC)
+
+
+class Tenant(Base):
+    """The isolation boundary. Every tenant-scoped row reaches exactly one of these.
+
+    Phase 36 proved the isolation design against thirteen R4 attacks before this
+    landed; `docs/sprint-9/kernel/` holds the SQL that was proven and the attack
+    suite that proved it. The identity tables are deliberately thin — Cognito and
+    external identities are Phase 37+, and a wider table now would be a guess.
+    """
+
+    __tablename__ = "tenants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="tenant", cascade="all, delete-orphan"
+    )
+
+
+class User(Base):
+    """A person. Users are global; membership is what scopes them to a tenant."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    memberships: Mapped[list[Membership]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Membership(Base):
+    """A user's place in a tenant. The join is the authorization fact."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_membership_tenant_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False, default="member")
+
+    tenant: Mapped[Tenant] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="memberships")
 
 
 class Account(Base):
@@ -38,19 +102,57 @@ class Account(Base):
     # espn_s2 stored Fernet-encrypted; never the plaintext (SPEC 2.10, 3).
     espn_s2_encrypted: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="active")  # active | needs_reauth
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # The Phase 36 audit's first finding: this is the most sensitive table in
+    # the schema -- swid plus the Fernet-encrypted espn_s2 -- and it had no
+    # tenant column and therefore no policy. It reaches no league, so there was
+    # no path to scope it by; it needed one of its own. Nullable during expand,
+    # like `leagues.tenant_id`.
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
 
     leagues: Mapped[list[League]] = relationship(back_populates="account")
 
 
 class League(Base):
     __tablename__ = "leagues"
-    __table_args__ = (UniqueConstraint("espn_league_id", "season", name="uq_league_season"),)
+    # Phase 36 measured that the old unique -- (espn_league_id, season), with no
+    # tenant in it -- made the colliding-tenant case impossible to insert: two
+    # tenants could not both hold the same ESPN league, which is exactly the
+    # "guessed/colliding IDs" case the phase names. Uniqueness is per tenant.
+    __table_args__ = (
+        # Both, deliberately, for as long as `tenant_id` is nullable. The old
+        # global one is what actually holds the line during the expand window:
+        # SQL treats NULLs as distinct, so two NULL-tenant rows with the same
+        # (espn_league_id, season) satisfy the tenant-scoped constraint and
+        # nothing else would stop them. It is dropped by alembic/pending/0004,
+        # in the same commit that makes `tenant_id` NOT NULL.
+        #
+        # Its cost is real and is the reason it goes: it makes the
+        # colliding-tenant case impossible to insert, so two tenants cannot
+        # both hold the same ESPN league (P36-1) -- which is exactly the
+        # attack Phase 36 existed to test.
+        UniqueConstraint("espn_league_id", "season", name="uq_league_season"),
+        UniqueConstraint(
+            "tenant_id", "espn_league_id", "season", name="uq_league_tenant_season"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     espn_league_id: Mapped[str] = mapped_column(String, nullable=False)
     season: Mapped[int] = mapped_column(Integer, nullable=False)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    # Nullable on purpose, and this is the open half of an expand-contract pair.
+    # A league with no tenant is invisible to every policy and therefore to
+    # everyone: that fails closed, but silently, which is how a league vanishes
+    # and nobody learns why. The contract step that makes it impossible rather
+    # than merely unlikely is written and proven -- alembic/pending/0004 -- and
+    # parked until every writer supplies a tenant (Phase 37). This annotation
+    # and that file move together; tests/test_spend.py fails if only one does.
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
 
     name: Mapped[str | None] = mapped_column(String)
     size: Mapped[int | None] = mapped_column(Integer)
@@ -64,7 +166,7 @@ class League(Base):
     lifecycle: Mapped[str] = mapped_column(String, default="pre_draft")
     my_team_id: Mapped[int | None] = mapped_column(Integer)
     is_public: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Persistent last-sync diagnostics (Phase 7). error is redacted — never secrets.
     last_sync_ok: Mapped[bool | None] = mapped_column(Boolean)
     last_sync_error: Mapped[str | None] = mapped_column(String)
@@ -180,7 +282,7 @@ class CurrentRosterSnapshot(Base):
     )
     scoring_period: Mapped[int] = mapped_column(Integer, nullable=False)
     matchup_period: Mapped[int | None] = mapped_column(Integer)
-    synced_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class CurrentRosterEntry(Base):
@@ -211,7 +313,7 @@ class CurrentRosterEntry(Base):
     player_position: Mapped[str | None] = mapped_column(String)
     nfl_team: Mapped[str | None] = mapped_column(String)
     opponent: Mapped[str | None] = mapped_column(String)
-    kickoff_at: Mapped[datetime | None] = mapped_column(DateTime)
+    kickoff_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     game_status: Mapped[str | None] = mapped_column(String)
     injury_status: Mapped[str | None] = mapped_column(String)
     actual_points: Mapped[float | None] = mapped_column(Float)
@@ -231,7 +333,7 @@ class Transaction(Base):
     player_in: Mapped[int | None] = mapped_column(Integer)
     player_out: Mapped[int | None] = mapped_column(Integer)
     bid: Mapped[int | None] = mapped_column(Integer)
-    executed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Player(Base):
@@ -247,7 +349,86 @@ class Player(Base):
     proj_ros: Mapped[float | None] = mapped_column(Float)
     ffc_id: Mapped[int | None] = mapped_column(Integer)
     ffc_adp: Mapped[float | None] = mapped_column(Float)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class NflversePlayerMap(Base):
+    """Exact ESPN-to-GSIS identity used by Opportunity Analytics."""
+
+    __tablename__ = "nflverse_player_maps"
+
+    espn_player_id: Mapped[int] = mapped_column(
+        ForeignKey("players.espn_player_id", ondelete="CASCADE"), primary_key=True
+    )
+    gsis_id: Mapped[str | None] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)  # matched|unmatched|ambiguous
+    method: Mapped[str | None] = mapped_column(String)  # registry|manual
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+
+class OpportunityWeek(Base):
+    """Selected nflverse regular-season player usage for one NFL game."""
+
+    __tablename__ = "opportunity_weeks"
+    __table_args__ = (
+        UniqueConstraint(
+            "season", "season_type", "game_id", "gsis_id", name="uq_opportunity_player_game"
+        ),
+        Index("ix_opportunity_player_week", "season", "gsis_id", "week"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    season_type: Mapped[str] = mapped_column(String, nullable=False)
+    week: Mapped[int] = mapped_column(Integer, nullable=False)
+    game_id: Mapped[str] = mapped_column(String, nullable=False)
+    gsis_id: Mapped[str] = mapped_column(String, nullable=False)
+    team: Mapped[str | None] = mapped_column(String)
+    opponent_team: Mapped[str | None] = mapped_column(String)
+    position: Mapped[str] = mapped_column(String, nullable=False)
+    carries: Mapped[float | None] = mapped_column(Float)
+    carry_share: Mapped[float | None] = mapped_column(Float)
+    targets: Mapped[float | None] = mapped_column(Float)
+    receptions: Mapped[float | None] = mapped_column(Float)
+    rushing_yards: Mapped[float | None] = mapped_column(Float)
+    receiving_yards: Mapped[float | None] = mapped_column(Float)
+    receiving_air_yards: Mapped[float | None] = mapped_column(Float)
+    receiving_tds: Mapped[float | None] = mapped_column(Float)
+    team_passing_yards: Mapped[float | None] = mapped_column(Float)
+    target_share: Mapped[float | None] = mapped_column(Float)
+    air_yards_share: Mapped[float | None] = mapped_column(Float)
+    wopr: Mapped[float | None] = mapped_column(Float)
+    rushing_epa: Mapped[float | None] = mapped_column(Float)
+    receiving_epa: Mapped[float | None] = mapped_column(Float)
+    fantasy_points_ppr: Mapped[float | None] = mapped_column(Float)
+
+
+class OpportunityImport(Base):
+    """Bounded, secret-free diagnostics for one nflverse refresh attempt."""
+
+    __tablename__ = "opportunity_imports"
+    __table_args__ = (Index("ix_opportunity_import_season_time", "season", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    season: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latest_week: Mapped[int | None] = mapped_column(Integer)
+    input_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    stored_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    matched_players: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unmatched_players: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retries: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    package_version: Mapped[str | None] = mapped_column(String)
+    schema_fingerprint: Mapped[str | None] = mapped_column(String)
+    error_code: Mapped[str | None] = mapped_column(String)
+    error_message: Mapped[str | None] = mapped_column(String)
+    details_json: Mapped[dict | None] = mapped_column(JSON)
 
 
 class AdpSnapshot(Base):
@@ -255,7 +436,7 @@ class AdpSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String)  # espn | ffc
-    pulled_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    pulled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     format: Mapped[str | None] = mapped_column(String)
     teams: Mapped[int | None] = mapped_column(Integer)
     payload_json: Mapped[dict | None] = mapped_column(JSON)
@@ -267,30 +448,41 @@ class Metric(Base):
     # SQLite (NULLs compare distinct), so a league-scope metric (team_id/week NULL)
     # could be inserted many times. Use four *partial* unique indexes so identity
     # holds for every NULL/non-NULL combination of (team_id, week).
+    #
+    # Phase 33 measured what happens with only `sqlite_where`: PostgreSQL ignores
+    # that kwarg but STILL CREATES THE INDEX, without its predicate. All four
+    # became FULL unique indexes, and `(league_id, key)` unique forbids per-team
+    # metrics outright — the second team metric in a league fails. The app did not
+    # degrade on PostgreSQL, it stopped on the first write. `postgresql_where` is
+    # the fix and it is not optional.
     __table_args__ = (
         Index(
             "uq_metric_league",  # league metric, no week
             "league_id", "key",
             unique=True,
             sqlite_where=text("team_id IS NULL AND week IS NULL"),
+            postgresql_where=text("team_id IS NULL AND week IS NULL"),
         ),
         Index(
             "uq_metric_league_week",  # league weekly metric
             "league_id", "key", "week",
             unique=True,
             sqlite_where=text("team_id IS NULL AND week IS NOT NULL"),
+            postgresql_where=text("team_id IS NULL AND week IS NOT NULL"),
         ),
         Index(
             "uq_metric_team",  # team metric, no week
             "league_id", "team_id", "key",
             unique=True,
             sqlite_where=text("team_id IS NOT NULL AND week IS NULL"),
+            postgresql_where=text("team_id IS NOT NULL AND week IS NULL"),
         ),
         Index(
             "uq_metric_team_week",  # team weekly metric
             "league_id", "team_id", "key", "week",
             unique=True,
             sqlite_where=text("team_id IS NOT NULL AND week IS NOT NULL"),
+            postgresql_where=text("team_id IS NOT NULL AND week IS NOT NULL"),
         ),
     )
 
@@ -302,7 +494,7 @@ class Metric(Base):
     key: Mapped[str] = mapped_column(String, nullable=False)
     week: Mapped[int | None] = mapped_column(Integer)
     value_float: Mapped[float | None] = mapped_column(Float)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class MetricSnapshot(Base):
@@ -330,7 +522,9 @@ class MetricSnapshot(Base):
     key: Mapped[str] = mapped_column(String, nullable=False)
     period: Mapped[int] = mapped_column(Integer, nullable=False)
     value_float: Mapped[float] = mapped_column(Float, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
 
 
 class AiReport(Base):
@@ -343,12 +537,89 @@ class AiReport(Base):
     input_hash: Mapped[str | None] = mapped_column(String)
     model: Mapped[str | None] = mapped_column(String)
     content_json: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class RawCache(Base):
     __tablename__ = "raw_cache"
 
+    # NOTE: `key` remains the sole primary key during the expand window, and
+    # that is a known hole rather than a settled design. Two tenants cannot
+    # hold the same cache key, so a colliding INSERT fails with a uniqueness
+    # error that row-level security does NOT hide -- which tells the second
+    # tenant that the first one has that key. Since a key carries a league id
+    # and a hashed SWID, that is an enumeration oracle. The fix is a composite
+    # (tenant_id, key) primary key, and it belongs with the contract step that
+    # makes these columns NOT NULL, because until then half the rows share a
+    # NULL tenant and the composite key would not be unique either.
     key: Mapped[str] = mapped_column(String, primary_key=True)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     payload_json: Mapped[dict | None] = mapped_column(JSON)
+    # Raw ESPN payloads for private leagues. Audit finding, same as `accounts`.
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+
+
+
+class AiSpendMonth(Base):
+    """One row per UTC month, and the only thing the ceiling is enforced against.
+
+    The ceiling cannot be enforced by reading a SUM and then inserting: two
+    processes both read a total under the ceiling, both insert, and the ceiling
+    is breached with neither of them wrong at the moment it looked. A single
+    counter row updated by a conditional `UPDATE ... WHERE committed + :amount
+    <= :ceiling` is atomic in SQLite and in every other engine, so the bound
+    holds under parallel reservations without depending on an isolation level
+    the local SQLite file does not provide.
+
+    Amounts are integer MICRO-DOLLARS, never floats. A ceiling compared with
+    accumulated binary floating point is a ceiling that is sometimes off by a
+    representation error, and "sometimes" is not a bound.
+    """
+
+    __tablename__ = "ai_spend_months"
+    __table_args__ = (UniqueConstraint("month", name="uq_ai_spend_months_month"),)
+
+    # A surrogate `id` rather than `month` as the primary key, to match the
+    # convention every other table here follows and that the Phase 30 recovery
+    # oracle relies on when it walks the schema. `month` carries the uniqueness.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    month: Mapped[str] = mapped_column(String, nullable=False)  # "YYYY-MM", UTC
+    committed_micro_usd: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class AiSpendEntry(Base):
+    """The audit trail: one row per reservation, in one of three states.
+
+    `reserved_micro_usd` is what the ceiling was charged at reserve time and is
+    never reduced except by an explicit settle. That is what makes a crashed
+    reservation non-free: the charge is recorded before the model call begins,
+    so a process that dies mid-call leaves the month charged rather than leaving
+    the spend unaccounted.
+    """
+
+    __tablename__ = "ai_spend_entries"
+    __table_args__ = (
+        UniqueConstraint("reservation", name="uq_ai_spend_entries_reservation"),
+        Index("ix_ai_spend_entries_month_state", "month", "state"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reservation: Mapped[str] = mapped_column(String, nullable=False)
+    month: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    # reserved -> settled | unknown_spent. There is no "released" state: a
+    # reservation that was never used still consumed the call's worst case, and
+    # a release path is how a crash becomes silently free.
+    state: Mapped[str] = mapped_column(String, nullable=False, default="reserved")
+    reserved_micro_usd: Mapped[int] = mapped_column(Integer, nullable=False)
+    settled_micro_usd: Mapped[int | None] = mapped_column(Integer, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )

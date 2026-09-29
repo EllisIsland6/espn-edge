@@ -7,7 +7,8 @@ from datetime import UTC, timedelta
 from sqlalchemy.orm import Session
 
 from ..models import RawCache
-from .espn import RawCacheStore
+from ..tenancy import current_tenant_id
+from .espn import RawCacheStore, _forbid_in_hosted_mode
 
 
 class DBRawCache(RawCacheStore):
@@ -24,11 +25,15 @@ class DBRawCache(RawCacheStore):
         return row.payload_json
 
     def set(self, key: str, payload: dict) -> None:
+        # Hosted synthetic mode may read the raw cache but never write it, so a
+        # synthetic deployment cannot accumulate provider-shaped state.
+        _forbid_in_hosted_mode("raw cache write")
+
         from datetime import datetime
 
         row = self.session.get(RawCache, key)
         if row is None:
-            row = RawCache(key=key)
+            row = RawCache(key=key, tenant_id=current_tenant_id(self.session))
             self.session.add(row)
         row.payload_json = payload
         row.fetched_at = datetime.now(UTC)
