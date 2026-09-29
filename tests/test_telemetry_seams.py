@@ -2312,6 +2312,16 @@ def test_the_provider_imports_telemetry_and_telemetry_imports_no_provider():
             "PATH": os.environ.get("PATH", ""),
             "HOME": os.environ.get("HOME", ""),
             "APP_MODE": "private_operator",
+            # The docstring above says this runs with "a minimal environment
+            # rather than the operator's whole one". It did not: `cwd=ROOT`
+            # let pydantic-settings read the operator's `.env`, which supplied
+            # these two required settings, so the probe depended on a
+            # gitignored file being present. Found by running the suite against
+            # a clean clone of the committed branch -- there the subprocess
+            # exits non-zero on a missing setting, which this test correctly
+            # treats as a failure rather than a skip.
+            "TELEMETRY_ENABLED": "false",
+            "TELEMETRY_REPORT_PATH": str(ROOT / ".telemetry-probe-unused.md"),
         },
         timeout=120,
         check=False,

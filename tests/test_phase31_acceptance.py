@@ -102,6 +102,17 @@ def test_criteria_1_and_2_hosted_mode_cannot_reach_real_data(target, expression)
             "DB_PATH": str(Path(tempfile.mkdtemp()) / "hosted.db"),
             "FERNET_KEY": "",
             "RECOVERY_REQUIRED": "false",
+            # Required, frozen settings. Passing them explicitly is the whole
+            # point of handing this subprocess a built environment instead of
+            # `os.environ` -- and for a while it was not doing it. The
+            # subprocess runs with `cwd=ROOT`, so pydantic-settings found the
+            # operator's `.env` and filled these in, and the test passed on a
+            # developer machine and ONLY there. It was caught by cloning the
+            # committed branch and running the suite against the clone, where
+            # `.env` is correctly absent: the subprocess died before printing
+            # anything and the assertion compared against an empty string.
+            "TELEMETRY_ENABLED": "false",
+            "TELEMETRY_REPORT_PATH": str(Path(tempfile.mkdtemp()) / "report.md"),
         },
     )
     assert proc.stdout.startswith("FORBIDDEN"), (target, proc.stdout, proc.stderr[-400:])
