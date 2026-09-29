@@ -21,6 +21,7 @@ from ..config import get_settings
 from ..models import AdpSnapshot, League, Player
 from .espn_constants import NFL_TEAM_ABBREVIATIONS
 from .parse import classify_scoring
+from .recovery import assert_recovery_write_allowed
 
 log = logging.getLogger("espn.ffc_adp")
 
@@ -190,9 +191,7 @@ def _snapshot_year(snapshot: AdpSnapshot) -> int | None:
         return None
 
 
-def latest_ffc_snapshot(
-    session: Session, fmt: str, teams: int, year: int
-) -> AdpSnapshot | None:
+def latest_ffc_snapshot(session: Session, fmt: str, teams: int, year: int) -> AdpSnapshot | None:
     rows = list(
         session.scalars(
             select(AdpSnapshot)
@@ -410,6 +409,7 @@ def refresh_ffc_adp(
     A fresh snapshot (default TTL 24h) is reused unless `force=True`. This function
     is intentionally not called by read endpoints.
     """
+    assert_recovery_write_allowed()
     settings = get_settings()
     season = year or settings.season
     ttl = timedelta(hours=settings.ffc_adp_ttl_hours)

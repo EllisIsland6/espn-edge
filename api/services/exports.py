@@ -11,6 +11,7 @@ import io
 import json
 import re
 from datetime import UTC, datetime
+from typing import Literal
 
 from openpyxl import Workbook
 from sqlalchemy import select
@@ -21,6 +22,7 @@ from ..schemas import DraftPickOut, MatchupOut, TeamOut, TransactionOut
 from .draft_analytics import build_draft_adp, build_strategies
 from .exposure import ExposureScope, ExposureView, build_exposure, players_for_view
 from .metrics import team_edge
+from .opportunity import build_portfolio_opportunity
 from .portfolio import build_portfolio_rows, build_summary
 from .portfolio_filters import PortfolioFilters
 from .read_models import build_league_out
@@ -81,6 +83,17 @@ _STRATEGY_ROW_FIELDS = [
     "primary_label", "primary_confidence", "secondary_label",
     "secondary_confidence", "edge_index_score", "triggering_picks",
 ]
+_OPPORTUNITY_ROW_FIELDS = [
+    "espn_player_id", "player_name", "position", "nfl_team", "sample_games",
+    "through_week", "opportunity_score", "production_percentile",
+    "opportunity_gap", "signal", "trend", "trend_delta_pp",
+    "avg_carry_share", "avg_target_share", "avg_air_yards_share", "avg_wopr",
+    "avg_rushing_epa", "avg_receiving_epa", "ppr_points_per_game",
+    "targets_per_game", "receptions_per_game", "receiving_yards_per_game",
+    "receiving_tds_per_game", "average_depth_of_target",
+    "team_passing_yards_per_game",
+    "mine_leagues", "field_leagues", "available_leagues", "unknown_leagues",
+]
 
 
 def _teams_sorted(session: Session, league_id: int) -> list[Team]:
@@ -137,6 +150,16 @@ def strategies_csv(session: Session, *, filters: PortfolioFilters) -> str:
     return _dict_rows_csv(data["teams"], _STRATEGY_ROW_FIELDS)
 
 
+def opportunity_csv(
+    session: Session,
+    *,
+    view: Literal["rostered", "available", "all"],
+    filters: PortfolioFilters,
+) -> str:
+    data = build_portfolio_opportunity(session, filters, view=view)
+    return _dict_rows_csv(data["players"], _OPPORTUNITY_ROW_FIELDS)
+
+
 # --------------------------------------------------------------------------- #
 # Master JSON — summary + rows + per-league detail (mirrors the API models)
 # --------------------------------------------------------------------------- #
@@ -178,6 +201,7 @@ def portfolio_json(session: Session) -> dict:
         },
         "draft_adp": build_draft_adp(session, filters),
         "strategies": build_strategies(session, filters),
+        "opportunity": build_portfolio_opportunity(session, filters, view="all"),
     }
 
 
@@ -244,6 +268,7 @@ def portfolio_xlsx(session: Session) -> bytes:
     exposure = build_exposure(session, scope="me", filters=filters)
     draft_adp = build_draft_adp(session, filters)
     strategies = build_strategies(session, filters)
+    opportunity = build_portfolio_opportunity(session, filters, view="all")
     _append_dict_sheet(
         wb,
         used,
@@ -288,6 +313,7 @@ def portfolio_xlsx(session: Session) -> bytes:
     _append_dict_sheet(
         wb, used, "Strategies", strategies["teams"], _STRATEGY_ROW_FIELDS
     )
+    _append_dict_sheet(wb, used, "Opportunity", opportunity["players"], _OPPORTUNITY_ROW_FIELDS)
 
     header = ["Standing", "Team", "Abbrev", "W", "L", "T", "PF", "PA", "Edge", "Playoff %", "Me"]
     for lg in session.scalars(select(League).order_by(League.season.desc(), League.id)):

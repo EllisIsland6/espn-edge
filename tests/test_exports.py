@@ -65,7 +65,7 @@ def test_export_json(synced):
     body = r.json()
     assert {
         "generated_at", "summary", "rows", "leagues", "exposure", "draft_adp",
-        "strategies",
+        "strategies", "opportunity",
     } <= set(body)
     assert {"me", "opponents"} == set(body["exposure"])
     assert body["summary"]["total_leagues"] == 1
@@ -96,11 +96,11 @@ def test_export_xlsx_opens_with_openpyxl(synced):
     analytics_sheets = {
         "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
         "Exposure Headlines", "NFL Concentration", "Positional Spend", "Draft ADP",
-        "Strategies",
+        "Strategies", "Opportunity",
     }
     assert {
         "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
-        "Draft ADP", "Strategies",
+        "Draft ADP", "Strategies", "Opportunity",
     } <= set(wb.sheetnames)
     assert len(wb.sheetnames) >= 5  # Four portfolio sheets + at least one league sheet
 
@@ -129,7 +129,7 @@ def test_exports_empty_db_still_valid():
     wb = load_workbook(io.BytesIO(client.get("/api/exports/portfolio.xlsx").content))
     assert {
         "Portfolio", "Exposure Rostered", "Exposure Field Owns", "Exposure All",
-        "Draft ADP", "Strategies",
+        "Draft ADP", "Strategies", "Opportunity",
     } <= set(wb.sheetnames)
 
 
@@ -137,10 +137,18 @@ def test_analytics_csv_exports_share_api_row_fields(synced):
     exposure = client.get("/api/exports/exposure.csv?scope=me")
     draft_adp = client.get("/api/exports/draft-adp.csv")
     strategies = client.get("/api/exports/strategies.csv")
-    assert exposure.status_code == draft_adp.status_code == strategies.status_code == 200
+    opportunity = client.get("/api/exports/opportunity.csv?view=all")
+    assert (
+        exposure.status_code
+        == draft_adp.status_code
+        == strategies.status_code
+        == opportunity.status_code
+        == 200
+    )
     assert "exposure-me.csv" in exposure.headers["content-disposition"]
     assert "draft-adp.csv" in draft_adp.headers["content-disposition"]
     assert "strategies.csv" in strategies.headers["content-disposition"]
+    assert "opportunity-all.csv" in opportunity.headers["content-disposition"]
     assert {"player_name", "exposure_pct", "share", "leagues"} <= set(
         next(csv.DictReader(io.StringIO(exposure.text)))
     )
@@ -149,4 +157,7 @@ def test_analytics_csv_exports_share_api_row_fields(synced):
     } <= set(next(csv.DictReader(io.StringIO(draft_adp.text))))
     assert {"primary_label", "secondary_label", "triggering_picks"} <= set(
         next(csv.DictReader(io.StringIO(strategies.text)))
+    )
+    assert {"player_name", "opportunity_score", "signal", "available_leagues"} <= set(
+        csv.DictReader(io.StringIO(opportunity.text)).fieldnames or []
     )

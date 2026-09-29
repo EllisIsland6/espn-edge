@@ -15,7 +15,24 @@ class VaultError(RuntimeError):
     pass
 
 
+def _forbid_credential_custody_in_hosted_mode() -> None:
+    """Hosted synthetic mode gets no credential custody in either direction.
+
+    Guarding `_fernet` rather than the account routes closes ingest, decrypt and
+    every future crypto caller at one chokepoint. Unit-2 review found the read
+    direction guarded while `POST /api/accounts` still accepted and stored a real
+    `espn_s2`, which left acceptance criterion 2 unmet.
+    """
+    from .config import get_settings
+
+    if get_settings().is_public_synthetic:
+        from .services.espn import HostedModeForbidden
+
+        raise HostedModeForbidden("credential custody")
+
+
 def _fernet() -> Fernet:
+    _forbid_credential_custody_in_hosted_mode()
     key = get_settings().fernet_key
     if not key:
         raise VaultError(

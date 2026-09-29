@@ -14,6 +14,30 @@ class HealthOut(BaseModel):
     db_path: str
 
 
+class RecoveryStatusOut(BaseModel):
+    required: bool
+    supported_topology: bool
+    configured: bool
+    target_available: bool
+    state: str
+    last_coverage_at: datetime | None
+    last_snapshot_at: datetime | None
+    age_seconds: int | None
+    stale_after_seconds: int
+    last_result_code: str
+    artifact_bytes: int | None
+    format_version: int
+    schema_fingerprint_short: str | None
+    retention_configured: bool
+    retention_enforced: bool
+
+
+class RecoveryBackupOut(BaseModel):
+    result_code: str
+    artifact_bytes: int
+    snapshot_created: bool
+
+
 # ---- accounts --------------------------------------------------------------
 class AccountCreate(BaseModel):
     label: str = Field(..., min_length=1)
@@ -748,3 +772,245 @@ class PortfolioStrategiesOut(BaseModel):
     comparison_note: str
     uncertainty_note: str
     teams: list[StrategyTeamOut]
+
+
+# ---- Phase 27 Opportunity Analytics ---------------------------------------
+class OpportunityStatusOut(BaseModel):
+    season: int
+    state: Literal["ready", "partial", "empty", "failed", "skipped"]
+    run_id: str | None
+    fetched_at: datetime | None
+    age_hours: float | None
+    stale: bool
+    latest_week: int | None
+    stored_rows: int
+    matched_players: int
+    unmatched_players: int
+    package_version: str | None
+    schema_fingerprint: str | None
+    error_code: str | None
+    error_message: str | None
+    last_good_at: datetime | None
+
+
+class OpportunityWarningOut(BaseModel):
+    code: str
+    message: str | None
+    count: int | None = None
+    chart_id: str | None = None
+
+
+class OpportunityCoverageOut(BaseModel):
+    leagues_in_scope: int
+    current_roster_leagues: int
+    unknown_roster_leagues: int
+    stored_player_games: int
+    mapped_players: int
+    unmatched_players: int
+    players_returned: int
+
+
+class OpportunityPlayerOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    position: Literal["RB", "WR", "TE"]
+    nfl_team: str | None
+    sample_games: int
+    through_week: int
+    avg_carry_share: float | None
+    avg_target_share: float | None
+    avg_air_yards_share: float | None
+    avg_wopr: float | None
+    avg_rushing_epa: float | None
+    avg_receiving_epa: float | None
+    ppr_points_per_game: float | None
+    targets_per_game: float | None
+    receptions_per_game: float | None
+    receiving_yards_per_game: float | None
+    receiving_tds_per_game: float | None
+    average_depth_of_target: float | None
+    team_passing_yards_per_game: float | None
+    opportunity_score: float | None
+    production_percentile: float | None
+    opportunity_gap: float | None
+    signal: Literal["opportunity_ahead", "production_ahead", "aligned", "pending"]
+    trend: Literal["rising", "falling", "steady"] | None
+    trend_delta_pp: float | None
+    mine_leagues: int
+    field_leagues: int
+    available_leagues: int
+    unknown_leagues: int
+
+
+class PortfolioOpportunityOut(BaseModel):
+    season: int
+    view: Literal["rostered", "available", "all"]
+    source: OpportunityStatusOut
+    coverage: OpportunityCoverageOut
+    warnings: list[OpportunityWarningOut]
+    players: list[OpportunityPlayerOut]
+
+
+# ---- Phase 29 Opportunity Visualizations ---------------------------------
+class OpportunityChartCoverageOut(BaseModel):
+    rank_limit: int
+    population_players: int
+    returned_players: int
+    current_roster_leagues: int
+    unknown_roster_leagues: int
+
+
+class OpportunityChartDomainOut(BaseModel):
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+
+
+class OpportunityChartReferenceOut(BaseModel):
+    kind: Literal["x", "y", "line"]
+    value: float | None = None
+    x1: float | None = None
+    y1: float | None = None
+    x2: float | None = None
+    y2: float | None = None
+    label: str
+
+
+class OpportunityChartQuadrantOut(BaseModel):
+    key: str
+    label: str
+    x_side: Literal["low", "high"]
+    y_side: Literal["low", "high"]
+
+
+class OpportunityChartOmissionOut(BaseModel):
+    reason: str
+    count: int
+
+
+class OpportunityChartDefinitionOut(BaseModel):
+    id: Literal[
+        "target_air",
+        "yards_tds",
+        "adot_targets",
+        "opportunity_production",
+        "passing_environment",
+    ]
+    title: str
+    x_key: str
+    y_key: str
+    x_label: str
+    y_label: str
+    supported_positions: list[Literal["RB", "WR", "TE"]]
+    domain: OpportunityChartDomainOut
+    references: list[OpportunityChartReferenceOut]
+    quadrants: list[OpportunityChartQuadrantOut]
+    point_count: int
+    population_point_count: int
+    omitted_count: int
+    omitted_reasons: list[OpportunityChartOmissionOut]
+
+
+class OpportunityChartPointOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    nfl_team: str | None
+    position: Literal["RB", "WR", "TE"]
+    espn_rank_ppr: float
+    sample_games: int
+    through_week: int
+    target_share_pct: float | None
+    air_yards_share_pct: float | None
+    targets_per_game: float | None
+    receptions_per_game: float | None
+    receiving_yards_per_game: float | None
+    receiving_tds_per_game: float | None
+    average_depth_of_target: float | None
+    team_passing_yards_per_game: float | None
+    opportunity_score: float | None
+    production_percentile: float | None
+    opportunity_gap: float | None
+    signal: Literal["opportunity_ahead", "production_ahead", "aligned", "pending"]
+    trend: Literal["rising", "falling", "steady"] | None
+    mine_leagues: int
+    field_leagues: int
+    available_leagues: int
+    unknown_leagues: int
+
+
+class PortfolioOpportunityChartsOut(BaseModel):
+    season: int
+    view: Literal["rostered", "available", "all"]
+    position: Literal["RB", "WR", "TE"]
+    window_games: int
+    through_week: int | None
+    source: OpportunityStatusOut
+    coverage: OpportunityChartCoverageOut
+    charts: list[OpportunityChartDefinitionOut]
+    points: list[OpportunityChartPointOut]
+    warnings: list[OpportunityWarningOut]
+
+
+class OpportunityPlayerIdentityOut(BaseModel):
+    espn_player_id: int
+    player_name: str | None
+    position: str | None
+    nfl_team: str | None
+    gsis_id: str | None
+    mapping_status: Literal["matched", "unmatched", "ambiguous"]
+
+
+class OpportunityWeekOut(BaseModel):
+    week: int
+    game_id: str
+    team: str | None
+    opponent_team: str | None
+    position: str
+    carries: float | None
+    carry_share: float | None
+    targets: float | None
+    target_share: float | None
+    air_yards_share: float | None
+    wopr: float | None
+    fantasy_points_ppr: float | None
+    receptions: float | None
+    receiving_yards: float | None
+    receiving_tds: float | None
+    average_depth_of_target: float | None
+    team_passing_yards: float | None
+
+
+class OpportunityLeagueStateOut(BaseModel):
+    league_id: int
+    league_name: str | None
+    state: Literal["mine", "field", "available", "unknown"]
+
+
+class PlayerOpportunityOut(BaseModel):
+    season: int
+    player: OpportunityPlayerIdentityOut
+    summary: OpportunityPlayerOut | None
+    weeks: list[OpportunityWeekOut]
+    leagues: list[OpportunityLeagueStateOut]
+    source: OpportunityStatusOut
+
+
+class OpportunityRefreshOut(BaseModel):
+    run_id: str
+    season: int
+    state: Literal["ready", "partial", "empty", "failed", "skipped"]
+    started_at: datetime
+    completed_at: datetime | None
+    latest_week: int | None
+    input_rows: int
+    stored_rows: int
+    matched_players: int
+    unmatched_players: int
+    retries: int
+    package_version: str | None
+    schema_fingerprint: str | None
+    error_code: str | None
+    error_message: str | None
+    details: dict
+    last_good_at: datetime | None

@@ -23,6 +23,14 @@ from ..ai_config import MAX_TOKENS, SCHEMA_VERSION
 from ..ai_schemas import SCHEMA_BY_KIND
 from ..config import get_settings
 from ..models import AiReport
+from .recovery import assert_recovery_write_allowed
+from .spend import (
+    Reservation,
+    SpendLedger,
+    SpendLedgerError,
+    TokenUsage,
+    actual_micro_usd,
+)
 
 log = logging.getLogger("espn.ai")
 
@@ -31,14 +39,44 @@ class AiDisabledError(RuntimeError):
     """AI requested but no API key configured. Callers should guard on `enabled`."""
 
 
+# Marks a response the spend bound served from cache instead of generating. Two
+# values so the caller can tell an exact-input cache hit from another scope's
+# report standing in for one that was never generated.
+CACHED_ONLY_KEY = "cached_only"
+
+
 class AiError(RuntimeError):
     """Model call failed. Message is safe to surface (no secrets)."""
 
 
 class LlmClient(Protocol):
+    # Set by the client to the provider's own token counts for the call it just
+    # made, or left None when the client cannot report them. A settle with no
+    # usage can only restate the reservation, so this is what makes
+    # reserve-then-settle two steps rather than one step written twice.
+    last_usage: TokenUsage | None
+
     def complete_json(
-        self, *, model: str, system: str, user: str, schema: type[BaseModel], max_tokens: int
-    ) -> dict: ...
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        max_tokens: int,
+        reservation: Reservation | None = None,
+    ) -> dict:
+        """`reservation` is the charge already recorded for THIS call.
+
+        It is on the protocol rather than only at the call site because the
+        contract rates a runtime flag check at one call site as procedural: a
+        missed site reopens the hole and the guarantee scales with reviewer
+        diligence. Carrying the reservation in the signature makes "call the
+        model without having charged for it" something a caller has to write on
+        purpose. `AnthropicLlmClient` refuses a required-but-absent one; see
+        there for what this does and does not achieve.
+        """
+        ...
 
 
 class AnthropicLlmClient:
@@ -48,11 +86,31 @@ class AnthropicLlmClient:
         import anthropic
 
         self._client = anthropic.Anthropic(api_key=api_key)
+        # Read back by AiService to settle a reservation against the real token
+        # counts. Without it a settle could only restate the reservation, which
+        # would make "reserve then settle" a two-step way of doing one step.
+        self.last_usage: TokenUsage | None = None
 
     def complete_json(
-        self, *, model: str, system: str, user: str, schema: type[BaseModel], max_tokens: int
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        schema: type[BaseModel],
+        max_tokens: int,
+        reservation: Reservation | None = None,
     ) -> dict:
         import anthropic
+
+        # The honest scope of this guard: it cannot know on its own whether a
+        # bound was required, so it asks. What it buys is that the only client
+        # that can actually spend money refuses to do so when the ledger says a
+        # charge was mandatory and none arrived -- including from a future call
+        # site that forgets, which is the failure mode a single call-site check
+        # cannot cover.
+        if reservation is None and _spend_bound_required():
+            raise AiError("model call attempted without a spend reservation")
 
         # Logs and error messages never include the key, prompts, cookies, SWID,
         # espn_s2, or raw model output — only the exception class.
@@ -78,6 +136,12 @@ class AnthropicLlmClient:
             log.warning("anthropic parse failed: %s", type(exc).__name__)
             raise AiError("model output could not be parsed") from exc
 
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            self.last_usage = TokenUsage(
+                input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+                output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+            )
         parsed = getattr(resp, "parsed_output", None)
         if parsed is None:
             stop_reason = getattr(resp, "stop_reason", None)
@@ -97,6 +161,27 @@ class AnthropicLlmClient:
         except Exception as exc:
             log.warning("could not serialize parsed output: %s", type(exc).__name__)
             raise AiError("model output could not be parsed") from exc
+
+
+def _spend_bound_required() -> bool:
+    """Always in `public_synthetic`; in `private_operator` once prices exist.
+
+    Hosted mode is unconditional because the phase exists to make a hosted
+    process structurally unable to authorize unbounded spend, and a bound a
+    hosted deployment can switch off by leaving configuration empty is not
+    structural. Private-operator mode is gated on configured prices because the
+    contract states that private behaviour is unchanged, and a ledger with no
+    configured rate can only refuse -- enforcing it by default would turn
+    "unchanged" into "AI turned off". Configuring a rate is the operator opting
+    in to their own ceiling.
+
+    Review flagged that both clauses are off by default, so a deployment that
+    sets neither has no bound. That is a deployment-configuration finding, not
+    something this predicate can fix without contradicting the contract; it is
+    recorded in E31.5 alongside the existing `api/Dockerfile` item.
+    """
+    settings = get_settings()
+    return settings.is_public_synthetic or bool(settings.ai_price_micro_usd_per_mtok)
 
 
 _SYSTEM = (
@@ -157,6 +242,22 @@ _TASK: dict[str, str] = {
 }
 
 
+class AiSpendBlockedError(AiError):
+    """The spend bound refused the call and no cached report exists.
+
+    Deliberately terminal. The contract's criterion 8 is "cached-only generation
+    with **no queued retry**": a retry against a monthly ceiling is a busy-wait
+    until the calendar changes, and a queue is an unbounded backlog of calls that
+    were refused for cost.
+
+    It subclasses `AiError` so the existing routers turn it into the ordinary
+    secret-free error envelope they already return for a failed generation,
+    rather than a 500. A new sibling class would have needed every router touched
+    to get the same outcome, and any router that was missed would have answered a
+    refused-for-cost call with a stack trace.
+    """
+
+
 def compute_input_hash(kind: str, model: str, facts: dict) -> str:
     payload = json.dumps(
         {"kind": kind, "model": model, "schema_version": SCHEMA_VERSION, "facts": facts},
@@ -175,6 +276,7 @@ def _norm_name(name: object) -> str:
 
 def trade_name_tables(facts: dict) -> tuple[dict[str, str], dict[str, str]]:
     """Normalized→canonical name maps for (my roster, opponent roster) from the supplied facts."""
+
     def table(players: list[dict]) -> dict[str, str]:
         out: dict[str, str] = {}
         for p in players or []:
@@ -232,6 +334,7 @@ def enrich_trade_player_refs(content: dict, facts: dict) -> dict:
     Trade proposal names have already been validated against these exact roster facts. The
     sidecars let clients render ESPN identities while keeping the LLM schema and cache stable.
     """
+
     def table(players: list[dict]) -> dict[str, dict]:
         refs: dict[str, dict] = {}
         for player in players or []:
@@ -279,6 +382,72 @@ class AiService:
     @property
     def enabled(self) -> bool:
         return self._injected or bool(self._api_key)
+
+    # ---- spend bound -------------------------------------------------------
+    def _ledger(self) -> SpendLedger:
+        """A ledger on its OWN session, never the caller's.
+
+        It used to borrow `self.session`, so its `commit()` published whatever
+        the request had pending and its `rollback()` on a ceiling refusal
+        destroyed an `AiReport` the same request had already generated and
+        flushed -- measured. The ledger needs its own transaction regardless:
+        committing the charge before the model call is the entire design.
+        """
+        from ..db import SessionLocal
+
+        return SpendLedger(session_factory=SessionLocal)
+
+    @staticmethod
+    def _spend_bound_required() -> bool:
+        """Whether a reservation must succeed before the model may be called.
+
+        Always in `public_synthetic`: the phase exists to make a hosted process
+        structurally unable to authorize unbounded spend, and a bound that a
+        hosted deployment can switch off is not structural.
+
+        In `private_operator` only once the operator has configured model prices.
+        The contract states that private-operator behaviour is unchanged, and a
+        ledger with no configured rate can only refuse, so enforcing it by
+        default would turn "unchanged" into "AI turned off". Configuring a rate
+        is the operator opting in to their own ceiling.
+        """
+        return _spend_bound_required()
+
+    @staticmethod
+    def _input_token_bound(system: str, user: str) -> int:
+        """A deliberate over-estimate of the prompt's token count.
+
+        One token per CHARACTER. Real tokenizers emit far fewer than that for
+        English and roughly one per character for CJK, so this never
+        under-reserves for any script -- and under-reserving is the direction
+        that lets a ceiling be stepped over. The reservation is reconciled to the
+        provider's own counts at settle, so the over-estimate costs nothing but a
+        briefly larger hold.
+        """
+        return len(system) + len(user)
+
+    def _cached_only(
+        self, league_id: int, kind: str, input_hash: str, reason: Exception
+    ) -> dict:
+        """Serve the cache, or fail. Never call the model, never queue a retry.
+
+        The returned content carries `CACHED_ONLY_KEY`. Without it a refused
+        `week=9` request returned the stored week-1 report with nothing marking
+        it as substituted, and for a kind with no scope key there was no tell at
+        all. The contract's forbidden-paths clause exempts "any strictly required
+        cached-only trip indicator", so one was contemplated; this is it.
+        """
+        log.warning("ai spend bound refused a call: %s", type(reason).__name__)
+        hit = self._find_by_hash(league_id, kind, input_hash)
+        if hit is not None:
+            return {**(hit.content_json or {}), CACHED_ONLY_KEY: "exact"}
+        newest = self.latest(league_id, kind)
+        if newest is not None:
+            return {**(newest.content_json or {}), CACHED_ONLY_KEY: "substituted"}
+        raise AiSpendBlockedError(
+            "AI generation is unavailable within the current spend bound and "
+            "no cached report exists for this league and kind"
+        ) from reason
 
     def _ensure_client(self) -> LlmClient:
         if self.client is None:
@@ -337,6 +506,43 @@ class AiService:
         """Newest stored report for a specific trade-finder opponent (Phase 21)."""
         return self._latest_where_content(league_id, kind, "opponent_team_id", opponent_team_id)
 
+    # ---- reservation closure ----------------------------------------------
+    def _settle(
+        self, reservation: Reservation | None, model: str, usage: TokenUsage | None
+    ) -> None:
+        if reservation is None:
+            return
+        try:
+            with self._ledger() as ledger:
+                if usage is None:
+                    # Nothing to reconcile against, so the conservative hold
+                    # stands. Recording it as settled at the reserved amount is
+                    # the honest statement: the charge is final and was never
+                    # refined.
+                    ledger.settle(reservation, reservation.reserved_micro_usd)
+                else:
+                    ledger.settle(reservation, actual_micro_usd(model, usage))
+        except Exception as error:
+            # The tokens are already spent and the content is already valid, so
+            # a bookkeeping failure must not discard the caller's result. The
+            # month stays charged at the worst case, which is the safe side.
+            #
+            # Not just `SpendLedgerError`: a client whose `last_usage` is not a
+            # `TokenUsage` makes `actual_micro_usd` raise `AttributeError` here,
+            # AFTER the call was billed, and that escaped as a 500 while the
+            # entry stayed `reserved`. Anything that goes wrong in reconciling a
+            # call that already happened leaves the conservative hold standing.
+            log.warning("ai spend settle failed: %s", type(error).__name__)
+
+    def _record_unknown(self, reservation: Reservation | None) -> None:
+        if reservation is None:
+            return
+        try:
+            with self._ledger() as ledger:
+                ledger.record_unknown_spent(reservation)
+        except Exception as error:
+            log.warning("ai spend unknown-state write failed: %s", type(error).__name__)
+
     # ---- generation --------------------------------------------------------
     def generate(
         self,
@@ -365,14 +571,71 @@ class AiService:
             if hit is not None:
                 return hit.content_json or {}
 
+        assert_recovery_write_allowed()
         client = self._ensure_client()
-        raw = client.complete_json(
-            model=model,
-            system=_SYSTEM,
-            user=f"{_TASK.get(kind, '')}\n\nFACTS:\n{json.dumps(facts, default=str)}",
-            schema=schema,
-            max_tokens=MAX_TOKENS,
-        )
+        user_prompt = f"{_TASK.get(kind, '')}\n\nFACTS:\n{json.dumps(facts, default=str)}"
+
+        # One binding for the output budget and one for the prompt, used by BOTH
+        # the reservation and the call. Review mutated the reservation to charge
+        # for an empty prompt, and the call to request ten times the reserved
+        # output budget, and the suite stayed green for both -- the under-reserve
+        # direction this module's own docstring names as the one that lets a
+        # ceiling be stepped over.
+        output_budget = MAX_TOKENS
+        reserved_input = self._input_token_bound(_SYSTEM, user_prompt)
+
+        reservation: Reservation | None = None
+        if self._spend_bound_required():
+            # The caller's pending work is COMMITTED here, not rolled back.
+            #
+            # The ledger writes on its own connection, and on one SQLite file a
+            # second connection cannot write while this one holds a write lock,
+            # so the caller's transaction has to be closed before the charge can
+            # be recorded independently -- and recording the charge before the
+            # call is what makes a crashed call non-free. The previous shape
+            # borrowed this session and rolled it BACK on a ceiling refusal,
+            # which destroyed an `AiReport` the same request had already
+            # generated. Nothing of THIS call is written yet at this point, so
+            # the only thing committed is work that was already finished.
+            self.session.commit()
+            ledger = self._ledger()
+            try:
+                reservation = ledger.reserve(
+                    kind=kind,
+                    model=model,
+                    input_tokens=reserved_input,
+                    max_output_tokens=output_budget,
+                )
+            except SpendLedgerError as error:
+                # Ceiling breach and ledger failure are the same outcome by
+                # design: in both cases the spend bound could not be
+                # established, so the call must not happen.
+                return self._cached_only(league_id, kind, input_hash, error)
+            finally:
+                ledger.close()
+
+        # Cleared first so a client that does not report usage cannot settle
+        # this call against the previous call's token counts.
+        try:
+            client.last_usage = None
+        except AttributeError:  # a client that does not accept the attribute
+            pass
+        try:
+            raw = client.complete_json(
+                model=model,
+                system=_SYSTEM,
+                user=user_prompt,
+                schema=schema,
+                max_tokens=output_budget,
+                reservation=reservation,
+            )
+        except BaseException:
+            # The call left this process. Whether the provider billed it is not
+            # knowable here, so the month keeps the full reservation and the
+            # entry says the spend is unknown rather than implying it was free.
+            self._record_unknown(reservation)
+            raise
+        self._settle(reservation, model, getattr(client, "last_usage", None))
         try:
             validated = schema.model_validate(raw)  # SPEC: validate before storing
         except ValidationError as exc:

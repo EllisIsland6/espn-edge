@@ -1,5 +1,10 @@
 # ESPN Edge — project rules
-- SPEC.md is the source of truth; Section 1/2 (ESPN access) may not be changed without asking.
+- Truth hierarchy: code/tests/measurements describe current behavior; an operator-accepted phase
+  contract authorizes a target change; SYSTEM_ARCHITECTURE.md and accepted ADRs constrain it;
+  SPEC.md records product intent. Flag drift rather than silently implementing the SPEC.
+- Read AGENTS.md for the six-role operating model, write-lease gate, delegation limits, and evidence
+  handoff. The human operator alone accepts contracts, merges, live actions, destructive changes,
+  spend, and residual risk.
 - ESPN traffic: backend only, lm-api-reads host, cookies from the accounts table, 1 rps throttle, cache raw JSON.
 - Never print/log/commit SWID or espn_s2. Fernet-encrypt at rest.
 - Read-only against ESPN. No login automation. No HTML scraping.
@@ -35,7 +40,38 @@
   Phase 23 v1 (Portfolio Draft Analytics backend foundation),
   Phase 24 v1 (Analytics UI + exports),
   Phase 25 v1 (Analytics correctness + leverage),
-  Phase 26 v1 (Leverage normalization) implemented.
+  Phase 26 v1 (Leverage normalization),
+  Phase 27 v1 (Opportunity Analytics),
+  Phase 28 v1 (Dedicated Analytics pages),
+  Phase 29 v1 (Opportunity Visualizations) implemented.
+- Phase 29: `/analytics/opportunity` adds one responsive chart explorer above the existing
+  table with exact DB-backed target/air share, receiving yards/TD, aDOT/targets,
+  opportunity/production, and team-QB-passing/target-share views. The shared unrounded
+  opportunity universe feeds both table and new DB-only
+  `/api/portfolio/opportunity/charts`; full-position medians/domains remain stable across
+  roster views. Team-logo markers use a bounded same-origin ESPN CDN proxy plus abbreviation
+  fallback; deterministic collision-aware labels, keyboard/touch selection, lazy cached
+  detail, and client-only 2x PNG export degrade without hiding the table. Doctor output adds
+  chart eligibility, omissions, domains, references, nulls, and clusters. No new data source,
+  schema/reset, scoring, ESPN/auth, AI, or export-service behavior. Contract:
+  docs/phase-29-opportunity-visualizations.md.
+- Phase 28: the monolithic `/analytics` document is split into `/analytics/leverage`,
+  `/analytics/adp`, `/analytics/strategy`, and `/analytics/opportunity` behind a shared
+  Analytics header/nav. Bare `/analytics` defaults to Leverage and the four former section
+  hashes redirect to their matching routes. Each page fetches only its own read model, owns
+  its loading/error state and contextual CSV, while master JSON/XLSX remain global. Existing
+  tables/charts/filters/drilldowns and mobile behavior are preserved; no backend/API/schema/
+  scoring/ESPN behavior changed. Contract: docs/phase-28-analytics-pages.md.
+- Phase 27: `nflreadpy` is isolated behind `NflverseClient`; refreshes validate weekly
+  nflverse player stats in memory, use exact ESPN↔GSIS registry IDs, derive carry share from
+  all team-game carries, and atomically replace a season while preserving last-good rows.
+  New DB-only GETs: `/api/opportunity/status`, `/api/portfolio/opportunity`, and
+  `/api/players/{id}/opportunity`; explicit POST refresh uses TTL + a process lock. Analytics
+  adds roster/availability and position views, source/coverage/sample states, a sortable
+  opportunity/gap/trend table, and lazy weekly drilldown. Status, CSV/master JSON/XLSX,
+  footer attribution, `python -m api.opportunity status|doctor|refresh`, and offline failure
+  tests are included. Three additive tables only; no DB reset, ESPN/auth/AI/Edge semantics,
+  or React-side scoring changes. Contract: docs/phase-27-opportunity-analytics.md.
 - Phase 23: backend draft analytics foundation. New read-only endpoints:
   GET /api/portfolio/exposure, /api/portfolio/draft-adp,
   /api/portfolio/strategies, all using shared portfolio filters (season/account_id/Edge

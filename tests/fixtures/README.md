@@ -8,7 +8,7 @@ Two sets, both consumed offline by the parser/sync tests (SPEC 12).
   for the full sync-pipeline + idempotency tests.
 
 ## Real league (recorded + sanitized) — primary set
-Recorded live on **2026-07-07** from ESPN league **17739342** ("EA Fantasy Football",
+Recorded live on **2026-07-07** from ESPN league **999000001** ("Synthetic Test League",
 8-team PPR) via the verify CLI, then **field-projected and PII-sanitized**:
 
 - `real_league_2025.json` — completed season: settings, members, teams (records/

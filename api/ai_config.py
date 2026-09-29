@@ -39,3 +39,35 @@ STRATEGY_LABELS = (
     "Balanced/BPA",
     "Autodraft/Absent",
 )
+
+
+class UnpricedModel(LookupError):
+    """No operator-configured price for this model, so its spend cannot be bounded."""
+
+
+def price_micro_usd_per_mtok(model: str) -> tuple[int, int]:
+    """(input, output) price in micro-USD per million tokens, from configuration.
+
+    There is deliberately NO default price table in this repository. A default
+    would be a number invented here and then trusted by a ceiling, and a ceiling
+    computed from an invented rate bounds nothing -- it would read as enforcement
+    while being arithmetic over a guess. Rates are operator-supplied via
+    `Settings.ai_price_micro_usd_per_mtok`, and a model with no configured rate
+    raises, which the ledger turns into cached-only generation.
+
+    Micro-USD per million tokens keeps the arithmetic in integers end to end: at
+    this scale a rate is a whole number, so nothing is rounded on the way in.
+    """
+    from .config import get_settings
+
+    table = get_settings().ai_price_micro_usd_per_mtok or {}
+    rate = table.get(model)
+    if rate is None:
+        raise UnpricedModel(f"no configured price for model {model!r}")
+    try:
+        rate_in, rate_out = (int(rate[0]), int(rate[1]))
+    except (TypeError, ValueError, IndexError, KeyError) as error:
+        raise UnpricedModel(f"malformed price for model {model!r}") from error
+    if rate_in < 0 or rate_out < 0:
+        raise UnpricedModel(f"negative price for model {model!r}")
+    return rate_in, rate_out

@@ -32,7 +32,14 @@ from ..models import (
 )
 from . import metrics, momentum, parse
 from .cache import DBRawCache
-from .espn import EspnAuthError, EspnError, EspnService, cookies_for_account
+from .espn import (
+    EspnAuthError,
+    EspnError,
+    EspnReauthRequired,
+    EspnService,
+    cookies_for_account,
+)
+from .recovery import assert_recovery_write_allowed
 
 log = logging.getLogger("espn.sync")
 
@@ -57,7 +64,14 @@ class SyncService:
         # Only close a service we created ourselves — an injected one (e.g. a test
         # FakeEspn, or a shared app-level client) is owned by the caller.
         self._owns_espn = espn is None
-        self.espn = espn or EspnService(cache=DBRawCache(session))
+        # Keep the production adapter lazy: recovery admission must happen before
+        # a provider client or credential decrypt path is constructed.
+        self.espn = espn
+
+    def _ensure_espn(self) -> EspnService:
+        if self.espn is None:
+            self.espn = EspnService(cache=DBRawCache(self.session))
+        return self.espn
 
     def close(self) -> None:
         """Close the owned EspnService (its httpx.Client) so request-path syncs and
@@ -75,6 +89,7 @@ class SyncService:
 
     # ---- public ------------------------------------------------------------
     def sync_league(self, league: League) -> SyncResult:
+        assert_recovery_write_allowed()
         result = SyncResult(
             league_id=league.espn_league_id,
             season=league.season,
@@ -88,7 +103,13 @@ class SyncService:
             from ..models import Account
 
             account = self.session.get(Account, league.account_id)
-        cookies = cookies_for_account(account) if account else None
+        try:
+            cookies = cookies_for_account(account) if account else None
+        except EspnReauthRequired:
+            result["errors"].append("reauthentication_required")
+            result["needs_reauth"] = True
+            return result
+        self._ensure_espn()
 
         # ---- Step 1: settings + teams (+ draft in one stacked request) -----
         try:
@@ -340,9 +361,7 @@ class SyncService:
     def _reset_team_flags(self, league: League) -> None:
         """Zero out my-team/autodraft flags before a fresh sync repopulates them."""
         self.session.execute(
-            update(Team)
-            .where(Team.league_id == league.id)
-            .values(is_me=False, autodrafted=False)
+            update(Team).where(Team.league_id == league.id).values(is_me=False, autodrafted=False)
         )
         league.my_team_id = None
         self.session.flush()
@@ -406,9 +425,7 @@ class SyncService:
                 select(Player.espn_player_id, Player.espn_adp).where(Player.espn_adp.is_not(None))
             ).all()
         )
-        picks = self.session.scalars(
-            select(DraftPick).where(DraftPick.league_id == league.id)
-        )
+        picks = self.session.scalars(select(DraftPick).where(DraftPick.league_id == league.id))
         for pick in picks:
             adp = adp_by_player.get(pick.espn_player_id)
             if adp is not None and pick.overall is not None:
@@ -469,9 +486,7 @@ class SyncService:
     ) -> list[parse.ParsedMatchup]:
         if not base:
             return base
-        details = {
-            (m.week, m.home_espn_team_id, m.away_espn_team_id): m for m in detailed
-        }
+        details = {(m.week, m.home_espn_team_id, m.away_espn_team_id): m for m in detailed}
         for matchup in base:
             detail = details.get(
                 (matchup.week, matchup.home_espn_team_id, matchup.away_espn_team_id)
@@ -493,15 +508,11 @@ class SyncService:
         id_map: dict[int, int],
     ) -> None:
         existing = self.session.scalar(
-            select(CurrentRosterSnapshot).where(
-                CurrentRosterSnapshot.league_id == league.id
-            )
+            select(CurrentRosterSnapshot).where(CurrentRosterSnapshot.league_id == league.id)
         )
         if existing is not None:
             self.session.execute(
-                delete(CurrentRosterEntry).where(
-                    CurrentRosterEntry.snapshot_id == existing.id
-                )
+                delete(CurrentRosterEntry).where(CurrentRosterEntry.snapshot_id == existing.id)
             )
             self.session.delete(existing)
             self.session.flush()

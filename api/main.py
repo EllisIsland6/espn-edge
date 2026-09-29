@@ -12,7 +12,18 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .db import init_db
-from .routers import accounts, ai, exports, health, leagues, player_images, views
+from .routers import (
+    accounts,
+    ai,
+    exports,
+    health,
+    leagues,
+    opportunity,
+    player_images,
+    recovery,
+    views,
+)
+from .services.recovery import RecoveryAdmissionError, secret_free_error
 
 
 @asynccontextmanager
@@ -34,6 +45,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 def _is_account_credential_endpoint(request: Request) -> bool:
     """True for the two POST endpoints that carry SWID/espn_s2 in the request body.
@@ -65,6 +77,11 @@ async def _redact_account_validation_errors(
     return await request_validation_exception_handler(request, exc)
 
 
+@app.exception_handler(RecoveryAdmissionError)
+async def _recovery_admission_error(_request: Request, exc: RecoveryAdmissionError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": secret_free_error(exc)})
+
+
 app.include_router(health.router)
 app.include_router(accounts.router)
 app.include_router(leagues.router)
@@ -72,6 +89,8 @@ app.include_router(views.router)
 app.include_router(player_images.router)
 app.include_router(ai.router)
 app.include_router(exports.router)
+app.include_router(opportunity.router)
+app.include_router(recovery.router)
 
 
 @app.get("/")

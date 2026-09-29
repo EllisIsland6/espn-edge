@@ -1,4 +1,4 @@
-"""Parser tests against SANITIZED REAL ESPN responses (league 17739342).
+"""Parser tests against SANITIZED REAL ESPN responses (league 999000001).
 
 Recorded live 2026-07-07 and PII-sanitized (see tests/fixtures/README.md). Values
 below were eyeball-verified against the ESPN UI via `python -m api.verify`. The real
@@ -24,7 +24,7 @@ def load(name: str) -> dict:
 # --------------------------------------------------------------------------- #
 def test_real_2025_settings():
     s = parse.parse_settings(load("real_league_2025.json"))
-    assert s.name == "EA Fantasy Football"
+    assert s.name == "Synthetic Test League"
     assert s.size == 8
     assert s.scoring_label == "PPR"
     assert s.drafted is True

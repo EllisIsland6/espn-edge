@@ -1,5 +1,5 @@
 {
- "id": 17739342,
+ "id": 999000001,
  "seasonId": 2025,
  "status": {
   "currentMatchupPeriod": 16,
@@ -8,7 +8,7 @@
   "isActive": true
  },
  "settings": {
-  "name": "EA Fantasy Football",
+  "name": "Synthetic Test League",
   "size": 8,
   "scoringSettings": {
    "scoringType": "H2H_POINTS",
@@ -96,7 +96,7 @@
  "teams": [
   {
    "id": 1,
-   "abbrev": "CRDE",
+   "abbrev": "TM1",
    "name": "Team 1",
    "owners": [
     "{FADE0000-0000-0000-0000-000000000001}"
@@ -119,7 +119,7 @@
   },
   {
    "id": 2,
-   "abbrev": "RZG",
+   "abbrev": "TM2",
    "name": "Team 2",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000004}"
@@ -142,7 +142,7 @@
   },
   {
    "id": 3,
-   "abbrev": "TJ",
+   "abbrev": "TM3",
    "name": "Team 3",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000008}"
@@ -165,7 +165,7 @@
   },
   {
    "id": 4,
-   "abbrev": "CABR",
+   "abbrev": "TM4",
    "name": "Team 4",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000003}"
@@ -188,7 +188,7 @@
   },
   {
    "id": 5,
-   "abbrev": "MILO",
+   "abbrev": "TM5",
    "name": "Team 5",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000001}"
@@ -211,7 +211,7 @@
   },
   {
    "id": 6,
-   "abbrev": "ISo",
+   "abbrev": "TM6",
    "name": "Team 6",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000005}"
@@ -234,7 +234,7 @@
   },
   {
    "id": 7,
-   "abbrev": "JOSH",
+   "abbrev": "TM7",
    "name": "Team 7",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000002}"
@@ -257,7 +257,7 @@
   },
   {
    "id": 8,
-   "abbrev": "EA27",
+   "abbrev": "TM8",
    "name": "Team 8",
    "owners": [
     "{FACADE00-0000-0000-0000-000000000007}",

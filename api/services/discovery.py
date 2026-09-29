@@ -61,6 +61,12 @@ def discover_leagues(
     cookies: Cookies, season: int | None = None, client: httpx.Client | None = None
 ) -> list[DiscoveredLeague]:
     """Best-effort discovery; only an explicit auth failure is raised to the caller."""
+    # Defence in depth: this issues a live credentialed ESPN request without
+    # constructing EspnService, so it inherits nothing from the construction guard.
+    from .espn import _forbid_in_hosted_mode
+
+    _forbid_in_hosted_mode("league discovery")
+
     season = season or get_settings().season
     owns = client is None
     client = client or httpx.Client(timeout=30.0, headers=_BASE_HEADERS)

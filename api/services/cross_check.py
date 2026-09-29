@@ -50,6 +50,12 @@ def from_espn_api(
     espn_s2: str | None = None,
 ) -> HeadlineNumbers:
     """Load via espn-api. Raises on no-access/not-found — caller decides what to do."""
+    # Defence in depth: takes credentials as plain arguments and fetches live ESPN
+    # data without constructing EspnService.
+    from .espn import _forbid_in_hosted_mode
+
+    _forbid_in_hosted_mode("cross-check provider call")
+
     from espn_api.football import League as EspnApiLeague
 
     kwargs: dict = {"league_id": int(league_id), "year": int(season)}

@@ -43,7 +43,7 @@ class FakeLlmClient:
     def __init__(self, api_key=None):
         pass
 
-    def complete_json(self, *, model, system, user, schema, max_tokens):
+    def complete_json(self, *, model, system, user, schema, max_tokens, reservation=None):
         FakeLlmClient.calls += 1
         if FakeLlmClient.raise_ai_error:
             raise AiError("model output could not be parsed")

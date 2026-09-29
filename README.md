@@ -1,18 +1,27 @@
 # ESPN Edge
 
+> Private recovery: Phase 30 adds an opt-in, cache- and credential-free logical
+> backup path for native macOS. It remains disabled until its physical-volume,
+> FileVault, Keychain, retention, and break-glass restore gates pass. Start with
+> `make recovery-doctor`; see `ops/private-recovery/README.md`. Docker does not
+> receive the repository or recovery credential.
+
 A locally-run web app that connects to all your ESPN fantasy football leagues across
 multiple ESPN accounts and answers one question with data: **"Am I an advantaged
 player in each league — and across my portfolio?"** See [SPEC.md](./SPEC.md) for the
 full design; ESPN data access is Section 2 (the verified technical foundation).
 
-> Status: **Phases 0-26 v1 complete** - scaffold, ESPN sync pipeline, Portfolio Board,
+> Status: **Phases 0-29 v1 complete** - scaffold, ESPN sync pipeline, Portfolio Board,
 > League detail UI, deterministic Edge analytics, optional AI panels, Monte Carlo playoff
 > odds + exports, CI + Playwright smoke, private-beta reliability, and read-only System
 > Status are in place. Recent analytics milestones: Phase 23
 > [Portfolio Draft Analytics backend](docs/phase-23-draft-analytics.md), Phase 24
 > [Analytics UI + exports](docs/phase-24-analytics-ui.md), Phase 25
 > [Analytics leverage](docs/phase-25-analytics-leverage.md), and Phase 26
-> [Leverage normalization](docs/phase-26-leverage-normalization.md).
+> [Leverage normalization](docs/phase-26-leverage-normalization.md), and Phase 27
+> [Opportunity Analytics](docs/phase-27-opportunity-analytics.md), plus Phase 28
+> [Dedicated Analytics pages](docs/phase-28-analytics-pages.md), and Phase 29
+> [Opportunity Visualizations](docs/phase-29-opportunity-visualizations.md).
 
 ## Quick start
 
@@ -178,6 +187,10 @@ make db-reset     # deletes data/edge.db (+ WAL/SHM)
 > databases must run `make db-reset` before starting this version; `create_all`
 > cannot add those fields to the existing league and matchup tables.
 
+> Phase 27 adds only `nflverse_player_maps`, `opportunity_weeks`, and
+> `opportunity_imports`. `create_all` creates these tables in an existing DB; no reset is
+> required for this phase.
+
 Foreign keys are enforced (`PRAGMA foreign_keys=ON` per connection) and child rows
 cascade on delete, so deleting a league removes its teams/picks/matchups/etc. The
 raw JSON cache in `data/raw_cache/`/`raw_cache` table makes re-syncing cheap.
@@ -291,9 +304,9 @@ proposed player is validated against the supplied rosters (invalid ones dropped 
 storage); the UI shows a "Week N roster snapshot" / fallback chip. No ESPN-view or DB change.
 See **[docs/phase-22-trade-finder-grounding.md](docs/phase-22-trade-finder-grounding.md)**.
 
-## Analytics (draft portfolio)
+## Analytics (draft portfolio + NFL opportunity)
 
-**Phases 23-26** provide the Analytics page at `/analytics`:
+**Phases 23-26** provide the Analytics read models and UI:
 multi-league player exposure (`GET /api/portfolio/exposure`), draft ADP analytics
 (`GET /api/portfolio/draft-adp`), and deterministic strategy fingerprints
 (`GET /api/portfolio/strategies`). The endpoints use the same portfolio filters as the
@@ -321,6 +334,42 @@ draft slot, league, and opponent quality. Full contract:
 **[Phase 25 leverage](docs/phase-25-analytics-leverage.md)** and
 **[Phase 26 leverage normalization](docs/phase-26-leverage-normalization.md)**.
 
+**Phase 27** adds recent-game Opportunity Analytics for RB/WR/TE using nflverse weekly
+player stats. Scores are position-relative and server-computed from the last three observed
+regular-season games; availability is reported only when the latest ESPN roster snapshot is
+current and successful. The page shows source time, provisional week, exact-ID coverage,
+sample thresholds, stable errors, and a lazy weekly drilldown. Refreshes validate in memory
+and atomically replace one season, preserving the last good import on source/schema/DB errors.
+
+The nflverse data and `nflreadpy` package require no API key or paid plan. Data is attributed
+under CC BY 4.0. Troubleshoot without exposing payloads or cookies:
+
+```bash
+python -m api.opportunity status --season 2026 --json
+python -m api.opportunity doctor --season 2026 --json
+python -m api.opportunity refresh --season 2025 --dry-run --json
+```
+
+Full contract: **[Phase 27 Opportunity Analytics](docs/phase-27-opportunity-analytics.md)**.
+
+**Phase 28** gives each analytics area a dedicated route to avoid one long scrolling page:
+`/analytics/leverage`, `/analytics/adp`, `/analytics/strategy`, and
+`/analytics/opportunity`. `/analytics` defaults to Leverage, and the former section-hash
+links redirect to their matching pages. Every route loads only its own read model and keeps
+an independent loading/error state. Full contract:
+**[Phase 28 Dedicated Analytics pages](docs/phase-28-analytics-pages.md)**.
+
+**Phase 29** adds a compact chart explorer above the Opportunity table. Its five views use
+only fields already imported in `opportunity_weeks`: target share vs. air-yards share,
+receiving yards vs. TDs, aDOT vs. targets, opportunity vs. production percentile, and team
+QB passing yards vs. target share. The DB-only
+`GET /api/portfolio/opportunity/charts?view=all&position=WR` endpoint supplies exact values,
+stable full-position domains/references, coverage, and omission reasons. Charts include
+deterministic collision-aware labels, keyboard/touch selection, logo fallbacks, provenance,
+and client-only 2× PNG export. Unsupported route, coverage, first-read, personnel, injury,
+and EPA/play charts are not estimated. Full contract:
+**[Phase 29 Opportunity Visualizations](docs/phase-29-opportunity-visualizations.md)**.
+
 ## Exports
 
 One-click portfolio exports from the board's **Export** control (CSV · JSON · XLSX), or
@@ -333,11 +382,12 @@ curl -OJ http://127.0.0.1:8000/api/exports/portfolio.xlsx   # Portfolio sheet + 
 curl -OJ 'http://127.0.0.1:8000/api/exports/exposure.csv?scope=me&view=rostered'
 curl -OJ http://127.0.0.1:8000/api/exports/draft-adp.csv
 curl -OJ http://127.0.0.1:8000/api/exports/strategies.csv
+curl -OJ 'http://127.0.0.1:8000/api/exports/opportunity.csv?view=all'
 ```
 
-The master JSON includes exposure, ADP, and strategy keys; XLSX adds `Exposure Rostered`,
+The master JSON includes exposure, ADP, strategy, and opportunity keys; XLSX adds `Exposure Rostered`,
 `Exposure Field Owns`, `Exposure All`, exposure headline/rollup sheets, `Draft ADP`, and
-`Strategies` sheets. Exports reflect DB/API data exactly and feed a downstream
+`Strategies` and `Opportunity` sheets. Exports reflect DB/API data exactly and feed a downstream
 Excel/CSV/JSON pipeline. Playoff odds in the exports come from the Phase 5 Monte Carlo
 simulation. Contract:
 **[docs/phase-5-playoff-exports.md](docs/phase-5-playoff-exports.md)**.

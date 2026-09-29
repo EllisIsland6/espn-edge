@@ -1,4 +1,4 @@
-.PHONY: help setup dev api web install install-web test lint fmt verify db-reset
+.PHONY: help setup dev api web install install-web test lint fmt verify db-reset recovery-doctor recovery-backup recovery-restore
 
 PY := .venv/bin/python
 PIP := .venv/bin/pip
@@ -14,6 +14,9 @@ help:
 	@echo "make lint         - ruff check"
 	@echo "make fmt          - ruff format"
 	@echo "make verify LEAGUE=<id> [SEASON=2026] [LABEL=main] [CROSSCHECK=1]  - live smoke test"
+	@echo "make recovery-doctor - inspect local recovery readiness (secret-free)"
+	@echo "make recovery-backup - run an operator-approved manual recovery point"
+	@echo "make recovery-restore - run the operator-approved break-glass restore drill"
 
 # Fresh-clone-to-running: `make setup` then `make dev`.
 setup: install install-web
@@ -64,3 +67,12 @@ verify:
 
 db-reset:
 	rm -f data/edge.db data/edge.db-* && echo "dropped data/edge.db"
+
+recovery-doctor:
+	$(PY) -m api.recovery doctor --json
+
+recovery-backup:
+	$(PY) -m api.recovery backup --reason manual
+
+recovery-restore:
+	$(PY) -m api.recovery restore-drill --snapshot latest --json

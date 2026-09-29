@@ -182,8 +182,11 @@ def test_syncservice_closes_owned_espn(monkeypatch):
             self.closed = True
 
     monkeypatch.setattr(syncmod, "EspnService", TrackingEspn)
-    with syncmod.SyncService(session=None):
-        pass
+    with syncmod.SyncService(session=None) as service:
+        # Construction is deliberately lazy so the recovery admission check can
+        # fail before a production provider/cache client exists.
+        assert created == {}
+        service._ensure_espn()
     assert created["svc"].closed is True
 
 

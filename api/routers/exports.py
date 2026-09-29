@@ -112,3 +112,24 @@ def export_strategies_csv(
         media_type="text/csv",
         headers=_attach("strategies.csv"),
     )
+
+
+@router.get("/opportunity.csv")
+def export_opportunity_csv(
+    view: Literal["rostered", "available", "all"] = "all",
+    season: int | None = None,
+    account_id: int | None = None,
+    verdict: str | None = None,
+    session: Session = Depends(get_session),
+) -> Response:
+    return Response(
+        content=exports.opportunity_csv(
+            session,
+            view=view,
+            filters=PortfolioFilters(
+                season=season, account_id=account_id, verdict=verdict
+            ),
+        ),
+        media_type="text/csv",
+        headers=_attach(f"opportunity-{view}.csv"),
+    )
