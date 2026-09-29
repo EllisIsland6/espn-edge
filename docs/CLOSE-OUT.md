@@ -44,6 +44,14 @@ when the guard is removed.
 Equivalence was checked before the swap: same rows, same key order, identical values, identical
 scored output.
 
+**The branch stands on its own.** Verified by cloning it to a scratch directory and running the suite
+there, not by running it in the worktree. That distinction found three tests that passed on this
+machine and would have failed in CI on day one: two subprocess probes were handed a hand-built
+environment but also `cwd=ROOT`, so pydantic-settings quietly filled in two required settings from
+the operator's gitignored `.env`. One of them has a docstring claiming it runs with "a minimal
+environment rather than the operator's whole one". Fixed, and the clean clone now passes 861/0 with
+no `.env` present.
+
 **Nothing sensitive is in the repository.** Verified per file before staging, not assumed: no `.env`,
 no database, no recovery runtime state. The one alarming filename — `ops/private-recovery/keychain-password`
 — is a Keychain retrieval helper containing no literal, checked with the value masked so it could not
@@ -166,5 +174,12 @@ This was a practice project. These are the findings that are not about fantasy f
     `psql` notices also removed a `CREATE POLICY` failure, and a report was written from what
     survived it.
 
+11. **"The suite passes here" is not the same statement as "the suite passes from the commit."** Only
+    the second is what CI checks. Cloning the committed branch and running it there took two minutes
+    and found three tests that had been green for months because a gitignored file happened to exist.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
+
+The second most useful: before believing a green suite, run it somewhere that is not where you built
+it.
