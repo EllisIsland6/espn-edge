@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Evidence"
+  short_description: "Assemble release and recovery evidence"
+  default_prompt: "Use $release-evidence to assemble the preflight, recovery, alarm, cost, and rollback evidence for a candidate."

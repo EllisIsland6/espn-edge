@@ -1,0 +1,4 @@
+interface:
+  display_name: "Measurement Evidence"
+  short_description: "Record reproducible measurement evidence"
+  default_prompt: "Use $measurement-evidence to record a numeric claim with its exact method, environment, result, and validity."

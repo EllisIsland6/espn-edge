@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase Contract"
+  short_description: "Create and validate phase contracts"
+  default_prompt: "Use $phase-contract to draft or validate the active ESPN Edge phase contract before implementation."

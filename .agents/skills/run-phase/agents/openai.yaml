@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Phase"
+  short_description: "Orchestrate a phase from path to completion"
+  default_prompt: "Use $run-phase to execute the phase plan at the supplied path through delegated implementation and independent review."

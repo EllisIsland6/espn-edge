@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provider Data Boundary"
+  short_description: "Guard hosted and provider data boundaries"
+  default_prompt: "Use $provider-data-boundary to check a change for ESPN, credential, fixture, and hosted-data boundary violations."

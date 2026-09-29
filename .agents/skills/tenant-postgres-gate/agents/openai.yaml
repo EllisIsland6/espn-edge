@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tenant PostgreSQL Gate"
+  short_description: "Verify PostgreSQL tenant isolation"
+  default_prompt: "Use $tenant-postgres-gate to verify PostgreSQL, Alembic, RLS, tenant context, and compatibility gates."
