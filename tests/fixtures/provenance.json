@@ -1,0 +1,161 @@
+{
+  "fixtures": {
+    "README.md": {
+      "content_digest": "78e706e69d81b53a197df963853ae37e2eafa5a1e710458c40825bc47a8c2538",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "current_roster.json": {
+      "content_digest": "3f8383ac03fc784ae41c69c51666f1cb3006cd35b3b8335298550145dc1b4b60",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "ffc_adp_ppr_10_2026.json": {
+      "content_digest": "afb22d437dbdeddbaac11e8bd7e49777c43905cb58ff60c60563324f68a577ed",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "players_pool.json": {
+      "content_digest": "29de6c360ff28c4a7d9247ef6e6f20f3321c8a70455f471d58da853f5012f022",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "pro_schedule_2026.json": {
+      "content_digest": "71762696e3f7cd7444c84e635a8c01c86a347e082e0ec1165a96ee026d546be1",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "public_league.json": {
+      "content_digest": "486a12121c673b2a0b2c363268cb2c30ed31e6ff946fa455d107d99711bc249c",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "synthetic",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "real_boxscore_2025_wk1.json": {
+      "content_digest": "dfabf6faa4944c8e32dca75bd5ebe86b3ff003e82dea9958d316a8bd2e5dd583",
+      "id_fields": 74,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "fee97f89f5f628ec0c1cc0ff5ee1d213fdf30efa27c3cd23d5fe445722023077"
+    },
+    "real_league_2025.json": {
+      "content_digest": "6fa9f19b107d44f9caec51c91ab7931886df2696eec434bcb1150ecfddd90098",
+      "id_fields": 152,
+      "ids_reviewed": true,
+      "name_fields": 26,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 44,
+      "undecidable_digest": "5fdfe13240dd8bc9c51a230a4c82228d20e1d1acf4d457403b13b594ebb8465c"
+    },
+    "real_league_2026.json": {
+      "content_digest": "d23917aa184d265737c4dd46858492782d85abd26eb28c2d1363e3b7efe0ca0b",
+      "id_fields": 1,
+      "ids_reviewed": true,
+      "name_fields": 26,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 44,
+      "undecidable_digest": "6ba4fdd4f608d374b4c38082fc935a802434152521392ba33042c47d93736fbb"
+    },
+    "real_matchups_2025.json": {
+      "content_digest": "1278d2f85bd473a3db13fe886e68b76717553cf0579034b32b0c04b444c00e23",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "real_matchups_2026.json": {
+      "content_digest": "48c4e50ae125e6415f4003b9e952920f975bb146c2d4aa76ba67136a93f23133",
+      "id_fields": 0,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "real_players_2025.json": {
+      "content_digest": "16aedb0b7cf18cab547c697e7d26176de223fbcaf50dc3d0b3d74c840663a51a",
+      "id_fields": 8,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "046b4ec6522dfe8af2dda5ed258d0b5800a1343ffc13099ddf2881cdf1592418"
+    },
+    "real_players_2026.json": {
+      "content_digest": "46bc672570c830f7bd9490e234ad7610f5bb85fd8e635e565089be74d80f5104",
+      "id_fields": 8,
+      "ids_reviewed": true,
+      "name_fields": 0,
+      "names_reviewed": true,
+      "origin": "recorded",
+      "real_identifier_findings": 0,
+      "scrubbed": true,
+      "shape_candidates": 0,
+      "undecidable_digest": "9d37d6240a2497a601fbf7db0a82efe7ee9357e73375bc362468083a0014ef56"
+    }
+  },
+  "version": 1
+}

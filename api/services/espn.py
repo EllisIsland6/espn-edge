@@ -27,6 +27,7 @@ from urllib.parse import unquote
 import httpx
 
 from ..config import get_settings
+from . import telemetry
 
 # Browser-like headers — ESPN rejects some default clients (SPEC 2.3).
 _BASE_HEADERS = {
@@ -36,6 +37,22 @@ _BASE_HEADERS = {
     ),
     "Accept": "application/json",
 }
+
+
+def _header_int(headers, key: str) -> int:
+    """A header as an int, or -1. Cannot raise: a provider may send anything.
+
+    `wire_bytes` is Content-Length AS SENT, read from the header rather than
+    counted off the wire, which is why a fixture response can carry it.
+    """
+    raw = headers.get(key)
+    if raw is None:
+        return -1
+    try:
+        parsed = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return -1
+    return parsed if parsed >= 0 else -1
 
 
 def _short_hash(value: str) -> str:
@@ -49,6 +66,10 @@ class EspnError(RuntimeError):
 
 class EspnAuthError(EspnError):
     """401/403 — cookies are missing/expired. Caller flips account to needs_reauth."""
+
+
+class EspnReauthRequired(EspnAuthError):
+    """Stored account is deliberately unusable until explicit reauthentication."""
 
 
 @dataclass
@@ -85,6 +106,25 @@ class RawCacheStore:
         return datetime.now(UTC) - fetched_at < self.ttl
 
 
+class HostedModeForbidden(RuntimeError):
+    """Raised when public hosted mode attempts a real-provider operation.
+
+    Phase 31 makes the hosted boundary structural rather than procedural: the
+    dangerous object cannot be constructed and the credential path cannot be
+    reached, so a future call site inherits the guarantee instead of reopening
+    the hole. The message is fixed and carries no configuration detail.
+    """
+
+    def __init__(self, operation: str) -> None:
+        super().__init__(f"hosted synthetic mode forbids {operation}")
+        self.operation = operation
+
+
+def _forbid_in_hosted_mode(operation: str) -> None:
+    if get_settings().is_public_synthetic:
+        raise HostedModeForbidden(operation)
+
+
 class EspnService:
     def __init__(
         self,
@@ -93,7 +133,9 @@ class EspnService:
         cache: RawCacheStore | None = None,
         min_interval: float = 1.0,
         max_retries: int = 4,
+        recorder: telemetry.Recorder | None = None,
     ):
+        _forbid_in_hosted_mode("real provider construction")
         settings = get_settings()
         self.host = (host or settings.espn_api_host).rstrip("/")
         self._client = client or httpx.Client(timeout=30.0, headers=_BASE_HEADERS)
@@ -103,6 +145,16 @@ class EspnService:
         self.max_retries = max_retries
         # last request time per throttle key (per account swid, or "public").
         self._last_req: dict[str, float] = {}
+        # Phase 32: one row per HTTP attempt, and nothing else. Flag off means
+        # None, and a provider holding None records nothing -- there is no branch
+        # to get wrong at each call site. An explicit `recorder=` wins over the
+        # flag so a test can hold its own rows without touching global state.
+        if recorder is not None:
+            self._recorder: telemetry.Recorder | None = recorder
+        elif settings.telemetry_enabled:
+            self._recorder = telemetry.shared_recorder()
+        else:
+            self._recorder = None
 
     # ---- URL construction (SPEC 2.2) ----------------------------------------
     def league_url(self, league_id: str | int, season: int) -> str:
@@ -121,37 +173,168 @@ class EspnService:
         return f"{self.host}/apis/v3/games/ffl/seasons/{season}"
 
     # ---- throttle + backoff (SPEC 2.10) -------------------------------------
-    def _throttle(self, key: str) -> None:
+    def _throttle(self, key: str) -> int:
+        """Space requests per key, returning the milliseconds waited.
+
+        The return value is new in Phase 32 and is the only change: `throttle_ms`
+        has to come from the component that actually blocked. Nothing reads the
+        old `None`.
+        """
+        waited = 0.0
         last = self._last_req.get(key)
         if last is not None:
             wait = self.min_interval - (time.monotonic() - last)
             if wait > 0:
                 time.sleep(wait)
+                waited = wait
         self._last_req[key] = time.monotonic()
+        return int(waited * 1000)
 
     def _request(
-        self, url: str, *, params: list[tuple[str, str]], headers: dict, throttle_key: str
+        self,
+        url: str,
+        *,
+        params: list[tuple[str, str]],
+        headers: dict,
+        throttle_key: str,
+        shape: telemetry.Shape | None = None,
     ) -> httpx.Response:
+        """Issue one logical call, retrying per SPEC 2.10.
+
+        `shape` is **optional** and defaults to None, deliberately. Seven unit-2
+        probes call this method directly with no such keyword, and a required
+        keyword-only parameter would break all seven and fail the criterion that
+        requires unit 2's suite to pass unchanged. Nothing is recorded when it is
+        None, which is also what the flag-off path produces.
+        """
         backoff = 1.0
         last_exc: Exception | None = None
-        for _attempt in range(self.max_retries):
-            self._throttle(throttle_key)
+        for attempt_index in range(self.max_retries):
+            throttle_ms = self._throttle(throttle_key)
+            last = attempt_index == self.max_retries - 1
+            started = time.monotonic()
             try:
                 resp = self._client.get(url, params=params, headers=headers)
             except httpx.HTTPError as exc:  # network hiccup
+                net_ms = int((time.monotonic() - started) * 1000)
                 last_exc = exc
+                self._file(
+                    shape,
+                    telemetry.Outcome.EXHAUSTED if last else telemetry.Outcome.TRANSPORT_ERROR,
+                    attempt=attempt_index + 1,
+                    status=0,
+                    resp=None,
+                    net_ms=net_ms,
+                    throttle_ms=throttle_ms,
+                    backoff_ms=int(backoff * 1000),
+                )
                 time.sleep(backoff)
                 backoff *= 2
                 continue
-            if resp.status_code in (429, 500, 502, 503, 504):
+            net_ms = int((time.monotonic() - started) * 1000)
+            retryable = resp.status_code in (429, 500, 502, 503, 504)
+            if retryable:
                 last_exc = EspnError(f"ESPN {resp.status_code} on {url}")
+                self._file(
+                    shape,
+                    telemetry.Outcome.EXHAUSTED if last else telemetry.Outcome.RETRYABLE_STATUS,
+                    attempt=attempt_index + 1,
+                    status=resp.status_code,
+                    resp=resp,
+                    net_ms=net_ms,
+                    throttle_ms=throttle_ms,
+                    backoff_ms=int(backoff * 1000),
+                )
                 time.sleep(backoff)
                 backoff *= 2
                 continue
+            self._file(
+                shape,
+                telemetry.Outcome.OK,
+                attempt=attempt_index + 1,
+                status=resp.status_code,
+                resp=resp,
+                net_ms=net_ms,
+                throttle_ms=throttle_ms,
+                backoff_ms=0,
+            )
             return resp
         raise EspnError(
             f"ESPN request failed after {self.max_retries} attempts: {url}"
         ) from last_exc
+
+    def _file(
+        self,
+        shape: telemetry.Shape | None,
+        outcome: telemetry.Outcome,
+        *,
+        attempt: int,
+        status: int,
+        resp: httpx.Response | None,
+        net_ms: int,
+        throttle_ms: int,
+        backoff_ms: int,
+    ) -> None:
+        """Hand one attempt to the recorder. Never alters what the caller gets.
+
+        `gate_ms` is always 0: this phase does not call the rate gate, so the
+        field is a structural zero and the report labels it as one rather than
+        publishing a percentile over a column of zeros as though it measured
+        waiting. `backoff_ms` is the NOMINAL ladder value, not elapsed sleep --
+        the suite patches `time.sleep` so nothing elapses, and the report's
+        occupancy model consumes this as wall time.
+        """
+        if self._recorder is None or shape is None:
+            return
+        if resp is None:
+            wire = -1
+            decoded = -1
+            etag = False
+            last_modified = False
+            content_type_json = False
+        else:
+            headers = resp.headers
+            wire = _header_int(headers, "content-length")
+            try:
+                decoded = len(resp.content)
+            except Exception:
+                decoded = -1
+            etag = "etag" in headers
+            last_modified = "last-modified" in headers
+            content_type_json = "json" in str(headers.get("content-type", "")).lower()
+        self._recorder.record(
+            {
+                "shape": shape,
+                "outcome": outcome,
+                "attempt": attempt,
+                "status": status,
+                "wire_bytes": wire,
+                "decoded_bytes": decoded,
+                "net_ms": net_ms,
+                "gate_ms": 0,
+                "throttle_ms": throttle_ms,
+                "backoff_ms": backoff_ms,
+                "etag": etag,
+                "last_modified": last_modified,
+                "content_type_json": content_type_json,
+            }
+        )
+
+    def _verdict(self, shape: telemetry.Shape | None, verdict: telemetry.CacheVerdict) -> None:
+        """Take a cache verdict where it is decidable, which is not at the request seam.
+
+        A HIT never reaches `_request`, so counting hits there is structurally
+        zero and flatteringly so. BYPASS is taken at the guard because on that
+        path the cache is never consulted at all.
+        """
+        if self._recorder is None or shape is None:
+            return
+        self._recorder.cache_verdict(shape, verdict)
+
+    def _league_shape(self, season: int) -> telemetry.Shape:
+        return (
+            telemetry.Shape.LEAGUE_MODERN if season >= 2018 else telemetry.Shape.LEAGUE_HISTORY
+        )
 
     def _cookie_header(self, cookies: Cookies) -> dict:
         return {"Cookie": f"SWID={cookies.swid}; espn_s2={cookies.espn_s2}"}
@@ -177,10 +360,17 @@ class EspnService:
         cache_key = self._cache_key(
             league_id, season, views, scoring_period, cookies, x_fantasy_filter
         )
+        shape = self._league_shape(season)
         if self.cache is not None and not bust_cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
+                self._verdict(shape, telemetry.CacheVerdict.HIT)
                 return cached
+            # Absent and stale are NOT separable here: `DBRawCache.get` returns
+            # None for both, so this is a MISS and the report says it cannot tell.
+            self._verdict(shape, telemetry.CacheVerdict.MISS)
+        else:
+            self._verdict(shape, telemetry.CacheVerdict.BYPASS)
 
         params = [("view", v) for v in views]
         if scoring_period is not None:
@@ -196,6 +386,7 @@ class EspnService:
             headers=headers,
             cookies=cookies,
             throttle_key=cookies.swid if cookies else "public",
+            shape=shape,
         )
         # Pre-2018 archive returns a JSON array; take the first element (SPEC 2.2).
         if season < 2018 and isinstance(data, list):
@@ -249,21 +440,28 @@ class EspnService:
             headers=headers,
             cookies=cookies,
             throttle_key=cookies.swid if cookies else "public",
+            shape=telemetry.Shape.PLAYERS_DEFAULTS,
         )
 
     def fetch_pro_schedule(self, season: int) -> dict:
         """Fetch the shared NFL schedule used to resolve opponents and kickoffs."""
         cache_key = f"pro_schedule:{season}"
+        # Not league-scoped: a league-scoped clear leaves this warm.
         if self.cache is not None:
             cached = self.cache.get(cache_key)
             if cached is not None:
+                self._verdict(telemetry.Shape.SEASON, telemetry.CacheVerdict.HIT)
                 return cached
+            self._verdict(telemetry.Shape.SEASON, telemetry.CacheVerdict.MISS)
+        else:
+            self._verdict(telemetry.Shape.SEASON, telemetry.CacheVerdict.BYPASS)
         data = self._get_authed(
             self.season_url(season),
             params=[("view", "proTeamSchedules_wl")],
             headers=dict(_BASE_HEADERS),
             cookies=None,
             throttle_key="public",
+            shape=telemetry.Shape.SEASON,
         )
         if self.cache is not None:
             self.cache.set(cache_key, data)
@@ -278,23 +476,33 @@ class EspnService:
         headers: dict,
         cookies: Cookies | None,
         throttle_key: str,
+        shape: telemetry.Shape | None = None,
     ) -> Any:
         if cookies is None:
-            resp = self._request(url, params=params, headers=headers, throttle_key="public")
+            resp = self._request(
+                url, params=params, headers=headers, throttle_key="public", shape=shape
+            )
             return self._json_or_auth(resp)
 
         # Attempt 1: cookies as stored.
         h = {**headers, **self._cookie_header(cookies)}
-        resp = self._request(url, params=params, headers=h, throttle_key=throttle_key)
+        resp = self._request(
+            url, params=params, headers=h, throttle_key=throttle_key, shape=shape
+        )
         if resp.status_code not in (401, 403):
             return self._json_or_auth(resp)
 
-        # Attempt 2 (once): URL-decoded espn_s2 (SPEC 2.3 gotcha).
+        # Attempt 2 (once): URL-decoded espn_s2 (SPEC 2.3 gotcha). Entered only
+        # when the first response was 401/403 AND the stored value differs from
+        # its decoded form -- both conditions, which is why the doubled-loop case
+        # needs a URL-encoded fixture and a 401/403 to reach 8 attempts at all.
         decoded = unquote(cookies.espn_s2)
         if decoded != cookies.espn_s2:
             retry = Cookies(swid=cookies.swid, espn_s2=decoded)
             h2 = {**headers, **self._cookie_header(retry)}
-            resp2 = self._request(url, params=params, headers=h2, throttle_key=throttle_key)
+            resp2 = self._request(
+                url, params=params, headers=h2, throttle_key=throttle_key, shape=shape
+            )
             if resp2.status_code not in (401, 403):
                 cookies.espn_s2 = decoded  # persist the variant that worked
                 return self._json_or_auth(resp2)
@@ -346,8 +554,14 @@ class EspnService:
 
 def cookies_for_account(account) -> Cookies | None:
     """Build a Cookies pair from an Account row, decrypting espn_s2 (SPEC 2.3)."""
+    _forbid_in_hosted_mode("credential decrypt")
+
     from ..crypto import decrypt
 
     if not account or not account.swid:
         return None
+    if account.status != "active":
+        # This check, not the sentinel text, prevents a restored account from
+        # decrypting or silently retrying a private league as public.
+        raise EspnReauthRequired("ESPN account requires reauthentication")
     return Cookies(swid=account.swid, espn_s2=decrypt(account.espn_s2_encrypted))
