@@ -31,7 +31,7 @@ from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .models import Tenant
+from .models import Membership, Tenant
 
 #: The tenant that alembic 0003's backfill assigns pre-tenancy rows to.
 DEFAULT_TENANT_SLUG = "default"
@@ -39,6 +39,22 @@ DEFAULT_TENANT_SLUG = "default"
 #: Postgres GUC the row-level security policies read. Phase 36's policies are
 #: written against `current_setting('app.tenant_id', true)`.
 TENANT_GUC = "app.tenant_id"
+
+#: Postgres GUC naming the authenticated user, set BEFORE the tenant is known.
+#:
+#: Measured on PostgreSQL 16: without this, logging in is impossible. The flow
+#: reads a session to learn who you are, then reads your membership to learn
+#: which tenant -- but `memberships` and `users` are policied on
+#: `current_tenant()`, which is NULL until a tenant is bound. So the second
+#: read returns nothing, always, and no tenant can ever be derived. The
+#: isolation was complete enough to lock out its own key.
+#:
+#: The read policies therefore admit "my own rows" keyed on this. The WRITE
+#: policies deliberately do not: reading your own membership is how you find
+#: your tenant, whereas writing one would let you grant yourself membership of
+#: any tenant. This is the one place in the schema where USING and WITH CHECK
+#: must differ, and it is on purpose.
+USER_GUC = "app.user_id"
 
 
 class TenantNotResolved(RuntimeError):
@@ -122,7 +138,7 @@ def resolve_tenant_id(session: Session) -> int:
     return rows[0]
 
 
-def _apply_guc(connection, tenant_id: int) -> None:
+def _apply_guc(connection, tenant_id: int | None, user_id: int | None = None) -> None:
     """Set the tenant for the CURRENT TRANSACTION only.
 
     The third argument to `set_config` is `is_local`, and it is the whole
@@ -135,47 +151,109 @@ def _apply_guc(connection, tenant_id: int) -> None:
     `SET LOCAL app.tenant_id = :t` cannot be used: it takes no bind parameter,
     so the tenant would have to be interpolated into the SQL string.
     """
-    connection.execute(
-        text("SELECT set_config(:name, :value, true)"),
-        {"name": TENANT_GUC, "value": str(tenant_id)},
-    )
+    for name, value in ((TENANT_GUC, tenant_id), (USER_GUC, user_id)):
+        if value is None:
+            continue
+        connection.execute(
+            text("SELECT set_config(:name, :value, true)"),
+            {"name": name, "value": str(value)},
+        )
 
 
-def bind_session(session: Session, tenant_id: int) -> None:
-    """Bind a tenant to a session, and keep it bound.
+def bind_session(
+    session: Session, tenant_id: int | None = None, *, user_id: int | None = None
+) -> None:
+    """Bind a tenant and/or a user to a session, and keep them bound.
 
-    A single `set_config(..., true)` is not enough on its own, and this is the
-    subtle part. Transaction-local means the binding dies with the
-    transaction: a handler that commits half way through then runs its
-    remaining statements in a NEW transaction, with no tenant set. Under RLS
-    that second half reads nothing, which presents as a mysterious empty
-    result rather than as an error.
+    Callable twice, which the login flow needs: the user is bound first, on its
+    own, so the membership lookup that finds the tenant can see anything at
+    all; then the tenant is bound alongside it. The listener is registered once
+    per session and reads whatever `session.info` holds at the time it fires,
+    so the second call updates the binding rather than stacking a second one.
 
-    So the binding is re-applied on every transaction this session begins,
-    through a listener attached to this session instance. The listener is not
-    global -- tests construct `SessionLocal()` directly in 28 places and none
-    of them should change behaviour by importing this module.
+    A single `set_config(..., true)` is not enough on its own. Transaction-local
+    means the binding dies with the transaction: a handler that commits half
+    way through then runs its remaining statements in a NEW transaction with
+    nothing set. Under RLS that second half reads nothing, which presents as a
+    mysteriously empty result rather than as an error. So the binding is
+    re-applied on every transaction this session begins.
+
+    The listener is attached to this session instance, not globally -- tests
+    construct `SessionLocal()` directly in 28 places and none of them should
+    change behaviour by importing this module.
     """
-    session.info["tenant_id"] = tenant_id
-    session.info["tenant_binds"] = 0
+    if tenant_id is not None:
+        session.info["tenant_id"] = tenant_id
+    if user_id is not None:
+        session.info["user_id"] = user_id
+    session.info.setdefault("tenant_binds", 0)
 
     if not get_settings().is_postgres:
-        # SQLite has no GUCs and no row-level security. The bind is still
+        # SQLite has no GUCs and no row-level security. The binding is still
         # recorded so the seam is observable offline; what it is NOT is a
-        # substitute for the isolation, and no test here should imply it is.
-        session.info["tenant_binds"] = 1
+        # substitute for the isolation, and no test should imply otherwise.
+        session.info["tenant_binds"] = session.info.get("tenant_binds", 0) + 1
         return
 
     def _rebind(session_, transaction_, connection) -> None:
-        bound = session_.info.get("tenant_id")
-        if bound is None:
+        bound_tenant = session_.info.get("tenant_id")
+        bound_user = session_.info.get("user_id")
+        if bound_tenant is None and bound_user is None:
             return
-        _apply_guc(connection, bound)
+        _apply_guc(connection, bound_tenant, bound_user)
         session_.info["tenant_binds"] = session_.info.get("tenant_binds", 0) + 1
 
-    event.listen(session, "after_begin", _rebind)
+    if not session.info.get("_rebind_registered"):
+        event.listen(session, "after_begin", _rebind)
+        session.info["_rebind_registered"] = True
     if session.in_transaction():
         _rebind(session, None, session.connection())
+
+
+def tenant_for_user(session: Session, user_id: int) -> int:
+    """The tenant this user acts in, from their membership.
+
+    Requires `bind_session(session, user_id=...)` to have run first on
+    PostgreSQL, or the membership rows are invisible to the very query that
+    needs them -- see USER_GUC above.
+
+    Reads two rows, not one, for the same reason `resolve_tenant_id` does: a
+    user who belongs to two tenants is a real state this application has no way
+    to disambiguate yet, and silently serving the lower id would be a
+    cross-tenant read that looks like a successful request. Choosing between
+    memberships needs a tenant-selection step that does not exist.
+    """
+    rows = (
+        session.execute(
+            select(Membership.tenant_id)
+            .where(Membership.user_id == user_id)
+            .order_by(Membership.tenant_id)
+            .limit(2)
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        raise TenantNotResolved(
+            f"user {user_id} has no membership. Default deny: a user who "
+            "belongs to no tenant sees nothing, which is the correct answer "
+            "and not an error to work around."
+        )
+    if len(rows) > 1:
+        raise TenantNotResolved(
+            f"user {user_id} belongs to more than one tenant, and there is no "
+            "tenant-selection step to choose between them. Serving the lower "
+            "id would be a cross-tenant read that looks like success."
+        )
+    return rows[0]
+
+
+def current_user_id(session: Session) -> int | None:
+    """The authenticated user bound to this session, if any.
+
+    None in private-operator mode, where there is no login and no user row.
+    """
+    return session.info.get("user_id")
 
 
 def current_tenant_id(session: Session) -> int:

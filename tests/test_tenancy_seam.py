@@ -46,8 +46,17 @@ def test_the_schema_arrives_with_exactly_one_tenant():
     assert len(_tenant_ids()) == 1
 
 
+class _FakeRequest:
+    """Enough of a request for the dependency. In private-operator mode the
+    cookies are never read; in hosted mode this is where the session token
+    would come from."""
+
+    def __init__(self, cookies: dict[str, str] | None = None) -> None:
+        self.cookies = cookies or {}
+
+
 def test_the_request_dependency_yields_a_bound_session():
-    generator = get_session()
+    generator = get_session(_FakeRequest())
     session = next(generator)
     try:
         assert current_tenant_id(session) == _tenant_ids()[0]
@@ -189,7 +198,8 @@ def test_the_binding_is_reapplied_after_a_commit(monkeypatch):
 
     monkeypatch.setattr("api.tenancy.get_settings", lambda: _PgSettings())
     monkeypatch.setattr(
-        "api.tenancy._apply_guc", lambda connection, tenant_id: calls.append(tenant_id)
+        "api.tenancy._apply_guc",
+        lambda connection, tenant_id, user_id=None: calls.append(tenant_id),
     )
 
     session = SessionLocal()

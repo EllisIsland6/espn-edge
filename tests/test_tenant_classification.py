@@ -41,6 +41,12 @@ GLOBAL_TABLES = frozenset({
     "tenants",
     "users",
     "memberships",
+    # Read BEFORE a tenant is known, by the code working out which tenant to
+    # use, so a tenant predicate on it would be circular. It is protected by
+    # the token being 256 bits of randomness and stored only as a SHA-256
+    # hash, not by a policy. "Global" here means "has no tenant_id column",
+    # and emphatically not "readable by anyone".
+    "app_sessions",
 })
 
 #: Tenant-scoped: the rows belong to one tenant and must never cross. Reaching

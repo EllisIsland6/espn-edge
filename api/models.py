@@ -70,6 +70,9 @@ class User(Base):
     memberships: Mapped[list[Membership]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list[AppSession]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Membership(Base):
@@ -91,6 +94,45 @@ class Membership(Base):
 
     tenant: Mapped[Tenant] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")
+
+
+class AppSession(Base):
+    """An authenticated application session. Not an ESPN cookie, not a Cognito token.
+
+    The distinction is the point. A Cognito `sub` proves who someone is; it does
+    not say which tenant they may act in, and an access token that carried that
+    authority would make the identity provider the authorization system. This
+    row is the application's own answer: it names a user, and the user's
+    membership names the tenant.
+
+    `token_hash` is SHA-256 of a random opaque value. The raw token exists in
+    exactly two places -- the response that mints it, and the caller's cookie --
+    and never on disk. A stolen database therefore yields no usable session,
+    which is the same reason password hashes exist. Comparison is constant-time
+    so the lookup cannot be turned into an oracle for guessing tokens.
+
+    Expiry and revocation are separate columns on purpose. Expiry is a fact
+    about time; revocation is a decision someone made, and collapsing them
+    would lose the ability to answer "was this session cut off, or did it just
+    run out?" -- which is the first question asked after an incident.
+    """
+
+    __tablename__ = "app_sessions"
+    __table_args__ = (Index("ix_app_sessions_user_expires", "user_id", "expires_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Free-text, deliberately coarse: "password", "oidc", "operator". Never a
+    # token, a provider payload, or anything that identifies a device.
+    origin: Mapped[str] = mapped_column(String, nullable=False, default="unknown")
+
+    user: Mapped[User] = relationship(back_populates="sessions")
 
 
 class Account(Base):

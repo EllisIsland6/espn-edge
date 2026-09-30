@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from fastapi import HTTPException, Request
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -159,17 +160,55 @@ def assert_runtime_role_is_constrained() -> None:
         )
 
 
-def _bound_session() -> Session:
+def _bound_session(*, request=None, tenant_id: int | None = None) -> Session:
     """A session with a tenant bound, which is the only kind this app hands out.
+
+    Where the tenant comes from depends on the mode, and that is the design
+    rather than a shortcut:
+
+    - `private_operator` is one person on their own machine. There is no login
+      because a login screen would protect nothing, and the single tenant is
+      the right answer.
+    - `public_synthetic` serves people who must prove who they are. The tenant
+      comes from the caller's membership and from nothing else -- never from a
+      request body, a header, or "there is only one".
+
+    Background work has no caller, so it passes `tenant_id` explicitly. It must
+    NOT fall back to the single tenant in hosted mode: a job that quietly picks
+    a tenant is the background-job attack named in the Phase 36 contract, and
+    it is how a scheduled export reads everyone's leagues.
 
     Imported here rather than at module scope: `tenancy` imports `models`,
     which imports `Base` from this module.
     """
-    from .tenancy import bind_session, resolve_tenant_id
+    from .config import get_settings
+    from .tenancy import TenantNotResolved, bind_session, resolve_tenant_id, tenant_for_user
 
+    hosted = get_settings().is_public_synthetic
     session = SessionLocal()
     try:
-        bind_session(session, resolve_tenant_id(session))
+        if tenant_id is not None:
+            bind_session(session, tenant_id)
+        elif not hosted:
+            bind_session(session, resolve_tenant_id(session))
+        elif request is None:
+            raise TenantNotResolved(
+                "hosted mode has no ambient tenant. Work with no authenticated "
+                "caller must name its tenant: `session_scope(tenant_id=...)`."
+            )
+        else:
+            from .auth import COOKIE_NAME, verify_session
+
+            app_session = verify_session(session, request.cookies.get(COOKIE_NAME))
+            # The user first, alone. Until `app.user_id` is set, the membership
+            # rows that name the tenant are invisible to the query that needs
+            # them -- measured on PostgreSQL 16, see tenancy.USER_GUC.
+            bind_session(session, user_id=app_session.user_id)
+            bind_session(
+                session,
+                tenant_for_user(session, app_session.user_id),
+                user_id=app_session.user_id,
+            )
     except Exception:
         session.close()
         raise
@@ -177,15 +216,14 @@ def _bound_session() -> Session:
 
 
 @contextmanager
-def session_scope() -> Iterator[Session]:
+def session_scope(tenant_id: int | None = None) -> Iterator[Session]:
     """Transactional scope for scripts/services outside request handlers.
 
-    Background work is a named attack in the Phase 36 contract: a job that
-    runs outside a request has no ambient tenant, and the historical answer --
-    run it as the owner and filter by hand -- is how a scheduled export ends
-    up reading every tenant's leagues. It goes through the same seam.
+    `tenant_id` is optional only because private-operator mode has exactly one
+    tenant to fall back on. In hosted mode it is required, and omitting it
+    raises rather than guessing.
     """
-    session = _bound_session()
+    session = _bound_session(tenant_id=tenant_id)
     try:
         yield session
         session.commit()
@@ -196,9 +234,21 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
-def get_session() -> Iterator[Session]:
-    """FastAPI dependency. Every router obtains its session here."""
-    session = _bound_session()
+def get_session(request: Request) -> Iterator[Session]:
+    """FastAPI dependency. Every router obtains its session here.
+
+    Takes the request because in hosted mode the tenant is derived from the
+    caller's session cookie. A rejected or absent session is a 401: the caller
+    is told nothing about why, because "expired" rather than "unknown"
+    confirms a token was once real.
+    """
+    from .auth import SessionRejected
+
+    try:
+        session = _bound_session(request=request)
+    except SessionRejected as exc:
+        raise HTTPException(status_code=401, detail="authentication required") from exc
+
     try:
         yield session
     finally:
