@@ -253,3 +253,41 @@ a policy.
 ## Suite
 
 **969 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum 3 — CORS and runtime config
+
+Two of the phase's explicit guarantees, closed and pinned.
+
+**"No cross-origin wildcard."** Already true — CORS was scoped to the two
+localhost dev origins, with `allow_credentials` left off. So there was nothing
+to fix, and **nothing pinning it either**. The dangerous change is one line:
+`allow_origins=["*"]` together with `allow_credentials=True` hands any page an
+authenticated read of this API, and those two settings sit far enough apart in
+a config block that changing one without the other is easy. Both are now
+asserted against the installed middleware's own options rather than against
+the source text. Controls removed: set the wildcard and enable credentials, and
+both tests fail.
+
+Credentials stay off because the SPA and the API share an origin, so the
+session cookie never needs to travel cross-origin. That is what makes the
+wildcard question moot rather than merely answered.
+
+**"No build-time `VITE_API_BASE` promotion dependency."** `GET /config.json`
+serves what the SPA needs at runtime. `api_base` is the empty string, and that
+is the answer rather than a placeholder: a relative base is what lets one built
+artifact be promoted between environments, which is the dependency the phase
+forbids.
+
+It is sessionless — the SPA reads it before anyone logs in — so it is declared
+in the route inventory with that reason, and a test checks it carries nothing
+private. That check is written against `Settings.model_fields` rather than a
+list of names I happened to remember, so a secret added to the settings object
+later is covered the day it appears; it also asserts that the name-matching
+found something, because a pattern that matches nothing would make the whole
+test vacuous.
+
+## Suite
+
+**974 passed / 0 failed**, ruff clean.

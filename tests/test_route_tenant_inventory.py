@@ -40,6 +40,7 @@ SESSIONLESS_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/openapi.json"): "FastAPI's own schema; describes routes, returns no data",
     ("GET", "/redoc"): "FastAPI's own ReDoc UI",
     ("GET", "/api/health"): "liveness; no query",
+    ("GET", "/config.json"): "runtime SPA config; read before anyone logs in, nothing private",
     ("GET", "/api/ai/status"): "reads the AI feature flag and model names; AiService(session=None)",
     ("GET", "/api/players/team-logo/{team}"): "static NFL team logo asset",
     ("GET", "/api/players/{espn_player_id}/portrait"): "public ESPN headshot passthrough",

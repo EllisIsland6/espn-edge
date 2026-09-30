@@ -46,7 +46,35 @@ app.add_middleware(
     ],
     allow_methods=["*"],
     allow_headers=["*"],
+    # `allow_credentials` is deliberately left off. Phase 40 serves the SPA and
+    # the API as ONE origin, so the session cookie never needs to travel
+    # cross-origin -- and a wildcard origin combined with credentials is the
+    # classic way to hand an attacker's page an authenticated read. Pinned by
+    # tests/test_cors_and_runtime_config.py.
 )
+
+
+@app.get("/config.json", tags=["config"])
+def runtime_config() -> dict[str, object]:
+    """Configuration the SPA reads at runtime rather than at build time.
+
+    Phase 40's guarantee is "no build-time `VITE_API_BASE` promotion
+    dependency": an image baked with one environment's API base cannot be
+    promoted to another, so the same artifact must ask the server where it is.
+
+    `api_base` is the empty string because the SPA and the API share an origin.
+    That is the answer, not a placeholder -- a relative base is what makes the
+    single-origin cookie work.
+
+    Sessionless on purpose: the SPA needs this before anyone has logged in.
+    It therefore returns nothing that is not already public.
+    """
+    settings = get_settings()
+    return {
+        "api_base": "",
+        "mode": settings.app_mode,
+        "season": settings.season,
+    }
 
 
 def _is_account_credential_endpoint(request: Request) -> bool:
