@@ -135,6 +135,63 @@ class AppSession(Base):
     user: Mapped[User] = relationship(back_populates="sessions")
 
 
+class Job(Base):
+    """One unit of durable work. Replaces in-process scheduling.
+
+    APScheduler holds its queue in memory, so a restart loses everything that
+    had not run and a second process runs everything twice. This table is the
+    queue instead: a crash loses at most the work of one attempt, and the row
+    is the only thing that decides what happens next.
+
+    The state machine is deliberately small -- `queued`, `leased`, `done`,
+    `failed`, `poison` -- because every extra state is another transition
+    somebody has to get right under a crash.
+
+    `lease_owner` and `lease_expires_at` are what make a crash recoverable
+    without a supervisor: a worker that dies mid-job leaves a lease that
+    expires, and the next worker reclaims it. Nothing needs to notice the
+    death.
+
+    `available_at` carries both the retry cooldown and any deliberate delay,
+    so "not yet" and "not again until" are one concept rather than two.
+
+    `last_error` is a short, scrubbed reason. It is written by code that must
+    never put a provider payload or a credential in a database column, which
+    is why it is capped and why the service layer truncates rather than
+    trusting callers.
+    """
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        # Idempotency is per tenant, not global: two tenants syncing the same
+        # ESPN league are two jobs, and a global key would silently collapse
+        # them into one -- the same mistake `uq_league_season` made.
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_jobs_tenant_key"),
+        Index("ix_jobs_claimable", "state", "available_at"),
+        Index("ix_jobs_lease", "state", "lease_expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+
+    state: Mapped[str] = mapped_column(String, nullable=False, default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    last_error: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Account(Base):
     __tablename__ = "accounts"
 

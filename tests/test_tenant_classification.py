@@ -68,6 +68,12 @@ TENANT_TABLES = {
     "raw_cache": "NOT YET SCOPED - raw ESPN payloads for private leagues",
     "ai_spend_months": "NOT YET SCOPED - global ceiling is shared across tenants",
     "ai_spend_entries": "NOT YET SCOPED - global ceiling is shared across tenants",
+    # Durable work. Scoped by its own tenant_id, and deliberately WITHOUT an
+    # RLS policy: one worker process serves every tenant, so a policy on the
+    # claim would have to be bypassed to work at all. Enforcement for jobs is
+    # the tenant the worker binds before it RUNS one, not a predicate on the
+    # claim -- recorded here so "no policy" reads as a decision.
+    "jobs": "tenant_id",
     "teams": "league_id",
     "draft_picks": "league_id",
     "metrics": "league_id",
