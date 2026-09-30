@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..auth import COOKIE_NAME, revoke_session
 from ..db import get_session
 from ..schemas import SessionIdentity
+from ..security import clear_session_cookies
 from ..tenancy import current_tenant_id, current_user_id
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -51,4 +52,4 @@ def logout(request: Request, response: Response, session: Session = Depends(get_
     if token:
         revoke_session(session, token)
         session.commit()
-    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="lax")
+    clear_session_cookies(response)

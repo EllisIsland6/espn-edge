@@ -128,3 +128,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO edge_app,
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO edge_app, edge_worker;
 -- No DDL: Alembic runs as the owner, the app never shapes the schema.
 REVOKE CREATE ON SCHEMA public FROM edge_app, edge_worker;
+
+-- Phase 40: the runtime role needs the session table, or every login fails.
+-- A table added by a later migration has no grants until an operator issues
+-- them, and `app_sessions` is read before any tenant is known, so nothing in
+-- the policy set covers it.
+GRANT SELECT, INSERT, UPDATE ON app_sessions TO edge_app;
+GRANT USAGE, SELECT ON SEQUENCE app_sessions_id_seq TO edge_app;
+-- No DELETE: sessions are revoked by setting `revoked_at`, never removed, so
+-- that after an incident you can still say when each one was cut off.
+REVOKE DELETE ON app_sessions FROM edge_app;
+
+-- Phase 37b recorded this as a decision rather than a policy: the AI spend
+-- ceiling is shared across tenants, so the ledger is deliberately unpolicied.
+-- Withholding DELETE is the part that is a grant.
+REVOKE DELETE ON ai_spend_months, ai_spend_entries FROM edge_app;

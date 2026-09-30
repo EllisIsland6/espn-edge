@@ -24,6 +24,7 @@ from api.config import Settings
 from api.db import SessionLocal, get_session
 from api.main import app
 from api.models import Membership, Tenant, User
+from api.security import CSRF_COOKIE, CSRF_HEADER
 
 
 def _hosted(monkeypatch) -> None:
@@ -147,12 +148,29 @@ def test_a_real_session_gets_past_the_door(monkeypatch):
     assert response.json()["user_id"] == user_id
 
 
+def test_logout_needs_a_csrf_token(monkeypatch):
+    """Logout is state-changing, so it is CSRF-protected like anything else.
+
+    The first version of this file called it without a token and passed --
+    because `api/security.py` bound `get_settings` at import and the hosted
+    patch never reached the middleware, leaving it inert. Measured and fixed;
+    this case is what would catch it again."""
+    _user_id, token = _make_user_with_membership()
+    _hosted(monkeypatch)
+    with TestClient(app) as client:
+        client.cookies.set(COOKIE_NAME, token)
+        assert client.post("/api/auth/logout").status_code == 403
+
+
 def test_logout_revokes_the_session_it_was_called_with(monkeypatch):
     _user_id, token = _make_user_with_membership()
     _hosted(monkeypatch)
     with TestClient(app) as client:
         client.cookies.set(COOKIE_NAME, token)
-        assert client.post("/api/auth/logout").status_code == 204
+        client.cookies.set(CSRF_COOKIE, "matching-token")
+        assert client.post(
+            "/api/auth/logout", headers={CSRF_HEADER: "matching-token"}
+        ).status_code == 204
         client.cookies.set(COOKIE_NAME, token)
         assert client.get("/api/auth/me").status_code == 401, (
             "the session still worked after logout"

@@ -179,3 +179,77 @@ green tick establishing nothing.
 ## Suite
 
 **947 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum 2 — CSRF, response headers, and a guard that was inert
+
+`api/security.py`: double-submit CSRF and response security headers, both
+hosted-mode only. In private-operator mode there is no browser session to ride
+on and no cross-origin attacker, so either check would add a failure mode and
+remove no risk.
+
+**The mechanism is an asymmetry.** An attacker's page can make a browser
+*send* our cookies to us; it cannot *read* them to forge the matching header,
+because it is on another origin. So the session cookie is `HttpOnly` -- Phase
+40's explicit guarantee that JavaScript cannot read it -- and the CSRF cookie
+deliberately is not, because our own page must read it. Both halves are
+pinned by test.
+
+Cookie flags are set in one place (`set_session_cookies`) so the front door,
+whenever it lands, cannot get them wrong. `clear_session_cookies` mirrors them
+exactly: a browser will not replace a cookie whose attributes differ, so a
+delete that forgets `path` leaves it in place and sign-out silently does
+nothing.
+
+## Two defects found in my own work, both by a test that should have failed
+
+**1. The CSRF middleware was inert, and the hosted tests passed anyway.**
+`api/security.py` did `from .config import get_settings`, binding the function
+at import. The hosted-mode tests patch `api.config.get_settings`, which never
+reaches a name bound that way -- so the middleware read the real mode
+(`private_operator`), skipped every check, and `test_logout_...` passed
+without sending a token.
+
+This is *precisely* the defect recorded in `tests/test_hosted_mode.py`'s
+`_mode` docstring, about `api/services/espn.py`, written weeks earlier in this
+same repository. I reproduced it. Measured it directly -- patch
+`api.config.get_settings`, then observe `security.get_settings()` still
+returning a real `Settings` -- then fixed it by reading through the module
+(`config.get_settings()`), and added the case that catches it.
+
+**2. The middleware order was backwards.** I wrote a comment asserting that
+Starlette runs middleware in reverse registration order and that registering
+the headers wrapper first makes it outermost. The opposite is true: each
+registration is prepended, so the *last* added is outermost. The CSRF check
+was outermost and its 403 short-circuited before any header was stamped --
+and a 403 is a response an attacker's page can see.
+`test_the_headers_reach_a_refusal_too` caught it, which is the only reason I
+know the comment was wrong rather than merely unverified.
+
+## Evidence
+
+`tests/test_csrf_and_headers.py` -- 21 tests. Unsafe methods refused without a
+token and with a mismatched one; a matching token reaching 401 rather than 403
+(CSRF passed, the session check then refused for its own unrelated reason, and
+distinguishing those is the point); safe methods ungated; private-operator
+ungated; four headers present; no `unsafe-inline` or `unsafe-eval`; HSTS
+hosted-only, because sending it from a local HTTP origin pins a developer's
+browser to HTTPS for a host that does not serve it.
+
+**Controls removed:** disable the CSRF check and **9 of 21** fail. Put
+`unsafe-inline` back in the CSP and the one test that exists for it fails.
+
+## Grants
+
+`docs/sprint-9/kernel/rls.sql` now grants `app_sessions` to the runtime role.
+It is read before any tenant is known, so no policy covers it, and a table the
+app cannot SELECT is a login that always fails. `DELETE` is withheld:
+revocation sets `revoked_at` rather than removing the row, which is what lets
+you say afterwards when each session was cut off. `DELETE` on the spend ledger
+is withheld for the same reason Phase 37b recorded -- that one is a grant, not
+a policy.
+
+## Suite
+
+**969 passed / 0 failed**, ruff clean.

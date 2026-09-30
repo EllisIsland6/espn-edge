@@ -24,6 +24,7 @@ from .routers import (
     recovery,
     views,
 )
+from .security import csrf_middleware, security_headers_middleware
 from .services.recovery import RecoveryAdmissionError, secret_free_error
 
 
@@ -82,6 +83,15 @@ async def _redact_account_validation_errors(
 async def _recovery_admission_error(_request: Request, exc: RecoveryAdmissionError) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": secret_free_error(exc)})
 
+
+# Order matters, and it is the reverse of what it looks like. Starlette
+# prepends each registration, so the LAST one added ends up OUTERMOST. The
+# headers wrapper must be outermost to stamp every response -- including the
+# 403 the CSRF check short-circuits with, which is a response an attacker's
+# page can see. Registered the other way round first, and
+# `test_the_headers_reach_a_refusal_too` caught the bare 403.
+app.middleware("http")(csrf_middleware)
+app.middleware("http")(security_headers_middleware)
 
 app.include_router(health.router)
 app.include_router(auth.router)
