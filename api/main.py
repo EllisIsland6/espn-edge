@@ -15,6 +15,7 @@ from .db import init_db
 from .routers import (
     accounts,
     ai,
+    auth,
     exports,
     health,
     leagues,
@@ -83,6 +84,7 @@ async def _recovery_admission_error(_request: Request, exc: RecoveryAdmissionErr
 
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(accounts.router)
 app.include_router(leagues.router)
 app.include_router(views.router)

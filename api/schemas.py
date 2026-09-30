@@ -1014,3 +1014,15 @@ class OpportunityRefreshOut(BaseModel):
     error_message: str | None
     details: dict
     last_good_at: datetime | None
+
+
+class SessionIdentity(BaseModel):
+    """Who the caller is, as the server resolved it.
+
+    `user_id` is None in private-operator mode, where there is no login and no
+    user row -- the tenant is still reported, because it is what every read is
+    scoped by either way.
+    """
+
+    user_id: int | None
+    tenant_id: int

@@ -130,3 +130,52 @@ a defect when the next person wonders.
 
 **871 passed / 0 failed**, ruff clean. `test_recovery*` unchanged at its pre-existing 89
 environmental failures.
+
+---
+
+# Addendum — hosted-mode default deny
+
+## The front door is blocked on a dependency, not on effort
+
+Verifying an OIDC ID token needs a JWT library. This environment has no `pip`
+in its virtualenv and PyJWT cannot be installed. **Hand-rolling the
+verification was not an option** -- `alg: none` and key-confusion bugs live
+exactly there, and writing one for a practice project is the wrong risk to
+take. So `api/routers/auth.py` ships with no session-minting endpoint at all,
+and its docstring says why rather than implying a callback exists.
+
+`mint_session` stays internal. The two routes that do ship exercise everything
+around it.
+
+## What is proven instead
+
+Phase 40's acceptance asks that routes default-deny. Half of that is provable
+offline and now is: **in hosted mode, without a valid session cookie, nothing
+answers.** The refusal happens in the dependency, before any handler runs.
+
+`tests/test_hosted_default_deny.py` -- 76 tests over every GET route that takes
+a tenant-bound session:
+
+| | |
+| --- | --- |
+| no cookie, hosted mode | **401** on all 37 routes |
+| forged cookie, hosted mode | **401** on all 37 routes |
+| a real session | 200, and `/api/auth/me` reports the right user |
+| logout | the same token stops working |
+| **control:** private-operator mode, no cookie | **200** |
+
+That last row matters: without it, the 401s above would be equally consistent
+with "hosted mode broke every route".
+
+**Control removed** -- force `hosted = False` in `_bound_session` and **74 of
+76 fail**, each naming the route that answered 200 to an unauthenticated
+caller.
+
+The other half of the acceptance -- that an authenticated caller sees only
+their own tenant's rows -- is row-level security's job, is PostgreSQL-only,
+and was measured in `login_e2e.py`. Asserting it here on SQLite would be a
+green tick establishing nothing.
+
+## Suite
+
+**947 passed / 0 failed**, ruff clean.
