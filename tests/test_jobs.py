@@ -26,6 +26,7 @@ from api.services.jobs import (
     LEASED,
     MAX_ERROR,
     POISON,
+    PROVIDER_KINDS,
     QUEUED,
     claim,
     complete,
@@ -151,20 +152,20 @@ def test_a_worker_that_is_beaten_to_the_row_claims_nothing(db_session, clock, te
     """
     enqueue(db_session, kind="sync", idempotency_key="k", tenant_id=tenant_id, clock=clock)
 
-    real = jobs_module._next_candidate_id
+    real = jobs_module._eligible_candidates
     stolen = {"done": False}
 
     def _steal_then_return(session, now):
-        candidate = real(session, now)
-        if candidate is not None and not stolen["done"]:
+        candidates = real(session, now)
+        if candidates and not stolen["done"]:
             stolen["done"] = True
             # Worker 2 gets there first, using the real code path.
-            monkeypatch.setattr(jobs_module, "_next_candidate_id", real)
+            monkeypatch.setattr(jobs_module, "_eligible_candidates", real)
             assert claim(session, owner="w2", clock=clock) is not None
-            monkeypatch.setattr(jobs_module, "_next_candidate_id", _steal_then_return)
-        return candidate
+            monkeypatch.setattr(jobs_module, "_eligible_candidates", _steal_then_return)
+        return candidates
 
-    monkeypatch.setattr(jobs_module, "_next_candidate_id", _steal_then_return)
+    monkeypatch.setattr(jobs_module, "_eligible_candidates", _steal_then_return)
     loser = claim(db_session, owner="w1", clock=clock)
 
     assert stolen["done"], "the interleaving never happened; this test proved nothing"
@@ -326,3 +327,163 @@ def test_the_classification_test_covers_this_new_table():
     from tests.test_tenant_classification import TENANT_TABLES
 
     assert "jobs" in TENANT_TABLES
+
+
+# ---------------------------------------------------------------------------
+# Claim policy: one job per tenant, one provider permit, fairest tenant first
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def three_tenants(db_session, tenant_id) -> list[int]:
+    extra = [Tenant(slug="second"), Tenant(slug="third")]
+    db_session.add_all(extra)
+    db_session.flush()
+    return [tenant_id, extra[0].id, extra[1].id]
+
+
+def _queue(db_session, clock, tenant, key, kind="report"):
+    return enqueue(
+        db_session, kind=kind, idempotency_key=key, tenant_id=tenant, clock=clock
+    )
+
+
+def test_a_tenant_gets_one_active_job_at_a_time(db_session, clock, three_tenants):
+    """Without this a tenant with two hundred queued leagues occupies every
+    worker and everyone else waits."""
+    a, b, _ = three_tenants
+    _queue(db_session, clock, a, "a1")
+    _queue(db_session, clock, a, "a2")
+
+    first = claim(db_session, owner="w1", clock=clock)
+    assert first is not None and first.tenant_id == a
+
+    second = claim(db_session, owner="w2", clock=clock)
+    assert second is None, "a second job was leased for a tenant already busy"
+
+    # ...but another tenant is unaffected, which is the point of the rule.
+    _queue(db_session, clock, b, "b1")
+    other = claim(db_session, owner="w3", clock=clock)
+    assert other is not None and other.tenant_id == b
+
+
+def test_a_tenant_s_next_job_becomes_claimable_once_the_first_finishes(
+    db_session, clock, three_tenants
+):
+    a = three_tenants[0]
+    _queue(db_session, clock, a, "a1")
+    _queue(db_session, clock, a, "a2")
+
+    first = claim(db_session, owner="w1", clock=clock)
+    assert claim(db_session, owner="w2", clock=clock) is None
+    complete(db_session, first.id, owner="w1", clock=clock)
+    assert claim(db_session, owner="w2", clock=clock) is not None
+
+
+def test_only_one_provider_touching_job_runs_at_a_time(db_session, clock, three_tenants):
+    """Phase 39's guarantee: increasing workers never raises provider rps.
+
+    Two different tenants, so the per-tenant rule is not what is doing the
+    work here -- without the permit both would lease and the deployment would
+    make two concurrent ESPN calls against a limit that allows one.
+    """
+    a, b, c = three_tenants
+    kind = sorted(PROVIDER_KINDS)[0]
+    _queue(db_session, clock, a, "pa", kind=kind)
+    _queue(db_session, clock, b, "pb", kind=kind)
+
+    first = claim(db_session, owner="w1", clock=clock)
+    assert first is not None and first.kind == kind
+
+    assert claim(db_session, owner="w2", clock=clock) is None, (
+        "a second provider-touching job was leased while one was running"
+    )
+
+    # Non-provider work still flows -- scaling out buys something.
+    _queue(db_session, clock, c, "local", kind="report")
+    local = claim(db_session, owner="w3", clock=clock)
+    assert local is not None and local.kind == "report"
+
+
+def test_the_provider_permit_is_released_when_the_job_finishes(
+    db_session, clock, three_tenants
+):
+    a, b, _ = three_tenants
+    kind = sorted(PROVIDER_KINDS)[0]
+    _queue(db_session, clock, a, "pa", kind=kind)
+    _queue(db_session, clock, b, "pb", kind=kind)
+
+    first = claim(db_session, owner="w1", clock=clock)
+    complete(db_session, first.id, owner="w1", clock=clock)
+    assert claim(db_session, owner="w2", clock=clock) is not None
+
+
+def test_the_provider_permit_is_released_when_the_lease_expires(
+    db_session, clock, three_tenants
+):
+    """A worker that dies holding the permit must not block the provider
+    forever -- the lease expiring is what releases it, with nothing noticing
+    the death."""
+    a, b, _ = three_tenants
+    kind = sorted(PROVIDER_KINDS)[0]
+    _queue(db_session, clock, a, "pa", kind=kind)
+    _queue(db_session, clock, b, "pb", kind=kind)
+
+    claim(db_session, owner="dies", lease=timedelta(minutes=1), clock=clock)
+    assert claim(db_session, owner="w2", clock=clock) is None
+
+    clock.advance(timedelta(minutes=2))
+    assert claim(db_session, owner="w2", clock=clock) is not None
+
+
+def test_the_least_recently_served_tenant_goes_first(db_session, clock, three_tenants):
+    """Fairness, not correctness. A tenant that enqueues constantly would
+    otherwise sit permanently at the head of the due-time order."""
+    a, b, c = three_tenants
+    for tenant, key in ((a, "a1"), (b, "b1"), (c, "c1")):
+        _queue(db_session, clock, tenant, key)
+
+    served = []
+    for _ in range(3):
+        job = claim(db_session, owner="w1", clock=clock)
+        assert job is not None
+        served.append(job.tenant_id)
+        complete(db_session, job.id, owner="w1", clock=clock)
+        clock.advance(timedelta(seconds=1))
+
+    assert sorted(served) == sorted([a, b, c]), served
+
+    # Round two: everyone has now been served once, so the order should follow
+    # who was served longest ago -- the same order as round one.
+    for tenant, key in ((a, "a2"), (b, "b2"), (c, "c2")):
+        _queue(db_session, clock, tenant, key)
+    second_round = []
+    for _ in range(3):
+        job = claim(db_session, owner="w1", clock=clock)
+        second_round.append(job.tenant_id)
+        complete(db_session, job.id, owner="w1", clock=clock)
+        clock.advance(timedelta(seconds=1))
+
+    assert second_round == served, (
+        f"round two did not follow least-recently-served order: "
+        f"{second_round} after {served}"
+    )
+
+
+def test_a_tenant_never_served_jumps_ahead_of_one_that_has(
+    db_session, clock, three_tenants
+):
+    """A newcomer should not queue behind a tenant that has been running all
+    day, even if the newcomer's job is newer."""
+    a, b, _ = three_tenants
+    first = _queue(db_session, clock, a, "a1")
+    claim(db_session, owner="w1", clock=clock)
+    complete(db_session, first.id, owner="w1", clock=clock)
+    clock.advance(timedelta(seconds=1))
+
+    _queue(db_session, clock, a, "a2")       # served tenant, older
+    clock.advance(timedelta(seconds=1))
+    _queue(db_session, clock, b, "b1")       # newcomer, newer
+
+    nxt = claim(db_session, owner="w1", clock=clock)
+    assert nxt.tenant_id == b, "the never-served tenant waited behind a served one"

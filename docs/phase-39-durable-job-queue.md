@@ -77,3 +77,75 @@ reversing "add a queue" and is stated rather than guarded.
 ## Suite
 
 **993 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum — claim policy, and a control-removal method that needed fixing
+
+Three rules now decide which runnable job is offered next. Each exists because
+of a specific failure, and each is enforced **twice**: once when the candidate
+list is built, once in the claim UPDATE's WHERE.
+
+**One active job per tenant.** Without it a tenant with two hundred queued
+leagues occupies every worker and everyone else waits. Cruder than a weighted
+share, and it cannot be gamed by enqueueing more.
+
+**One provider-touching job globally.** Phase 39's guarantee is that
+"increasing workers never raises provider rps". The provider rate-limits the
+deployment, not each process, so the queue must too. At most one job whose
+kind is in `PROVIDER_KINDS` holds a lease at a time. Non-provider work is
+unaffected, which is the point — scaling out still buys something. The permit
+is released by completion *or* by lease expiry, so a worker that dies holding
+it does not block the provider forever.
+
+**Least-recently-served tenant first.** Fairness, not correctness. A tenant
+that enqueues constantly would otherwise sit permanently at the head of the
+due-time order. A tenant nobody has served has no served rows at all and so
+sorts first, which is what a newcomer should get.
+
+Ordering is computed in Python deliberately: it reads clearly, the queue is
+small, and **it is not where safety lives**. The UPDATE re-checks every
+condition, so a candidate that goes stale between the list and the claim is
+rejected by the database rather than by the list having been right.
+
+## The method failure, which is the interesting part
+
+Removing each rule's candidate-list filter left **all 25 tests green**. So did
+removing the SQL guard. Neither removal failed anything.
+
+Not because the tests are weak — because each rule has two independent
+implementations, and removing either one leaves the other doing the job. That
+is defence in depth working exactly as designed, and it makes a single-layer
+removal unfalsifiable.
+
+**So the control-removal has to remove the *control*, not one of its
+implementations.** Taking out both layers at once:
+
+| removed | failures |
+| --- | ---: |
+| per-tenant filter only | 0 |
+| per-tenant SQL guard only | 0 |
+| **both layers of the per-tenant rule** | **2** |
+| provider filter only | 0 |
+| **both layers of the provider permit** | **2** |
+| fairness ordering (only one implementation) | **1** |
+
+Fairness has a single implementation, so one removal is enough — which is why
+it was the only control that failed on the first pass, and the signal that the
+other two needed a different approach rather than better tests.
+
+Recorded as a method note: when a control is implemented redundantly, "remove
+the control and watch it fail" means removing every layer. A single-layer
+removal that leaves the suite green proves redundancy, not absence of
+coverage — and reading it as the latter would have been the mistake.
+
+## A cleanup worth admitting
+
+The first attempt at this wrote a dead `if False else` expression into the
+claim guard while patching, and ruff caught it. Restored from the committed
+state and written out cleanly rather than patched over. A half-edited guard
+that still parses is the worst possible state for this particular function.
+
+## Suite
+
+**1000 passed / 0 failed**, ruff clean.

@@ -17,9 +17,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from ..models import Job
 
@@ -60,6 +60,18 @@ MAX_ERROR = 300
 # comparing nothing in Python. Measured: the two lease-expiry tests raised
 # before this and pass after. Same Phase 35 trap, surfacing through a
 # mechanism I did not write.
+
+
+def _utc(value: datetime) -> datetime:
+    """Normalise a stored timestamp to aware UTC.
+
+    SQLite has no type that carries an offset, so a value read back from disk
+    is naive even though the column is `DateTime(timezone=True)`. Sorting a
+    mix of naive and aware datetimes raises -- the Phase 35 trap, which has
+    now surfaced in four places in this codebase, including inside SQLAlchemy.
+    Every Python-side comparison of a stored timestamp goes through here.
+    """
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 Clock = Callable[[], datetime]
@@ -122,28 +134,101 @@ def enqueue(
     return job
 
 
-def _next_candidate_id(session: Session, now: datetime) -> int | None:
-    """The id of the next runnable job, or None.
+#: Kinds that reach ESPN. The provider rate-limits the whole deployment, not
+#: each process, so the queue has to as well: Phase 39's guarantee is that
+#: "increasing workers never raises provider rps", and the only way to make
+#: that structurally true is to let at most one provider-touching job hold a
+#: lease at a time, globally. Adding a worker then buys throughput for
+#: everything else and none for the provider, which is the intended shape.
+PROVIDER_KINDS = frozenset({"sync", "discover", "reauth"})
 
-    A separate function so a test can interpose between choosing a candidate
-    and claiming it -- which is the only window the conditional UPDATE in
-    `claim` exists to close. Without that seam the guard is unobservable in a
-    single process: the SELECT below already filters by state, so a second
-    sequential `claim` finds nothing and returns before the UPDATE runs. The
-    control-removal check for that guard passed with it deleted, which is how
-    the gap was found.
+#: States meaning "this tenant was served recently". Fairness ordering only --
+#: nothing about correctness depends on them.
+_SERVED_STATES = (LEASED, DONE, FAILED, POISON)
+
+
+def _runnable(now: datetime):
+    """Queued and due, or leased with an expired lease.
+
+    The second half is how a crashed worker's job comes back without anything
+    detecting the crash.
     """
-    return session.execute(
-        select(Job.id)
-        .where(
-            or_(
-                and_(Job.state == QUEUED, Job.available_at <= now),
-                and_(Job.state == LEASED, Job.lease_expires_at <= now),
-            )
-        )
+    return or_(
+        and_(Job.state == QUEUED, Job.available_at <= now),
+        and_(Job.state == LEASED, Job.lease_expires_at <= now),
+    )
+
+
+def _held(now: datetime):
+    """A lease somebody still holds."""
+    return and_(Job.state == LEASED, Job.lease_expires_at > now)
+
+
+def _eligible_candidates(session: Session, now: datetime) -> list:
+    """Runnable rows, in the order they should be offered.
+
+    Three rules, each from a specific failure:
+
+    **One active job per tenant.** Without it a tenant with two hundred queued
+    leagues occupies every worker and everyone else waits. Cruder than a
+    weighted share, and it cannot be gamed by enqueueing more.
+
+    **One provider-touching job globally.** See `PROVIDER_KINDS`.
+
+    **Least-recently-served tenant first.** Fairness, not correctness: it stops
+    a tenant that enqueues constantly from permanently sitting at the head of
+    the due-time order. A tenant nobody has served has no served rows at all
+    and so sorts first, which is what a newcomer should get.
+
+    Ordering happens in Python on purpose. It reads clearly, the queue is
+    small, and -- the part that matters -- **this is not where safety lives**.
+    `claim` re-checks every one of these conditions in its UPDATE, so a
+    candidate that goes stale between here and there is rejected by the
+    database rather than by this list having been right.
+    """
+    runnable = session.execute(
+        select(Job.id, Job.tenant_id, Job.kind, Job.available_at)
+        .where(_runnable(now))
         .order_by(Job.available_at, Job.id)
-        .limit(1)
-    ).scalar_one_or_none()
+    ).all()
+    if not runnable:
+        return []
+
+    busy_tenants = set(
+        session.execute(select(Job.tenant_id).where(_held(now))).scalars().all()
+    )
+    provider_busy = (
+        session.execute(
+            select(Job.id).where(_held(now), Job.kind.in_(PROVIDER_KINDS)).limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+    last_served = dict(
+        session.execute(
+            select(Job.tenant_id, func.max(Job.updated_at))
+            .where(Job.state.in_(_SERVED_STATES))
+            .group_by(Job.tenant_id)
+        ).all()
+    )
+
+    eligible = [
+        row
+        for row in runnable
+        if row.tenant_id not in busy_tenants
+        and not (provider_busy and row.kind in PROVIDER_KINDS)
+    ]
+
+    def fairness_key(row):
+        served = last_served.get(row.tenant_id)
+        return (
+            served is not None,
+            _utc(served) if served is not None else now,
+            _utc(row.available_at),
+            row.id,
+        )
+
+    eligible.sort(key=fairness_key)
+    return eligible
 
 
 def claim(
@@ -166,20 +251,39 @@ def claim(
     two provider calls against a rate limit that allows one.
     """
     now = clock()
-    while True:
-        candidate = _next_candidate_id(session, now)
-        if candidate is None:
-            return None
+    for row in _eligible_candidates(session, now):
+        other = aliased(Job)
+        guards = [
+            Job.id == row.id,
+            _runnable(now),
+            # No other live lease for this tenant. Re-checked here rather than
+            # trusted from the list: another worker may have taken one for the
+            # same tenant in between.
+            ~select(other.id)
+            .where(
+                other.id != row.id,
+                other.state == LEASED,
+                other.lease_expires_at > now,
+                other.tenant_id == row.tenant_id,
+            )
+            .exists(),
+        ]
+        if row.kind in PROVIDER_KINDS:
+            # And nobody else holds the provider permit.
+            guards.append(
+                ~select(other.id)
+                .where(
+                    other.id != row.id,
+                    other.state == LEASED,
+                    other.lease_expires_at > now,
+                    other.kind.in_(PROVIDER_KINDS),
+                )
+                .exists()
+            )
 
         claimed = session.execute(
             update(Job)
-            .where(
-                Job.id == candidate,
-                or_(
-                    and_(Job.state == QUEUED, Job.available_at <= now),
-                    and_(Job.state == LEASED, Job.lease_expires_at <= now),
-                ),
-            )
+            .where(*guards)
             .values(
                 state=LEASED,
                 lease_owner=owner,
@@ -191,9 +295,10 @@ def claim(
         ).rowcount
         if claimed:
             session.flush()
-            return session.get(Job, candidate)
-        # Somebody else took it between the select and the update. Look again
-        # rather than returning None, or a busy queue would report empty.
+            return session.get(Job, row.id)
+        # Lost it between the list and the update. Try the next candidate
+        # rather than returning None, or a busy queue reports itself empty.
+    return None
 
 
 def complete(session: Session, job_id: int, *, owner: str, clock: Clock = _now) -> bool:
