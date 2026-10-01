@@ -74,6 +74,11 @@ TENANT_TABLES = {
     # the tenant the worker binds before it RUNS one, not a predicate on the
     # claim -- recorded here so "no policy" reads as a decision.
     "jobs": "tenant_id",
+    # Recurring intents. Same reasoning as `jobs`: scoped by its own
+    # tenant_id, and no RLS policy because one scheduler process materialises
+    # for every tenant, so a policy on the scan would have to be bypassed to
+    # function. Recorded so "no policy" reads as a decision.
+    "schedules": "tenant_id",
     "teams": "league_id",
     "draft_picks": "league_id",
     "metrics": "league_id",

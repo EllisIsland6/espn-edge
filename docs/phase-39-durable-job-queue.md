@@ -149,3 +149,70 @@ that still parses is the worst possible state for this particular function.
 ## Suite
 
 **1000 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum 2 — durable schedules, and leaderlessness by arithmetic
+
+Migration `0009` adds `schedules`; `api/services/schedules.py` materialises
+them into `jobs`.
+
+**Intervals, not cron.** A cron parser is a dependency and a parsing surface,
+and the only recurrence this application needs is "every N minutes from an
+anchor" — which is also the only shape that yields deterministic slot
+boundaries without a timezone library. Narrowed deliberately; a real cron spec
+would be an additive column, not a rewrite.
+
+## The one idea
+
+A job's identity is computed from **(schedule, slot)** — never from the moment
+somebody noticed it was due. `slot_key` contains no clock reading, no worker
+identity and no randomness. So any number of schedulers covering the same
+window compute the same keys, and `jobs`' per-tenant uniqueness collapses them
+into one job per slot.
+
+**No leader election, no advisory lock, no primary scheduler.** The usual
+answer — designate one scheduler, or take a lock — adds a failure mode (the
+leader dies holding it) to prevent a problem arithmetic prevents outright.
+
+Phase 39's acceptance names this as "three schedulers materialize one window".
+It is proven directly, and so is the realistic version: a scheduler whose
+cursor is an hour stale does redundant arithmetic and gets the existing jobs
+back, because the keys are identical. Redundant effort, not duplicated work —
+which is why `next_run_at` can be a cursor rather than the truth.
+
+**A missed window catches up slot by slot**, not as one collapsed run. Each
+slot is a separate idempotency key and therefore a separate piece of work
+somebody expected to happen; collapsing an hour's gap on a 15-minute schedule
+would silently drop three of four syncs.
+
+## Backpressure measures age, not depth
+
+`oldest_due_age` reports how long the oldest *due* job has waited. Depth says
+nothing about health — a thousand jobs moving quickly is fine, one job stuck
+for an hour is not — and counting jobs still on a retry cooldown would make
+every retry look like an incident.
+
+## Evidence
+
+`tests/test_schedules.py` — 15 tests. Three schedulers, one job. Disagreeing
+cursors, one job. Catch-up walks every missed slot with no duplicate keys. The
+grid is absolute rather than relative to process start, so two schedulers that
+booted hours apart agree. A manual "sync now" coalesces with the scheduled run
+for the same slot. Jobs materialised inside the horizon are not claimable
+early. Two tenants on the same cadence get separate jobs.
+
+**Four controls removed, four failures:** put a clock reading in the slot key
+(3 fail), make the grid relative (1), collapse the catch-up into one run (3),
+let queue age count jobs that are not yet due (1).
+
+One of those was my own test being wrong first: comparing an aware `now` to a
+stored `available_at` by calling `.replace(tzinfo=None)` on the aware side
+raised anyway, because the attribute is aware for rows still live in the
+identity map and naive for rows reloaded after a flush. Normalised through the
+same helper the service uses. **Fifth place in this codebase that has had to
+say so.**
+
+## Suite
+
+**1016 passed / 0 failed**, ruff clean.

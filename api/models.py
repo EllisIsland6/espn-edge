@@ -192,6 +192,51 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class Schedule(Base):
+    """A recurring intent. Materialised into `Job` rows by any scheduler.
+
+    Intervals, not cron. A cron parser is a dependency and a surface, and the
+    only recurrence this application actually needs is "every N minutes from
+    an anchor" -- which is also the only shape that gives deterministic slot
+    boundaries without a timezone library. Narrowed deliberately; if a real
+    cron spec is ever needed it is an additive column, not a rewrite.
+
+    `anchor_at` plus `interval_seconds` defines a fixed grid of slots. That
+    grid is what makes materialisation idempotent: the job's key is derived
+    from the schedule and the slot, so three schedulers covering the same
+    window compute the same key and the unique constraint collapses them into
+    one job. No leader election, no lock, no "primary scheduler" -- the
+    arithmetic does it.
+
+    `next_run_at` is a cursor, not the truth. It exists so a scheduler does
+    not rescan history on every tick. If it is wrong the slot arithmetic still
+    produces the right keys, so the worst case is duplicated effort rather
+    than duplicated work.
+    """
+
+    __tablename__ = "schedules"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_schedules_tenant_name"),
+        Index("ix_schedules_due", "enabled", "next_run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+
+    interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Account(Base):
     __tablename__ = "accounts"
 
