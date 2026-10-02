@@ -293,3 +293,86 @@ like a real finding.
 ## Suite
 
 **1030 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum 4 — the transactional outbox
+
+Migration `0010` + `api/services/outbox.py`. The last piece of Phase 39's
+change surface.
+
+## The problem, and why all three obvious answers are wrong
+
+A handler changes the database and then needs to tell something else — write
+an audit event, notify an operator, emit a metric.
+
+- **Write then notify:** the process dies in between. The change happened and
+  nobody was told.
+- **Notify then write:** the change rolls back. You have told people about
+  something that did not happen — worse, because you cannot un-tell.
+- **Both in one transaction:** not available across a process boundary without
+  a distributed transaction.
+
+The outbox makes the notification *part of* the state change. The row is
+written in the same transaction as the business write, so it commits with it
+or vanishes with it, and a relay delivers it afterwards.
+
+`emit` deliberately does not flush. That would be harmless today and wrong in
+principle: it invites a caller to believe the message is persisted when the
+transaction may still roll back. The message is exactly as durable as the
+write it accompanies, and no more.
+
+## What it buys, stated honestly
+
+**At-least-once, never zero.** A relay that delivers and then dies before
+marking will deliver again. Exactly-once across a process boundary is not
+available, so `dedupe_key` travels with the message for the receiver to
+recognise a repeat — making the duplicate cheap rather than pretending it
+cannot happen.
+
+`delivered_at` is set **only after the sink returns**. That ordering is the
+guarantee rather than an implementation detail: marking first turns every sink
+failure into a silently dropped message, which is the one outcome the table
+exists to prevent.
+
+Backoff is flat, not exponential. An outbox backlog is an operational problem
+somebody should see, and a growing delay hides it by making the queue look
+like it is draining.
+
+## Evidence
+
+`tests/test_outbox.py` — 16 tests. **A rolled-back transaction emits nothing**
+(the property the pattern exists for, and nothing had to remember to undo it).
+A sink that raises leaves the message pending with its error recorded. A
+recovered sink delivers it and clears the stale error. One permanently-bad
+message does not block the rest of the batch — otherwise a single bad message
+is a complete outage. A delivered message is not re-sent. Oldest first. The
+tenant and the dedupe key both travel in the row, because the relay drains for
+every tenant and the receiver cannot rely on ambient context.
+
+**Five controls removed, five failures:**
+
+| removed | failures |
+| --- | ---: |
+| mark delivered *before* calling the sink | 4 |
+| make `emit` flush, so a rollback no longer discards it | 2 |
+| let one failing sink abort the whole batch | 4 |
+| stop clearing `last_error` on success | 1 |
+| drop the undelivered filter from the relay scan | 2 |
+
+`undelivered_age` is the number to alarm on, for the same reason as the
+queue's: count says nothing, and one message stuck for an hour means somebody
+has not been told something they were promised.
+
+## Phase 39, narrowed, is now complete
+
+Job table, idempotent enqueue, atomic leases, crash recovery, retry, poison
+quarantine, per-tenant limit, provider permit, fairness, durable schedules,
+the worker loop, and the outbox. Not built: weighted shares (the per-tenant
+limit is the cruder rule that cannot be gamed), snapshot retention, and the
+`PROVIDER_KINDS` registry being wired to the real sync handlers — which needs
+the handlers themselves, not more queue.
+
+## Suite
+
+**1047 passed / 0 failed**, ruff clean.

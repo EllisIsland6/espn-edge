@@ -237,6 +237,55 @@ class Schedule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class OutboxMessage(Base):
+    """A side effect that must happen exactly once after a state change commits.
+
+    The problem it solves: a handler changes the database and then needs to
+    tell something else -- write an audit event, notify an operator, emit a
+    metric. Doing both in one step is impossible without a distributed
+    transaction. Doing the write first and the notification after risks the
+    process dying in between, so the change happened and nobody was told.
+    Doing the notification first risks telling people about a change that then
+    rolls back, which is worse: you cannot un-tell.
+
+    The outbox makes the notification part of the state change. The row is
+    written in the SAME transaction as the business write, so it commits with
+    it or not at all. A relay delivers it afterwards and marks it delivered.
+
+    That buys **at-least-once**, not exactly-once. A relay that delivers and
+    then dies before marking will deliver again. Exactly-once across a process
+    boundary is not available, so the honest design makes the duplicate cheap
+    -- `dedupe_key` is carried so the receiver can recognise a repeat -- rather
+    than pretending the duplicate cannot happen.
+
+    `delivered_at` is set only after the sink returns. Setting it first would
+    turn every sink failure into a silently dropped message, which is the one
+    outcome this table exists to prevent.
+    """
+
+    __tablename__ = "outbox"
+    __table_args__ = (
+        Index("ix_outbox_undelivered", "delivered_at", "available_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tenants.id"), nullable=True, index=True
+    )
+    topic: Mapped[str] = mapped_column(String, nullable=False)
+    #: Stable across redeliveries of the same message, so a receiver can
+    #: recognise a repeat. Not unique here: the same logical event may be
+    #: emitted legitimately by two different state changes.
+    dedupe_key: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(String)
+
+
 class Account(Base):
     __tablename__ = "accounts"
 

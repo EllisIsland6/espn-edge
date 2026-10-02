@@ -79,6 +79,11 @@ TENANT_TABLES = {
     # for every tenant, so a policy on the scan would have to be bypassed to
     # function. Recorded so "no policy" reads as a decision.
     "schedules": "tenant_id",
+    # Pending side effects. Same reasoning as `jobs` and `schedules`: scoped
+    # by its own tenant_id, no RLS policy, because one relay process drains
+    # for every tenant and a policy on the scan would have to be bypassed to
+    # function. The tenant travels in the row for the receiver's benefit.
+    "outbox": "tenant_id",
     "teams": "league_id",
     "draft_picks": "league_id",
     "metrics": "league_id",
