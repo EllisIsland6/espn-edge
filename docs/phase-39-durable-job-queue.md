@@ -216,3 +216,80 @@ say so.**
 ## Suite
 
 **1016 passed / 0 failed**, ruff clean.
+
+---
+
+# Addendum 3 — the worker loop, where the queue meets the tenancy
+
+`api/services/worker.py`. One rule:
+
+> **The worker claims across tenants. The handler runs inside one.**
+
+Claiming has to see every tenant's queue — one process serves everybody,
+which is why `jobs` carries no row-level security policy. Running must see
+exactly one tenant, because the handler reads and writes real data. So the two
+happen on two different sessions, and the handler's is opened through
+`session_scope(tenant_id=...)` — which is precisely why that function was made
+to take an explicit tenant rather than fall back to "the only one".
+
+This closes a claim made earlier and left unproven. The table classification
+records `jobs` as having no policy "deliberately: enforcement is the tenant
+the worker binds before it *runs* one". Until now nothing bound it.
+
+## Three decisions worth naming
+
+**A job with no tenant is refused, not run.** Under row-level security it would
+read nothing, so the handler would "succeed" having done nothing and the queue
+would record it as done — silent, permanent, and indistinguishable from real
+work. It fails non-retryably, because a tenant does not appear by waiting.
+
+**The claim is committed before the handler runs.** That ordering is the crash
+contract. If the process dies mid-handler the lease is already durable, so the
+job is reclaimable when it expires. One transaction around claim-and-run would
+lose the lease on rollback, leaving the job indistinguishable from never
+having been claimed — which makes a poison job immortal.
+
+**The handler is given the payload, not the `Job` row.** A handler able to edit
+its own queue record could extend its own lease or mark itself done, and
+neither is its business.
+
+## Evidence
+
+`tests/test_worker.py` — 14 tests. The handler's session is bound to the job's
+tenant; two tenants in one drain each get their own binding; a tenantless job
+is refused and the handler never runs; an unregistered kind fails without
+retrying; ordinary errors retry with a cooldown and `NonRetryable` does not;
+repeated failure poisons; a handler's writes are committed by the scope it was
+given; the worker survives a handler raising `BaseException` and the job comes
+back; two handlers for one kind is refused at registration.
+
+**Five controls removed, five failures:**
+
+| removed | result |
+| --- | --- |
+| handler runs on an unbound session | 2 fail |
+| tenantless job allowed through | 1 fail |
+| claim committed *after* the handler | **8 fail** |
+| duplicate-handler guard | 1 fail |
+| `drain`'s limit | the suite **hangs** — verified as exit 124 under a 45s budget, and exit 0 with the limit restored |
+
+That last one is worth the explicit check: "the tests time out" is only
+evidence if you confirm the timeout rather than assume the silence meant
+failure.
+
+What is **not** proven here: that the binding isolates. That is PostgreSQL's
+job, was measured in `login_e2e.py`, and asserting it on SQLite would be a
+green tick establishing nothing. This file asserts the binding and says so.
+
+## A test bug, found by its own failure
+
+Three tests reported `last_error` as None and looked like the worker never
+wrote one. The worker commits on its own sessions, so the test session's
+identity map still held each row as it was before the job ran. A `_row` helper
+that expires first fixed it. The sixth time in this codebase that a stale or
+naive value read off an ORM object has produced a wrong answer that looked
+like a real finding.
+
+## Suite
+
+**1030 passed / 0 failed**, ruff clean.
