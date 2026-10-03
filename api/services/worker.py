@@ -26,6 +26,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, session_scope
+from . import heartbeat
 from .jobs import DEFAULT_LEASE, Clock, _now, claim, complete, fail
 
 #: kind -> handler. A handler takes a session already bound to the job's
@@ -135,16 +136,63 @@ def run_once(
         return state
 
 
-def drain(*, owner: str, limit: int = 100, clock: Clock = _now) -> list[str]:
+def _record_tick(owner: str, *, claimed: int, failed: int, clock: Clock) -> None:
+    """Write one heartbeat, on its own session, and never raise.
+
+    Its own session because the heartbeat must survive a job that rolled back:
+    sharing the job's transaction would mean the record of "a worker was here"
+    disappears with the work that failed, and a crash loop would leave no trace
+    at all.
+
+    Never raises because a telemetry write must not stop work -- and because
+    it does not need to. A heartbeat that cannot be written stops advancing,
+    `worker_staleness_seconds` climbs, and `worker-heartbeat-stale` fires. The
+    failure is reported by the mechanism it broke, which is strictly better
+    than a traceback in a log nobody is reading.
+    """
+    try:
+        with SessionLocal() as s:
+            heartbeat.record_tick(
+                s, owner, claimed=claimed, failed=failed, clock=clock
+            )
+            s.commit()
+    except Exception:  # noqa: BLE001 - see the docstring
+        pass
+
+
+def drain(
+    *, owner: str, limit: int = 100, clock: Clock = _now, record: bool = True
+) -> list[str]:
     """Run jobs until there are none due, or `limit` is reached.
 
     The limit is not politeness -- it is the stop condition. Without it a
     handler that re-enqueues its own kind turns one tick into an unbounded
     loop, and the symptom is a worker that never reports idle.
+
+    **A tick is recorded for every pass, including the pass that finds nothing.**
+    That empty pass is the entire reason this is here. A probe
+    (`.venv/phase41/probe_liveness.py`) ran this function against an empty
+    queue and counted the durable rows that changed: none. So an idle worker
+    and a worker that died an hour ago were byte-identical from outside the
+    host, and no alarm could have told them apart. Recording only the passes
+    that did work would rebuild that blindness, which is why
+    `tests/test_worker_heartbeat.py` removes the empty-pass record and requires
+    a failure.
+
+    `record=False` is for the queue tests that assert on job rows and do not
+    want a heartbeat session in the way. It is not for production: a caller
+    that passes it is choosing to be invisible.
     """
     outcomes: list[str] = []
     for _ in range(limit):
         state = run_once(owner=owner, clock=clock)
+        if record:
+            _record_tick(
+                owner,
+                claimed=0 if state is None else 1,
+                failed=1 if state in ("failed", "poison") else 0,
+                clock=clock,
+            )
         if state is None:
             break
         outcomes.append(state)

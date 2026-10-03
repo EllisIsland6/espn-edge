@@ -286,6 +286,82 @@ class OutboxMessage(Base):
     last_error: Mapped[str | None] = mapped_column(String)
 
 
+class WorkerHeartbeat(Base):
+    """Proof that a worker loop is alive, and proof of what it is not doing.
+
+    A probe (`.venv/phase41/probe_liveness.py`) ran `drain()` against an empty
+    queue and counted every durable row that changed. The answer was none. So
+    a worker that is up and idle and a worker that died an hour ago produced
+    identical database state, and nothing outside the host could tell them
+    apart. This table is the difference.
+
+    **One row per worker identity, keyed on `owner`.** The same string the job
+    lease uses, so a stale lease and a stale heartbeat name the same process
+    without a join through anything.
+
+    Two timestamps rather than one, and that is the whole design:
+
+    * `last_seen_at` advances on **every** tick, including the ticks that claim
+      nothing.
+    * `last_claimed_at` advances only when a job was actually picked up.
+
+    A fresh `last_seen_at` with a stale `last_claimed_at` is the
+    live-but-not-claiming case -- a process that is looping and getting no work
+    done, which is invisible to any check that only looks for "is the loop
+    running". Neither timestamp alone can express it.
+
+    The `reported_*` watermark exists because the counters are cumulative and
+    the metrics are deltas. Holding the previous total in process memory would
+    work until a restart, and a restart is exactly the event the metrics are
+    meant to make visible, so the watermark is a column. Advancing it is one
+    conditional UPDATE, so two reporters cannot double-count the same ticks.
+
+    No tenant column and no row-level security policy, for the same reason as
+    `jobs` and `outbox`: one worker serves every tenant, so a policy on this
+    table would have to be bypassed to function. Nothing tenant-identifying is
+    stored here -- `owner` is a host or task identity, which is why it is also
+    refused as a metric dimension.
+    """
+
+    __tablename__ = "worker_heartbeats"
+    __table_args__ = (
+        # The only query the staleness metric issues: the newest heartbeat
+        # across all workers. Without it that is a full scan on every report,
+        # and the report runs on a schedule forever.
+        Index("ix_worker_heartbeats_last_seen", "last_seen_at"),
+    )
+
+    #: The lease owner string. Natural key: a second row for the same worker
+    #: would make "is it alive" ambiguous, and whichever row was read first
+    #: would win silently.
+    owner: Mapped[str] = mapped_column(String, primary_key=True)
+
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+    #: Advances on every tick. The liveness signal.
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+    #: Advances only on a tick that claimed something. Nullable: a worker that
+    #: has never claimed anything is a real and reportable state, and a
+    #: default of "now" would have made it indistinguishable from one that
+    #: just finished a job.
+    last_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    #: Cumulative, incremented in SQL rather than read-modify-write so a
+    #: second thread in the same process cannot lose a tick.
+    ticks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claims: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    #: Watermark: the counter values as of the last published report.
+    reported_ticks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reported_claims: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reported_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Account(Base):
     __tablename__ = "accounts"
 

@@ -385,6 +385,44 @@ def fail(
     return state
 
 
+def oldest_due_age(session: Session, *, clock: Clock = _now) -> timedelta:
+    """How long the oldest job that is due has been waiting.
+
+    Moved here from `schedules.py`, where it had been living while querying
+    this module's table -- which is why there was no measure of schedule
+    lateness at all. See `schedules.oldest_overdue_age`.
+
+    Queue *age*, not queue depth, because depth says nothing about whether
+    anything is wrong: a thousand jobs being worked through quickly is
+    healthy, and one job stuck for an hour is not. This is the number a
+    backpressure rule should read, and the one an alarm should watch.
+    """
+    now = clock()
+    oldest = session.execute(
+        select(Job.available_at)
+        .where(Job.state == QUEUED, Job.available_at <= now)
+        .order_by(Job.available_at)
+        .limit(1)
+    ).scalar_one_or_none()
+    if oldest is None:
+        return timedelta(0)
+    return now - _utc(oldest)
+
+
+def count_by_state(session: Session, state: str) -> int:
+    """How many jobs are in one state.
+
+    Added for the poison gauge. Takes the state as a value rather than offering
+    one function per state, because the states are a closed set declared at the
+    top of this module and a caller that passes something else should get zero
+    rather than an attribute error -- the number is for a graph, and a reporter
+    that raises on a typo takes the whole report down with it.
+    """
+    return len(
+        session.execute(select(Job.id).where(Job.state == state)).scalars().all()
+    )
+
+
 def queue_depth(session: Session, *, clock: Clock = _now) -> int:
     """How many jobs are due now.
 

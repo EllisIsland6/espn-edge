@@ -16,11 +16,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from api.models import Job, Schedule, Tenant
-from api.services.jobs import claim, complete, enqueue
+from api.services.jobs import (
+    claim,
+    complete,
+    enqueue,
+    oldest_due_age,  # moved here: it queries `jobs`
+)
 from api.services.schedules import (
     _utc,
     materialize_due,
-    oldest_due_age,
     slot_for,
     slot_key,
 )

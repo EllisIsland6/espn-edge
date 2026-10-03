@@ -1926,7 +1926,23 @@ def test_only_the_provider_mentions_the_telemetry_module():
         if path.name in ("telemetry.py", "espn.py"):
             continue
         tree = ast.parse(path.read_text(), filename=str(path))
+        # Docstrings are exempt, and ONLY docstrings. A docstring cannot be an
+        # import, so a module that names `telemetry.py` in prose -- to say what
+        # it is not, which `observability.py` does -- is not wiring. Collected
+        # by identity from the places a docstring can structurally occur, not
+        # by "the first statement" or by line number: a scan narrowed by
+        # guesswork is a scan with a hole in it.
+        docstrings = {
+            id(ast.get_docstring(scope, clean=False) and scope.body[0].value)
+            for scope in [tree, *ast.walk(tree)]
+            if isinstance(
+                scope, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            )
+            and ast.get_docstring(scope) is not None
+        }
         for node in ast.walk(tree):
+            if id(node) in docstrings:
+                continue
             if isinstance(node, ast.ImportFrom) and "telemetry" in (node.module or ""):
                 offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} from-import")
             elif isinstance(node, ast.Import):
@@ -1952,6 +1968,39 @@ def test_only_the_provider_mentions_the_telemetry_module():
                 if "telemetry" in flattened:
                     offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} assembled reference")
     assert offenders == [], offenders
+
+
+def test_the_docstring_exemption_does_not_exempt_ordinary_strings():
+    """The narrowing above is a weakening, so it is pinned.
+
+    A module docstring naming `telemetry.py` in prose is not a wiring; a
+    string literal anywhere else in the same module still is, because that is
+    where an `import_module` argument lives. Both halves are asserted, because
+    exempting only one of them is the whole point and a scan that exempted
+    both would pass this file's other tests unchanged.
+    """
+    source = (
+        '"""A module docstring mentioning api.services.telemetry in prose."""\n'
+        'TARGET = "api.services.telemetry"\n'
+    )
+    tree = ast.parse(source)
+    docstrings = {
+        id(ast.get_docstring(scope, clean=False) and scope.body[0].value)
+        for scope in [tree, *ast.walk(tree)]
+        if isinstance(
+            scope, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+        and ast.get_docstring(scope) is not None
+    }
+    hits = [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and id(node) not in docstrings
+        and "telemetry" in re.sub(r"[^A-Za-z0-9_]", "", ast.unparse(node))
+    ]
+    assert len(hits) == 1, hits
+    assert "api.services.telemetry" in hits[0]
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,318 @@
+# Phase 41 (narrowed) — observability: making silence legible
+
+**Scope.** Phase 41's change surface names eleven things; four of its five
+acceptance clauses are provable offline and the rest need an AWS account.
+This phase did the offline four and names the rest as deferred. Nothing here
+called AWS, Anthropic, ESPN or the network.
+
+---
+
+## The probe that set the scope
+
+Before writing anything I ran the worker loop against an empty queue and
+counted every durable row that changed.
+
+```
+drain() returned: []
+durable rows changed by an idle tick: NOTHING
+tables that could hold worker liveness: NONE
+```
+
+So a worker that was up and idle and a worker that had died an hour earlier
+produced **byte-identical database state**. No alarm could have told them
+apart, because there was nothing to tell apart.
+
+That one measurement decided the phase. Everything below is downstream of it.
+
+---
+
+## The rule
+
+A counter written only when it is non-zero has no datapoint during an outage.
+An alarm on it sits in `INSUFFICIENT_DATA`, and CloudWatch's default reading of
+`INSUFFICIENT_DATA` is *not alarming*. So **silence reads as health**, which is
+exactly backwards: silence is the thing being detected.
+
+Two mechanisms make the omission impossible rather than discouraged:
+
+- `observability.report()` takes a whole snapshot and **requires every one of
+  the ten series**. A missing key raises `IncompleteReport`. "Nothing happened
+  so I published nothing" is a crash here, not a gap in a graph.
+- `emit()` publishes `0` like any other number. There is no falsy check in the
+  module, and removing that property is one of the control removals below.
+
+---
+
+## What was built
+
+| File | What it is |
+|---|---|
+| `api/services/observability.py` | The ten series, the sink protocol, the dimension policy |
+| `api/services/alarms.py` | Ten alarm specs as data, and `evaluate()` |
+| `api/services/heartbeat.py` | `record_tick` / `staleness` / `idle_age` / `take_progress` |
+| `api/services/snapshot.py` | Collects the ten; `report_degraded` for a dead database |
+| `api/models.py` | `WorkerHeartbeat` |
+| `alembic/versions/0011_worker_heartbeats.py` | One table, one index |
+| `docs/sprint-9/faults/harness.py` | Five scenarios, ten pairwise comparisons |
+
+Tests: `test_observability.py` (35), `test_alarms.py` (21),
+`test_heartbeat.py` (20), `test_worker_heartbeat.py` (6),
+`test_snapshot.py` (18), `test_recovery_format_drift.py` (4) — 104 new, and
+436 across every file this phase touched, all passing.
+
+The migration was probed up and down against a throwaway database before
+anything depended on it: fresh to `head`, the table present with `owner` as
+the primary key and `last_claimed_at` nullable, `downgrade -1` removing it
+cleanly, and `upgrade head` again.
+
+### The two-timestamp design
+
+`worker_heartbeats` carries `last_seen_at` *and* `last_claimed_at`. The first
+advances on every tick including the empty ones; the second only when work was
+picked up. A fresh first beside a stale second is the live-but-not-claiming
+case — a process looping and achieving nothing — and **no single timestamp can
+express it**. Removing the `if claimed:` condition is the one change that
+destroys the signal outright, so both the unit suite and the fault harness
+require it.
+
+### What "we could not measure" publishes
+
+When the database is unreachable, nine of the ten series cannot be measured.
+Three options, two wrong:
+
+- **Zeroes for the nine.** The worst: `queue_depth=0` and
+  `queue_oldest_age_seconds=0` are the *healthiest* readings those series take,
+  so a total outage would publish a clean bill of health. The defect this phase
+  exists to remove, moved one layer down where no alarm setting could catch it.
+- **A large sentinel for the nine.** Pages for nine conditions nobody observed,
+  with nine false runbook lines. An operator chasing `outbox-undelivered`
+  during a database outage is being actively misled.
+- **`db_reachable=0` and leave the nine absent.** Correct, and correct *only
+  because* every alarm treats missing as breaching — which is what buys the
+  right to say "unknown" and still get paged.
+
+A published `0` and a gap are therefore different observations, and that
+distinction is what separates a stopped host from a stopped database: both
+light all ten alarms, and only one of them had something alive to report the
+failure.
+
+### The dimension policy
+
+`env` and `kind` only. `tenant_id` is **named and refused** — not because it is
+useless but because a per-tenant dimension multiplies the series count by the
+tenant count, and the bill and the cardinality limit both arrive without
+warning. `job_id`, `user_id`, `league_id`, `owner`, `trace_id` and `session_id`
+are refused with their reasons. Dimension *values* must match a short closed
+token, because free text in a dimension is how an error message becomes part of
+a metric name — and a metric name is not redactable after the fact.
+
+Structurally: `Sample` has five fields and there is nowhere in it to put a
+payload, an error string or an identifier. Asserted over the dataclass's own
+fields, so a field added later without thought fails the test.
+
+---
+
+## Control removals
+
+A passing test is not evidence a control works. The evidence is that it fails
+when the control is removed.
+
+### `observability.py`
+
+| Control removed | Result |
+|---|---|
+| `emit` skips a zero | **2 failures** |
+| `report` does not check for missing series | **1 failure** |
+| Dimensions default-allow instead of default-deny | **13 failures** |
+| A bool counts as a number | **1 failure** |
+| `report` publishes what it has before raising | **1 failure** |
+
+### `alarms.py`
+
+| Control removed | Result |
+|---|---|
+| One alarm flipped to `notBreaching` | **3 failures** |
+| `evaluate` reads a gap as healthy | **5 failures** |
+| `evaluate` returns `INSUFFICIENT_DATA` | **4 failures** |
+| The rendered API call drops `TreatMissingData` | **1 failure** |
+| `treat_missing_data` gets a default | **collection error** |
+| Statistic keyed on unit again | **2 failures** |
+| One series loses its alarm | **1 failure** |
+
+The default-value removal is the strongest guard in the set: adding a default
+puts a non-defaulted field after a defaulted one, so **Python itself refuses to
+define the class**. The catalog test cannot be made unfalsifiable without the
+module failing to import.
+
+### `heartbeat.py` / `worker.py`
+
+| Control removed | Result |
+|---|---|
+| `last_claimed_at` advances on every tick | **4 failures** + harness fails |
+| `staleness` returns `timedelta(0)` for an empty table | **1 failure** |
+| `take_progress` does not advance the watermark | **4 failures** |
+| The watermark guard dropped | **1 failure** (after the test was fixed — below) |
+| The worker ticks only when it claimed something | **4 failures** |
+| The heartbeat shares the job's transaction | **1 failure** |
+
+### Against the fault harness
+
+| Control removed | Harness |
+|---|---|
+| `emit` skips a zero | **FAILED** — `db_reachable` read `absent`, expected `0.0` |
+| `evaluate` reads a gap as healthy | **FAILED** — 5 claims |
+| `last_claimed_at` always advances | **FAILED** — 2 claims |
+
+---
+
+## The fault harness
+
+`docs/sprint-9/faults/harness.py`. Five scenarios, and a claim stronger than
+"the alarms fire":
+
+> The four faults produce four observations that are pairwise distinct, and a
+> healthy baseline is distinct from all four.
+
+A harness where every fault lights every alarm has proved nothing — it is
+indistinguishable from a catalog that always fires. So all ten pairs are
+compared and any pair with the same signature is a failure.
+
+```
+healthy             0 alarms   db_reachable=1.0    1 owner    ever_claimed=True
+host_stop          10 alarms   db_reachable=absent 1 owner    ever_claimed=True
+crash_loop          2 alarms   db_reachable=1.0   10 owners   ever_claimed=False
+db_unreachable     10 alarms   db_reachable=0.0    0 owners   ever_claimed=False
+live_not_claiming   2 alarms   db_reachable=1.0    1 owner    ever_claimed=False
+
+PASSED -- 5 scenarios, 10 pairs all distinct
+```
+
+`host_stop` and `db_unreachable` both light all ten. The field that separates
+them is the one the zero-versus-absent rule produces: `absent` means nothing
+was alive to report, `0.0` means something ran and could not reach the
+database. `crash_loop` and `live_not_claiming` both light two; the
+short-lived-owner count separates them — a restarting container takes a new
+task identity each time, so the table fills with rows that ticked once.
+
+**Not proven here:** that CloudWatch computes what `alarms.evaluate` computes.
+That is an AWS claim, needs an account, and is Phase 43. `evaluate` is written
+to AWS's documented rule for `treatMissingData=breaching`. Said plainly rather
+than left implied.
+
+---
+
+## Seven defects found, six of them mine
+
+1. **`oldest_due_age` lived in `schedules.py` while querying the `jobs`
+   table** — its own docstring said "the oldest job that is due". So there was
+   no measure of schedule lateness anywhere, and
+   `schedule_overdue_age_seconds` was about to be wired to the job queue age:
+   two series publishing one number under names claiming different things, with
+   every test green. Moved to `jobs.py`; wrote the `oldest_overdue_age` that
+   was missing; added
+   `test_the_two_age_series_measure_different_things`, which builds a world
+   where the correct answers are unequal and requires that they are.
+
+2. **The alarm statistic was keyed on `Unit`, not `Kind`** — so every `COUNT`
+   series got `Sum`, including `queue_depth` and `jobs_poisoned`, which are
+   gauges. A depth of 40 sampled five times in a period would have evaluated as
+   200 and alarmed on nothing at all. **My test asserted the same wrong rule
+   and passed.** Rewritten to assert the property, and to require both branches
+   are reachable from the catalog.
+
+3. **`publish` threaded the clock into the measurement but not the
+   timestamp** — `report` fell through to `datetime.now(UTC)`, so every sample
+   was stamped with wall-clock time while describing state read at clock time.
+   Fifteen snapshot tests passed, because not one looked at `Sample.at`. The
+   harness found it on its first run. It matters outside tests: CloudWatch
+   buckets by timestamp.
+
+4. **The harness's own window function took the last N *samples* instead of
+   the last N *periods of time*.** A host that published twice and then died
+   produced `[None, 1.0, 1.0]` — one gap among two healthy samples — and every
+   alarm read OK. **The harness reported a stopped host as healthy.** Fixed to
+   evaluate a wall-clock grid, which is what CloudWatch does: silence occupies
+   periods.
+
+5. **The harness passed while the distinction it rests on was not exercised.**
+   `scenario_db_unreachable` had no clock, so its samples landed outside the
+   grid and read `absent` — the same as `host_stop`. The two were separated by
+   a coincidence in their alarm counts, not by the zero-versus-absent reading
+   the docstring credits. Found by reading the output rather than the verdict.
+   Now asserted per scenario.
+
+6. **`test_two_reporters_cannot_report_the_same_ticks_twice` passed with the
+   guard deleted.** The two reporters ran sequentially, so the second read the
+   already-advanced watermark and got the right answer from fresh state — the
+   guard was never exercised. Same shape as the Phase 39 claim-race test. Both
+   reads are now forced to happen before either write, and the assertion is on
+   the sum: two ticks may be reported twice in total, not four times.
+
+7. **One control removal left the harness passing** — `last_claimed_at`
+   advancing on every tick. The unit suite caught it (4 failures) but the
+   harness is the artefact that claims to prove the live-but-not-claiming
+   signal *path*, and the path runs through that column. Added `ever_claimed`
+   to the signature and asserted it per scenario; the removal now fails the
+   harness too.
+
+Two comments also overclaimed what their code did and were corrected rather
+than left to talk a reviewer out of reading: `evaluate`'s padding comment
+(a short history is padded with breaches, but that does **not** force an
+alarm — three required datapoints and one healthy sample is OK), and
+`take_progress`'s guard comment (the guard stops a second *reporter*;
+conservation across windows comes from writing back the total that was read,
+which is a different mechanism and survives different edits).
+
+---
+
+## A pre-existing breakage, now named
+
+**89 tests fail, in three files, and none of them because of Phase 41** —
+measured, not assumed: `WorkerHeartbeat` was removed from `api/models.py`, the
+files re-run, and the counts were identical both ways.
+
+| File | Failures | Cause |
+|---|---|---|
+| `tests/test_recovery.py` | 64 | `recovery_schema_drift` |
+| `tests/test_recovery_integration.py` | 24 | `recovery_schema_drift` |
+| `tests/test_recovery_oracle.py` | 1 | `UNIQUE constraint failed: tenants.id` |
+
+Outside those three files: **1370 tests, 0 failures.** Suite total 1459.
+
+Recovery format v1 freezes the entire SQLite catalog and pins its digest.
+Phases 36–40 added seven tables and the format was never re-versioned, so it
+now matches no database this application can create. The control is
+fail-closed and working; it has simply not been updated.
+
+`tests/test_recovery_format_drift.py` turns 64 opaque errors into one explicit
+statement of which eight tables are outside the format and what fixing it
+requires. It fails in both directions: a new table added without a thought
+about recovery fails it, and so does removing one because the format was
+re-versioned — at which point the file should be deleted in that change.
+
+**Attempted and backed out:** adding `worker_heartbeats` to
+`EXPECTED_TABLE_COLUMNS` to clear the error. It did not clear it (seven older
+tables were still missing) and it would have asserted membership in a frozen
+format nobody reviewed. Making one table's claim true while six stay false is
+not progress, it is a quieter failure.
+
+---
+
+## Deferred, with reasons
+
+| Acceptance clause | Status |
+|---|---|
+| Local fault harness: four signal paths | **done** |
+| Every self-published alarm treats missing as breaching | **done** |
+| Zero-valued progress distinct from no sample | **done** |
+| Ten-metric telemetry self-test contract | **done** (the catalog and its tests) |
+| Certificate expiry / credit-guard forced trip | **deferred** — AWS; Phase 43 |
+| OpenTelemetry traces | **deferred** — a collector endpoint is infrastructure |
+| EC2/RDS/ECS events and metrics | **deferred** — AWS |
+| Audit/snapshot/report retention | **deferred** — S3 lifecycle; AWS |
+| Recurring cost inside the $0.50 reserve | **partial** — no alarm uses a
+  high-resolution period, which is the offline half; the bill is Phase 43 |
+
+Also unchanged from the close-out: the OIDC callback is blocked on PyJWT, which
+cannot be installed in this environment, and hand-rolling JWT verification
+(`alg:none`, key confusion) is not something to ship.

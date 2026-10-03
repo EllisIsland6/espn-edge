@@ -47,6 +47,13 @@ GLOBAL_TABLES = frozenset({
     # hash, not by a policy. "Global" here means "has no tenant_id column",
     # and emphatically not "readable by anyone".
     "app_sessions",
+    # Worker liveness. Global by construction, like `jobs` has no RLS policy
+    # by construction: one worker process serves every tenant, so there is no
+    # tenant whose heartbeat this would be. `owner` is a host or task identity,
+    # which is also why `observability.py` refuses it as a metric dimension.
+    # Nothing in the table names a member, a league or a payload -- the
+    # columns are two timestamps and six counters.
+    "worker_heartbeats",
 })
 
 #: Tenant-scoped: the rows belong to one tenant and must never cross. Reaching

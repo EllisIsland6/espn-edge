@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import Job, Schedule
-from .jobs import QUEUED, Clock, _now, enqueue
+from .jobs import Clock, _now, enqueue
 
 #: How far ahead a tick materialises. Larger means fewer ticks and more rows
 #: sitting queued with a future `available_at`; smaller means a missed tick
@@ -119,21 +119,32 @@ def materialize_due(
     return created
 
 
-def oldest_due_age(session: Session, *, clock: Clock = _now) -> timedelta:
-    """How long the oldest job that is due has been waiting.
+def oldest_overdue_age(session: Session, *, clock: Clock = _now) -> timedelta:
+    """How late the most overdue enabled schedule is.
 
-    Queue *age*, not queue depth, because depth says nothing about whether
-    anything is wrong: a thousand jobs being worked through quickly is
-    healthy, and one job stuck for an hour is not. This is the number a
-    backpressure rule should read, and the one an alarm should watch.
+    `materialize_due` advances `next_run_at` as it goes, so while
+    materialisation is running every enabled schedule's `next_run_at` stays at
+    or ahead of now. When it stops, they fall behind, and this is how far.
+
+    This function exists because of a defect: `oldest_due_age` used to live in
+    this module while querying the `jobs` table -- its own docstring said "the
+    oldest job that is due". So there was no measure of *schedule* lateness
+    anywhere, and the `schedule_overdue_age_seconds` metric was about to be
+    wired to the job queue age. Two series would have published the same
+    number under names claiming to measure different things, and every test
+    would have been green.
+    `tests/test_snapshot.py::test_the_two_age_series_measure_different_things`
+    is the guard against that happening again.
+
+    Disabled schedules are excluded: a schedule somebody turned off is not
+    late, and counting it would put the fleet in alarm forever for a
+    deliberate act.
     """
     now = clock()
     oldest = session.execute(
-        select(Job.available_at)
-        .where(Job.state == QUEUED, Job.available_at <= now)
-        .order_by(Job.available_at)
+        select(Schedule.next_run_at)
+        .where(Schedule.enabled.is_(True), Schedule.next_run_at <= now)
+        .order_by(Schedule.next_run_at)
         .limit(1)
     ).scalar_one_or_none()
-    if oldest is None:
-        return timedelta(0)
-    return now - _utc(oldest)
+    return timedelta(0) if oldest is None else now - _utc(oldest)
