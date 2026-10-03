@@ -1,11 +1,12 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1477 tests, 1459 passing, 17 skipped, 1 failing**. The seventeen
-skips are the tests that assert a property of an installed deployment — they need
-`<repo>/.venv/bin/python`, which points at a macOS framework interpreter and resolves only on the
-operator's Mac — and each skip names that path in its reason. The one failure asserts an orphaned
-credential child has not yet exited and loses that race on this machine, deterministically.
-`ruff check api tests` clean.
+Merged to `main`. Suite **1480 tests, 1460 passing, 19 skipped, 1 failing** — verified from a
+clean clone, not the worktree. Seventeen of the skips are tests that assert a property of an
+installed deployment: they need `<repo>/.venv/bin/python`, which points at a macOS framework
+interpreter and resolves only on the operator's Mac, and each skip names that path in its reason.
+The one failure asserts an orphaned credential child has not yet exited and loses that race off the
+Mac, deterministically. `ruff check api tests` clean; the fault harness exits 0; `alembic upgrade
+head` reaches 0011.
 
 This closes the project at **Phase 41 (narrowed)**. Phases 39, 40 and 41 were done after the first
 close-out was written; 42–45 need AWS access and spend, which was never authorized.
@@ -218,7 +219,8 @@ Run the suite: `APP_MODE=private_operator python -m pytest tests/ -p no:cachepro
 in `tests/test_recovery.py` assert properties of that installed deployment and will execute rather
 than skip.
 
-**Anywhere else** — a container, a CI runner, a fresh clone — expect **17 skips and 1 failure**.
+**Anywhere else** — a container, a CI runner, a fresh clone — expect **17 skips and 1 failure**
+(plus two unrelated skips that predate this work).
 The skips name `<repo>/.venv/bin/python` in their reason. `api/recovery.py` launches the backup job
 through the *lexical* venv path on purpose: resolving the symlink would select the base framework
 interpreter and lose the venv's package search path under launchd. That symlink points at
@@ -329,6 +331,19 @@ This was a practice project. These are the findings that are not about fantasy f
     first — still failed validation, because three older tables had also gained a column. A fix
     that changes nothing visible is indistinguishable from no fix, and the only way to tell them
     apart is to measure which check is refusing.
+
+19. **A hand-built environment is not isolation if the thing it configures reads a file by
+    absolute path.** The restore verifier spawned a subprocess with a carefully minimal environment
+    that was missing three *required* settings, and it worked for months because `Settings` loads
+    `ROOT/".env"` by absolute path — so the minimal environment never isolated anything. On a
+    machine without that file the subprocess printed a traceback instead of JSON and the caller
+    reported "Restored application verification failed": a missing setting, presented as data loss,
+    during a restore. The same mistake had already been recorded a phase earlier in two *tests*;
+    this time it was in production code, and the clean clone found it both times.
+
+20. **Running the suite you edited is a narrower habit than running the suite.** A one-word
+    filename in the restore verifier tripped a provider-wiring scan three files away. The targeted
+    runs were all green; the clone running everything was not.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.

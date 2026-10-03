@@ -406,16 +406,27 @@ a gitignored `.env` happened to exist.
 
 | Check | Result |
 |---|---|
-| 1200 tests outside `tests/test_recovery.py` | **0 failures** |
-| `tests/test_recovery.py` | 275 tests, 18 failures (all environmental) |
-| **Total** | **1475 tests, 18 failures** |
+| 1203 tests outside `tests/test_recovery.py` | **0 failures**, 2 skipped |
+| `tests/test_recovery.py` | 277 tests, 259 passed, 17 skipped, 1 failed |
+| **Total** | **1480 tests, 1 failure, 19 skipped** |
 | `docs/sprint-9/faults/harness.py` standalone | exit 0, 10 pairs distinct |
 | `alembic upgrade head` | 0011 |
 | `ruff check api tests` | clean |
 
-The clone is the honest place to measure the venv-dependent failures, because
-it has no `.venv` at all while the worktree has a *dangling* one, and the two
-conditions take slightly different error paths.
+**The clone earned its keep twice.** First it found nine integration tests that
+pass in the worktree and fail in a clone, because
+`_run_operational_restore_verifier` spawned a subprocess with a hand-built
+environment missing three *required* `Settings` fields — and `Settings` loads
+`ROOT/".env"` by **absolute path**, so the hand-built environment never
+isolated anything. Off the operator's Mac the subprocess printed a traceback
+instead of JSON and the caller reported "Restored application verification
+failed": a missing setting, presented as data loss, during a restore. The same
+mistake was recorded a phase earlier in two *tests*; this time it was in
+production code.
+
+Then it found a one-word filename — `verifier-telemetry.md` — tripping the
+provider-wiring scan three files away. Every targeted run was green. Running
+the suite you edited is a narrower habit than running the suite.
 
 ---
 
