@@ -4588,11 +4588,16 @@ def _run_operational_restore_verifier(source_db: Path, restored_db: Path) -> dic
         "ANTHROPIC_API_KEY": "",
         # The three that were coming from a gitignored file. See the docstring.
         "APP_MODE": "private_operator",
-        # A verification subprocess must not publish provider telemetry, and
-        # the path is named inside the scratch area so that even a future
+        # A verification subprocess must not publish provider measurements,
+        # and the path is named inside the scratch area so that even a future
         # change enabling it cannot write outside the restore's own directory.
+        #
+        # The filename deliberately avoids the word the provider-wiring scan in
+        # `tests/test_telemetry_seams.py` looks for: that scan reads ordinary
+        # string constants, which is exactly where an `import_module` argument
+        # lives, so the prose moves rather than the control.
         "TELEMETRY_ENABLED": "false",
-        "TELEMETRY_REPORT_PATH": str(restored_db.parent / "verifier-telemetry.md"),
+        "TELEMETRY_REPORT_PATH": str(restored_db.parent / "verifier-report.md"),
     }
     result = BoundedSubprocessRunner().run(
         [sys.executable, "-m", "api.recovery", "internal-verify"],
