@@ -1,12 +1,13 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1480 tests, 1460 passing, 19 skipped, 1 failing** — verified from a
-clean clone, not the worktree. Seventeen of the skips are tests that assert a property of an
-installed deployment: they need `<repo>/.venv/bin/python`, which points at a macOS framework
-interpreter and resolves only on the operator's Mac, and each skip names that path in its reason.
-The one failure asserts an orphaned credential child has not yet exited and loses that race off the
-Mac, deterministically. `ruff check api tests` clean; the fault harness exits 0; `alembic upgrade
-head` reaches 0011.
+Merged to `main`. Suite **1481 tests, 1462 passing, 19 skipped, 0 failing** — verified from a
+clean clone with no `.env` and no `.venv`, not from the worktree. `ruff check api tests` clean, the
+fault harness exits 0, `alembic upgrade head` reaches 0011.
+
+Seventeen of the nineteen skips are tests that assert a property of an *installed deployment*: they
+need `<repo>/.venv/bin/python`, which points at a macOS framework interpreter and resolves only on
+the operator's Mac. Each names that path in its reason, and the skip condition is guarded by a test
+that is never skipped itself — see the CI note below.
 
 This closes the project at **Phase 41 (narrowed)**. Phases 39, 40 and 41 were done after the first
 close-out was written; 42–45 need AWS access and spend, which was never authorized.
@@ -193,12 +194,14 @@ fault harness exits 0, `alembic upgrade head` reaches 0011, `ruff check api test
 counts reproduce exactly. The clone also showed that the venv-attributable share of the 89 is **7
 with no `.venv` and 10 with a dangling one** — different error paths, same total.
 
-**CI has one failure left, and it is not something to fix by loosening a test.**
-`.github/workflows/ci.yml` runs `ruff check api tests` (clean) and then
-`python -m pytest -p no:cacheprovider`. The seventeen tests that need `<repo>/.venv/bin/python`
-now skip when it is absent, with the path named in the reason — they assert a property of an
-installed deployment rather than of the code, and CI's checkout has no `.venv` at all because
-`pip install -e ".[dev]"` goes into the runner's own environment.
+**CI should be green.** `.github/workflows/ci.yml` runs `ruff check api tests` and then
+`python -m pytest -p no:cacheprovider`, and both pass from a clean clone with nothing installed
+that a runner would not have. Said as "should" rather than "is", because nobody has run it there.
+
+The seventeen tests that need `<repo>/.venv/bin/python` skip when it is absent, with the path named
+in the reason — they assert a property of an installed deployment rather than of the code, and a CI
+checkout has no `.venv` at all because `pip install -e ".[dev]"` goes into the runner's own
+environment.
 
 The skips are guarded rather than taken on trust.
 `test_the_lexical_venv_skip_condition_matches_the_production_check` compares the skip predicate
@@ -207,20 +210,14 @@ with the code it stands in for fails the build instead of quietly hiding sevente
 hardcoding the predicate to "usable" fails that guard and makes the seventeen run and fail, which
 is the direction that matters.
 
-The remaining failure is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`.
-Whether it fails on a GitHub runner is unknown — it is a timing race, and on this machine it loses
-it every time. Do not widen the window: the assertion is about a real property of orphan lifetime.
-The honest fix is to make the test measure the orphan's remaining lifetime rather than assume the
-path ahead of it is fast, and that is a rewrite of its timing structure, not a tweak.
-
 Run the suite: `APP_MODE=private_operator python -m pytest tests/ -p no:cacheprovider`.
 
 **On the operator's Mac**, with a working `<repo>/.venv`, expect everything to run. Seventeen tests
 in `tests/test_recovery.py` assert properties of that installed deployment and will execute rather
 than skip.
 
-**Anywhere else** — a container, a CI runner, a fresh clone — expect **17 skips and 1 failure**
-(plus two unrelated skips that predate this work).
+**Anywhere else** — a container, a CI runner, a fresh clone — expect **19 skips and no failures**:
+the seventeen above plus two unrelated ones that predate this work.
 The skips name `<repo>/.venv/bin/python` in their reason. `api/recovery.py` launches the backup job
 through the *lexical* venv path on purpose: resolving the symlink would select the base framework
 interpreter and lose the venv's package search path under launchd. That symlink points at
@@ -228,9 +225,6 @@ interpreter and lose the venv's package search path under launchd. That symlink 
 Measured rather than assumed: pointing `api.recovery.ROOT` at a tree whose `.venv/bin/python` does
 resolve took the file from 18 failures to 3, and two of those three need that venv to carry the
 application's dependencies too.
-
-The one failure is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`,
-described in the CI note above.
 
 The suite takes longer than a single sandbox command window. Split it, or run
 `--ignore=tests/test_recovery.py` first: 1200 tests, 0 failures.
@@ -344,6 +338,20 @@ This was a practice project. These are the findings that are not about fantasy f
 20. **Running the suite you edited is a narrower habit than running the suite.** A one-word
     filename in the restore verifier tripped a provider-wiring scan three files away. The targeted
     runs were all green; the clone running everything was not.
+
+21. **A race can be unwinnable by its own configuration, not just lost on a slow machine.** A test
+    forked a child that slept 1.2 seconds and then asserted the child had not yet exited — while
+    setting a timeout of 1.5 seconds that the code had to wait out first. It was not flaky and it
+    was not the machine; 1.5 > 1.2. The fix was not a longer sleep but a handshake, because what
+    the assertion existed for was a liveness *precondition* — a dead process holds no locks, so
+    the lock check after it would have proved nothing.
+
+22. **"The control removal fails the test" is not the same as "the test can report the defect."**
+    Removing the `close_fds=True` behind an authority-free claim did fail the test — with the
+    marker file *missing* rather than reading "bad", because the extra descriptors broke the
+    subprocess before the probe ran. The removal proved the spawn was fragile and left the probe
+    unproven. A probe needs its own two-way instrument check, and it is cheap: a dozen lines with
+    no production code in them.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.

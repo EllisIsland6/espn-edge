@@ -373,24 +373,61 @@ never reached the line under test — the bundle is parsed before the target is
 looked at. **A test that cannot reach its subject is not a weak test, it is a
 different test.** It now builds a valid bundle and asserts the exact code.
 
-### What is left, and why it stays
+### What is left: nineteen skips, no failures
 
-**18 failures, all in `tests/test_recovery.py`, all environmental.**
-
-Seventeen need `<repo>/.venv/bin/python`. `api/recovery.py` launches the backup
-job through the *lexical* venv path deliberately — resolving the symlink
+Seventeen tests need `<repo>/.venv/bin/python`. `api/recovery.py` launches the
+backup job through the *lexical* venv path deliberately — resolving the symlink
 selects the base framework interpreter and loses the venv's package search path
 under launchd — and that symlink points at
 `/Library/Frameworks/Python.framework/.../python3.14`, which resolves on the
-operator's Mac and nowhere else. Measured: pointing `api.recovery.ROOT` at a
-tree whose `.venv/bin/python` does resolve takes the file from 18 failures to
-3, and two of those three need that venv to carry the app's dependencies too.
+operator's Mac and nowhere else. The exact set was found by measurement, not
+reading: `api.recovery.ROOT` was pointed at a tree whose `.venv/bin/python`
+does resolve and the two runs were diffed — **15 cleared, 2 cleared only with
+the app's dependencies in that venv, 1 did not clear at all**. Three
+conditions, three treatments, rather than one marker over all of them.
 
-The eighteenth asserts an orphaned credential child has *not yet* exited. The
-child sleeps 1.2s; here the broker-timeout path takes long enough that it is
-already gone. Five runs, five failures — environment-dependent, not flaky. The
-window should not be widened to make it pass: the assertion is about a real
-property of orphan lifetime.
+The skip is guarded.
+`test_the_lexical_venv_skip_condition_matches_the_production_check` compares
+the predicate against `_launchd_plist`'s own refusal and is never skipped
+itself, so a predicate that drifted from the code it stands in for fails the
+build instead of hiding seventeen tests. Hardcoding it to "usable" fails that
+guard *and* makes the seventeen run and fail — the direction that matters,
+since that is where a skip would conceal something real.
+
+### The eighteenth: a race that could not be won
+
+`test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`
+forked a descendant that slept 1.2s, then asserted further down that it had not
+yet exited. **The race was unwinnable by construction, not lost on a slow
+machine:** the test sets the broker timeout to 1.5s, so `run_backup` cannot
+return in less than that, and 1.5 > 1.2. Measured at 2.085s against the 1.2s
+sleep, with the child gone 0.885s before the assertion ran.
+
+What that assertion exists *for* is the liveness precondition of the next line
+— a dead process holds no locks, so taking the recovery lock after the orphan
+had exited would prove nothing. So the ordering is controlled now instead of
+hoped for: the descendant waits on a release file, the test asserts liveness
+directly with `os.kill(pid, 0)`, takes the lock while the orphan is provably
+running, then releases it and requires a prompt exit — which a zombie could not
+answer, making the handshake the definitive proof. The child's 30s backstop
+writes a *different* word, so an exit on the deadline fails loudly rather than
+passing as a timely one.
+
+And the scan it depends on had no instrument check, which turned out to matter.
+Removing the `close_fds=True` that holds the authority-free property does fail
+the test — but with the marker file **missing** rather than reading `"bad"`,
+because the extra descriptors break the broker before the credential command
+runs. So the removal proved the spawn is fragile and left the probe unproven. A
+probe that cannot report the defect is not a probe, so
+`test_the_descriptor_identity_scan_can_actually_report_authority` proves it both
+ways with no recovery code involved: an inherited descriptor is detected, a
+closed one is not.
+
+Control removals, 5: the child exits immediately (fails); the child ignores the
+release (fails); `close_fds=False` at the credential broker spawn (fails); the
+scan narrowed to fd 0..2 (fails); `keep_open` ignored (fails). Recorded as
+well: `close_fds=False` at the *other* spawn site passes, correctly — it is a
+different subprocess.
 
 ---
 
@@ -407,8 +444,8 @@ a gitignored `.env` happened to exist.
 | Check | Result |
 |---|---|
 | 1203 tests outside `tests/test_recovery.py` | **0 failures**, 2 skipped |
-| `tests/test_recovery.py` | 277 tests, 259 passed, 17 skipped, 1 failed |
-| **Total** | **1480 tests, 1 failure, 19 skipped** |
+| `tests/test_recovery.py` | 278 tests, 261 passed, 17 skipped, **0 failed** |
+| **Total** | **1481 tests, 0 failures, 19 skipped** |
 | `docs/sprint-9/faults/harness.py` standalone | exit 0, 10 pairs distinct |
 | `alembic upgrade head` | 0011 |
 | `ruff check api tests` | clean |
