@@ -16,7 +16,11 @@ from sqlalchemy import create_engine
 
 from api import models  # noqa: F401
 from api.db import Base
-from api.services.recovery import build_logical_bundle, restore_bundle_to_scratch
+from api.services.recovery import (
+    NOT_BUNDLED,
+    build_logical_bundle,
+    restore_bundle_to_scratch,
+)
 
 
 def _canonical(value) -> bytes:
@@ -101,6 +105,7 @@ def _source_fixture(path: Path) -> tuple[dict[str, list[dict]], dict[str, dict[s
     connection.row_factory = sqlite3.Row
     expected: dict[str, list[dict]] = {}
     declarations: dict[str, dict[str, str]] = {}
+    primary_keys: dict[str, str] = {}
     tables = [
         row[0]
         for row in connection.execute(
@@ -110,6 +115,22 @@ def _source_fixture(path: Path) -> tuple[dict[str, list[dict]], dict[str, dict[s
     ]
     try:
         connection.execute("PRAGMA foreign_keys=OFF")
+        # `create_all` is not inert: an `after_create` listener on `tenants`
+        # seeds the single default tenant. This oracle's whole claim is
+        # "exactly three synthetic rows per table, and every retained value is
+        # covered" -- a fourth row nobody generated breaks the claim before the
+        # comparison starts, and here it broke it loudly, with
+        # `UNIQUE constraint failed: tenants.id` when row 1 was inserted.
+        #
+        # So start from empty. Reverse dependency order even with foreign keys
+        # already off, because the order is the thing a reader checks and it
+        # should be right whether or not the pragma is.
+        for table in reversed(Base.metadata.sorted_tables):
+            connection.execute(f'DELETE FROM "{table.name}"')
+        for table in tables:
+            quoted = '"' + table.replace('"', '""') + '"'
+            left = connection.execute(f"SELECT count(*) FROM {quoted}").fetchone()[0]
+            assert left == 0, f"{table} did not start empty: {left} row(s)"
         for table in tables:
             quoted_table = '"' + table.replace('"', '""') + '"'
             columns = [dict(row) for row in connection.execute(f"PRAGMA table_info({quoted_table})")]
@@ -117,6 +138,11 @@ def _source_fixture(path: Path) -> tuple[dict[str, list[dict]], dict[str, dict[s
                 row[3] for row in connection.execute(f"PRAGMA foreign_key_list({quoted_table})")
             }
             declarations[table] = {column["name"]: column["type"] for column in columns}
+            keyed = sorted(
+                ((c["pk"], c["name"]) for c in columns if c["pk"]), key=lambda i: i[0]
+            )
+            assert keyed, f"{table} has no primary key; the oracle cannot address its rows"
+            primary_keys[table] = keyed[0][1]
             rows = []
             for number in (1, 2, 3):
                 row = {
@@ -141,7 +167,13 @@ def _source_fixture(path: Path) -> tuple[dict[str, list[dict]], dict[str, dict[s
                         continue
                     quoted_table = '"' + table.replace('"', '""') + '"'
                     quoted_column = '"' + column.replace('"', '""') + '"'
-                    pk = next(name for name in row if name in {"id", "espn_player_id", "key"})
+                    # Derived from the schema, not from a hardcoded set of
+                    # three names. The set was `{"id", "espn_player_id",
+                    # "key"}` and it raised StopIteration as soon as a table
+                    # arrived whose key is none of those -- `worker_heartbeats`
+                    # is keyed on `owner`. A list of names ages into a
+                    # landmine; `PRAGMA table_info` cannot go stale.
+                    pk = primary_keys[table]
                     actual = connection.execute(
                         f"SELECT typeof({quoted_column}) FROM {quoted_table} WHERE \"{pk}\"=?",
                         (row[pk],),
@@ -162,7 +194,10 @@ def test_independent_oracle_covers_every_retained_value_and_detects_substitution
     source_rows, declarations = _source_fixture(source)
     bundle, manifest = build_logical_bundle(source)
     payload = json.loads(bundle)
-    retained_tables = set(source_rows) - {"raw_cache"}
+    # `NOT_BUNDLED`, not a literal `{"raw_cache"}`: format v2 leaves seven
+    # tables out of the bundle, and a hardcoded exclusion here would assert an
+    # inventory that drifts the moment another one is added.
+    retained_tables = set(source_rows) - NOT_BUNDLED
     assert set(payload["tables"]) == retained_tables
     assert set(manifest["tables"]) == retained_tables
 

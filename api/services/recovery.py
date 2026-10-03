@@ -135,11 +135,43 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 # tables can no longer reach this check at all, because the table-set comparison
 # above it rejects any catalog whose tables differ from EXPECTED_TABLE_COLUMNS.
 # Leaving them would be an allowlist entry nothing can ever match.
+#: Format v2. Re-pinned because Phases 36-41 added eight tables and a
+#: `tenant_id` to three existing ones, and the v1 pair described the Phase-31
+#: schema -- a pin that matched nothing the application could build, so every
+#: backup and every restore refused.
+#:
+#: THREE shapes, not two, and finding the third is why this took measurement
+#: rather than arithmetic. Two independent axes:
+#:
+#:   leagues.tenant_id  -- appended (migrated) or fifth (create_all)
+#:   opportunity_weeks  -- full (create_all) or ALTER-extended (older file)
+#:
+#: The migrated shape had never been pinned at all, because `catalog_spec`
+#: included alembic's own `alembic_version` table and the allowlist never
+#: listed it -- so `alembic upgrade head`, the documented path, could not
+#: validate under v1 either. See `catalog_spec`.
+#:
+#: Each digest below was read off a real database built by the named recipe,
+#: by `.venv/phase41/digests.py`, which also reports which of
+#: `validate_catalog`'s four checks each shape reaches. Any table, column
+#: order, affinity, nullability, default, PK, FK, index, predicate or catalog
+#: SQL change requires a reviewed format version and a re-run of that script.
+_FORMAT_V2_CATALOG_SHA256 = frozenset(
+    {
+        # alembic upgrade head -- what an operator's database actually is
+        "1e62a65fb715c8b4587fd55fd44eed5a5371081d0f27dcc2893d5784c8223bea",
+        # create_all over the current models, opportunity_weeks older then ALTERed
+        "9eaa4e6da0dc9de0f5e27c7332363b654110684c55045aa1c55d89bce02f2bd5",
+        # create_all over the current models -- what the suite builds
+        "c72829cb2d34d3f2508f6615feb4203c1ecc4553f9f49d9fdfaaab8fb12b8f5f",
+    }
+)
+
+#: The v1 pair, kept only so the drift test can assert that nothing buildable
+#: hashes to it. Nothing in the recovery path reads this.
 _FORMAT_V1_CATALOG_SHA256 = frozenset(
     {
-        # create_all over the current models
         "61bb0f04d7099622adf5ce7fdd07375505981e34c62b110bcd75989cc20b404f",
-        # an older file brought forward by the additive opportunity_weeks ALTERs
         "e695bd2c2b2afdad67c52c79420c2cd6a2965a9fb712904a073284d350506b1c",
     }
 )
@@ -174,7 +206,11 @@ _SAFE_ERROR_CODES = {
 # current additive-migration order; the validator also admits create_all order
 # after proving its semantic catalog is otherwise identical.
 EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "accounts": ("id", "label", "swid", "espn_s2_encrypted", "status", "created_at"),
+    # `tenant_id` appended by alembic 0004 -- appended in both a migrated and a
+    # create_all database, unlike `leagues` below.
+    "accounts": (
+        "id", "label", "swid", "espn_s2_encrypted", "status", "created_at", "tenant_id",
+    ),
     "adp_snapshots": ("id", "source", "pulled_at", "format", "teams", "payload_json"),
     "ai_reports": (
         "id",
@@ -253,6 +289,17 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "adp_at_draft",
         "value_delta",
     ),
+    # The migrated order. `tenant_id` is LAST here and FIFTH in a create_all
+    # database, because alembic 0003 added it with a batch rebuild that appends
+    # while the model declares it after `account_id`. Measured, not assumed:
+    # `PRAGMA table_info` was read from a database built each way and the two
+    # disagree on this table and on no other. `_CREATE_ALL_LEAGUES_ORDER` below
+    # carries the other shape, and `validate_catalog` admits both -- the same
+    # accommodation `opportunity_weeks` already needed.
+    #
+    # Getting this wrong would have been invisible in one direction: the suite
+    # builds with `create_all` and the operator's database is migrated, so a
+    # single-order allowlist passes exactly one of them.
     "leagues": (
         "id",
         "espn_league_id",
@@ -272,6 +319,7 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "last_synced_at",
         "last_sync_ok",
         "last_sync_error",
+        "tenant_id",
     ),
     "lineup_slots": (
         "id",
@@ -372,7 +420,74 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "ffc_adp",
         "updated_at",
     ),
-    "raw_cache": ("key", "fetched_at", "payload_json"),
+    "raw_cache": ("key", "fetched_at", "payload_json", "tenant_id"),
+    # ---- Phases 36-41. See NOT_BUNDLED for which of these travel. -------
+    "tenants": ("id", "slug", "created_at"),
+    "users": ("id", "email", "created_at"),
+    "memberships": ("id", "tenant_id", "user_id", "role"),
+    "app_sessions": (
+        "id",
+        "token_hash",
+        "user_id",
+        "created_at",
+        "expires_at",
+        "revoked_at",
+        "origin",
+    ),
+    "jobs": (
+        "id",
+        "tenant_id",
+        "kind",
+        "idempotency_key",
+        "payload_json",
+        "state",
+        "attempts",
+        "max_attempts",
+        "available_at",
+        "lease_owner",
+        "lease_expires_at",
+        "last_error",
+        "created_at",
+        "updated_at",
+    ),
+    "schedules": (
+        "id",
+        "tenant_id",
+        "name",
+        "kind",
+        "payload_json",
+        "interval_seconds",
+        "anchor_at",
+        "next_run_at",
+        "enabled",
+        "created_at",
+        "updated_at",
+    ),
+    "outbox": (
+        "id",
+        "tenant_id",
+        "topic",
+        "dedupe_key",
+        "payload_json",
+        "created_at",
+        "available_at",
+        "delivered_at",
+        "attempts",
+        "last_error",
+    ),
+    "worker_heartbeats": (
+        "owner",
+        "first_seen_at",
+        "last_seen_at",
+        "last_claimed_at",
+        "ticks",
+        "claims",
+        "failures",
+        "reported_ticks",
+        "reported_claims",
+        "reported_failures",
+        "reported_at",
+    ),
     "teams": (
         "id",
         "league_id",
@@ -402,6 +517,91 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "executed_at",
     ),
 }
+
+#: `leagues` as a `create_all` database orders it: `tenant_id` fifth, where the
+#: model declares it, rather than appended where alembic 0003's batch rebuild
+#: put it. Both are real schemas -- the suite builds one and the operator runs
+#: the other -- so `validate_catalog` admits both.
+_CREATE_ALL_LEAGUES_ORDER = (
+    "id",
+    "espn_league_id",
+    "season",
+    "account_id",
+    "tenant_id",
+    "name",
+    "size",
+    "scoring_json",
+    "lineup_slots_json",
+    "draft_type",
+    "playoff_team_count",
+    "current_scoring_period",
+    "current_matchup_period",
+    "lifecycle",
+    "my_team_id",
+    "is_public",
+    "last_synced_at",
+    "last_sync_ok",
+    "last_sync_error",
+)
+
+#: Allowlisted so the schema check passes, and deliberately NOT written into
+#: the recovery bundle. Each entry is a decision, not an omission.
+#:
+#: `raw_cache` -- raw ESPN payloads for private leagues. Must not travel in a
+#:   backup at all; this was already true in format v1.
+#:
+#: `users` -- `email` is unique and is a member identifier. A single
+#:   `{REAUTH-REQUIRED}` substitution of the kind `accounts` uses would violate
+#:   the unique constraint on the second row, and inventing a per-row stand-in
+#:   would be fabricating identity. So identity does not travel, exactly as
+#:   credentials do not: a restore returns the data and the operator re-links
+#:   who may see it.
+#:
+#: `memberships` -- the authorization join. It carries no identifier itself,
+#:   but every row points at a `users` row that is not in the bundle, so
+#:   restoring it would write dangling references into a database whose
+#:   verification step checks `PRAGMA foreign_key_check`.
+#:
+#: `app_sessions` -- live session tokens. Restoring them would resurrect
+#:   sessions that were valid at backup time, so a restore would silently
+#:   re-admit whoever was signed in hours ago. A restore is a recovery event
+#:   and everyone should authenticate again.
+#:
+#: `jobs` -- queue state. A restored lease names a worker that does not exist,
+#:   and a restored `queued` row re-runs work whose side effects may already
+#:   have happened. Schedules re-materialise what is still due, by arithmetic,
+#:   so nothing is lost by starting the queue empty.
+#:
+#: `outbox` -- pending side effects. An undelivered message describes a state
+#:   change that the restored database may no longer contain, and sending a
+#:   notification about an event that no longer exists cannot be un-sent. The
+#:   outbox's guarantee is at-least-once relative to a committed change; a
+#:   restore moves which changes are committed, so the messages do not survive
+#:   it.
+#:
+#: `worker_heartbeats` -- operational state that regenerates on the first tick.
+#:   Carrying it would make a freshly restored database report a worker
+#:   identity that is not running.
+#:
+#: `schedules` is deliberately ABSENT from this set, i.e. it IS bundled. It is
+#: configuration the operator created, not transient state, and dropping it
+#: would mean nothing ever syncs again after a restore with nothing saying so.
+#: `materialize_due` keys on `(schedule, slot)` with no clock reading, so a
+#: restored schedule cannot double-execute anything.
+#:
+#: `tenants` is bundled too, and must be: `leagues.tenant_id`,
+#: `accounts.tenant_id` and `schedules.tenant_id` all reference it.
+NOT_BUNDLED = frozenset(
+    {
+        "raw_cache",
+        "users",
+        "memberships",
+        "app_sessions",
+        "jobs",
+        "outbox",
+        "worker_heartbeats",
+    }
+)
 
 _CREATE_ALL_OPPORTUNITY_ORDER = (
     "id",
@@ -881,6 +1081,21 @@ def _table_catalog(conn: sqlite3.Connection, table: str) -> dict[str, Any]:
 
 
 def catalog_spec(conn: sqlite3.Connection) -> dict[str, Any]:
+    """The application schema, as SQLite reports it.
+
+    `alembic_version` is excluded, and that exclusion is a format-v2 fix rather
+    than a tidy-up. It exists only in a database that was MIGRATED, not in one
+    built by `create_all`, so including it made the fingerprint depend on how
+    the database was created rather than on what shape it is -- and since the
+    allowlist never listed it, `validate_catalog` refused every database
+    produced by `alembic upgrade head`, which is the documented path. It went
+    unnoticed because the suite builds with `create_all`, where the table is
+    absent: the suite exercised one provenance and the operator ran the other.
+
+    Its contents are not lost by this. The revision is schema identity, and it
+    is recorded in the manifest beside the fingerprint rather than inside the
+    thing being fingerprinted.
+    """
     unexpected = list(
         conn.execute(
             "SELECT type,name FROM sqlite_schema "
@@ -893,7 +1108,7 @@ def catalog_spec(conn: sqlite3.Connection) -> dict[str, Any]:
         row[0]
         for row in conn.execute(
             "SELECT name FROM sqlite_schema WHERE type='table' "
-            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            "AND name NOT LIKE 'sqlite_%' AND name != 'alembic_version' ORDER BY name"
         )
     ]
     return {table: _table_catalog(conn, table) for table in tables}
@@ -921,13 +1136,15 @@ def validate_catalog(catalog: dict[str, Any]) -> str:
         allowed = {expected_columns}
         if table == "opportunity_weeks":
             allowed.add(_CREATE_ALL_OPPORTUNITY_ORDER)
+        if table == "leagues":
+            allowed.add(_CREATE_ALL_LEAGUES_ORDER)
         if actual not in allowed:
             raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
         if " check " in f" {catalog[table]['sql']} ":
             raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     encoded = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
-    if digest not in _FORMAT_V1_CATALOG_SHA256:
+    if digest not in _FORMAT_V2_CATALOG_SHA256:
         raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     return digest
 
@@ -1097,7 +1314,7 @@ def build_logical_bundle(
             for row in conn.execute("SELECT id,status FROM accounts ORDER BY id")
         ]
         for table in sorted(EXPECTED_TABLE_COLUMNS):
-            if table == "raw_cache":
+            if table in NOT_BUNDLED:
                 continue
             columns = EXPECTED_TABLE_COLUMNS[table]
             declared = {item["name"]: item["type"] for item in catalog[table]["columns"]}
@@ -3303,7 +3520,7 @@ def _bundle_manifest(bundle: bytes) -> dict[str, Any]:
         if manifest["schema_fingerprint"] != fingerprint:
             raise ValueError("invalid schema fingerprint")
         table_rows = value["tables"]
-        expected_tables = set(EXPECTED_TABLE_COLUMNS) - {"raw_cache"}
+        expected_tables = set(EXPECTED_TABLE_COLUMNS) - NOT_BUNDLED
         if set(table_rows) != expected_tables or set(manifest["tables"]) != expected_tables:
             raise ValueError("invalid table inventory")
         for table in sorted(expected_tables):
@@ -4126,18 +4343,68 @@ def restore_bundle_to_scratch(bundle: bytes, scratch_db: Path) -> dict[str, Any]
     from .. import models  # noqa: F401
     from ..db import Base
 
+    # The target must be empty, and saying so beats assuming it. Every caller
+    # passes a fresh scratch path, and the inserts below would collide on
+    # primary keys if it were not -- so this turns a confusing IntegrityError
+    # deep in the loop into a refusal that names the problem. It also means the
+    # clearing step further down cannot destroy anything an operator wanted:
+    # there is nothing there to destroy.
+    if scratch_db.exists() and scratch_db.stat().st_size:
+        probe = sqlite3.connect(scratch_db)
+        try:
+            existing = [
+                name
+                for (name,) in probe.execute(
+                    "SELECT name FROM sqlite_schema WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%' AND name != 'alembic_version'"
+                )
+                if probe.execute(f"SELECT 1 FROM {_quote(name)} LIMIT 1").fetchone()
+            ]
+        finally:
+            probe.close()
+        if existing:
+            raise RecoveryError(
+                "recovery_target_unavailable",
+                "Restore target is not empty.",
+            )
+
     engine = create_engine(f"sqlite:///{scratch_db}")
     try:
         Base.metadata.create_all(engine)
         with engine.begin() as connection:
             connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+            # `create_all` is not inert: an `after_create` listener on
+            # `tenants` seeds the single default tenant, which is right for a
+            # fresh application database and wrong here -- the bundle's own
+            # tenant row then collides on the primary key, and before this the
+            # restore failed with `UNIQUE constraint failed: tenants.id`.
+            #
+            # So the restore starts from empty: a restore means "exactly these
+            # rows", not "these rows plus whatever the schema decided to seed".
+            # Deleted in REVERSE dependency order so children go before
+            # parents and no `ON DELETE CASCADE` has anything to reach --
+            # Phase 36 measured what happens when a delete under enforced
+            # foreign keys fires cascades nobody counted.
+            for table in reversed(Base.metadata.sorted_tables):
+                connection.exec_driver_sql(f"DELETE FROM {_quote(table.name)}")
+            for table in Base.metadata.sorted_tables:
+                remaining = connection.exec_driver_sql(
+                    f"SELECT count(*) FROM {_quote(table.name)}"
+                ).scalar()
+                if remaining:
+                    raise RecoveryError(
+                        "recovery_bundle_invalid",
+                        "Restore target did not start empty.",
+                    )
+
             restored_catalog = catalog_spec(connection.connection.driver_connection)
             if _catalog_semantics(restored_catalog) != _catalog_semantics(manifest["catalog"]):
                 raise RecoveryError(
                     "recovery_bundle_invalid", "Restored constraint inventory does not match."
                 )
             for table in Base.metadata.sorted_tables:
-                if table.name == "raw_cache":
+                if table.name in NOT_BUNDLED:
                     continue
                 rows = payload["tables"].get(table.name)
                 if not isinstance(rows, list):
