@@ -4551,6 +4551,31 @@ def verify_restored_read_closure(scratch_db: Path) -> dict[str, int]:
 
 
 def _run_operational_restore_verifier(source_db: Path, restored_db: Path) -> dict[str, bool]:
+    """Run the four read surfaces against the restored database, in a subprocess.
+
+    THE ENVIRONMENT IS COMPLETE ON PURPOSE, and it was not.
+
+    `Settings` has three required fields -- `APP_MODE`, `TELEMETRY_ENABLED`,
+    `TELEMETRY_REPORT_PATH` -- and none of them was in this dict. It worked
+    anyway, because `Settings` is configured with `env_file=str(ROOT / ".env")`
+    -- an ABSOLUTE path -- so **a hand-built environment does not isolate the
+    subprocess from the operator's gitignored `.env`**. `_minimal_env()` looks
+    like isolation and is not. On any machine without that file -- a CI runner,
+    a fresh clone, a new deployment -- `Settings` failed to validate, the
+    subprocess printed a traceback instead of JSON, and this function raised
+    **"Restored application verification failed"**: a configuration problem
+    reported as a verification failure, which an operator reads as data loss
+    during the one procedure where that would be terrifying.
+
+    Found by running the suite from a clean clone rather than the worktree.
+    The same defect was recorded in `docs/CLOSE-OUT.md` a phase earlier, in two
+    *tests* that were handed a hand-built environment and also `cwd=ROOT`. This
+    is the same mistake in production code.
+
+    `APP_MODE` being explicit matters beyond portability: inheriting it meant
+    the verifier could have run in hosted mode -- which is synthetic-only --
+    against real restored data, depending on an untracked file.
+    """
     from cryptography.fernet import Fernet
 
     env = {
@@ -4561,6 +4586,13 @@ def _run_operational_restore_verifier(source_db: Path, restored_db: Path) -> dic
         "SEASON": "2025",
         "FERNET_KEY": Fernet.generate_key().decode(),
         "ANTHROPIC_API_KEY": "",
+        # The three that were coming from a gitignored file. See the docstring.
+        "APP_MODE": "private_operator",
+        # A verification subprocess must not publish provider telemetry, and
+        # the path is named inside the scratch area so that even a future
+        # change enabling it cannot write outside the restore's own directory.
+        "TELEMETRY_ENABLED": "false",
+        "TELEMETRY_REPORT_PATH": str(restored_db.parent / "verifier-telemetry.md"),
     }
     result = BoundedSubprocessRunner().run(
         [sys.executable, "-m", "api.recovery", "internal-verify"],
@@ -4570,8 +4602,12 @@ def _run_operational_restore_verifier(source_db: Path, restored_db: Path) -> dic
     try:
         value = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
+        # Distinct from the failure below. The verifier did not produce a
+        # verdict at all, which is a different incident from a verdict that
+        # says no -- and conflating them is how a missing setting gets read as
+        # a corrupted restore.
         raise RecoveryError(
-            "recovery_bundle_invalid", "Restored application verification failed."
+            "recovery_bundle_invalid", "Restore verifier did not run."
         ) from exc
     expected = {
         "four_reads_match",

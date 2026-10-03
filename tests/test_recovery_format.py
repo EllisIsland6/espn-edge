@@ -505,3 +505,76 @@ def test_a_restore_refuses_a_target_that_is_not_empty(tmp_path):
     # refusal above is about the target rather than about the bundle.
     clean = tmp_path / "clean.db"
     restore_bundle_to_scratch(bundle, clean)
+
+
+# --------------------------------------------------------------------------
+# The restore verifier's environment
+# --------------------------------------------------------------------------
+
+
+def test_the_restore_verifier_supplies_every_required_setting(tmp_path):
+    """The guard for a defect that only a clean clone could show.
+
+    `_run_operational_restore_verifier` spawns `python -m api.recovery
+    internal-verify` with a hand-built environment, and three of `Settings`'
+    required fields were missing from it. It worked anyway, because `Settings`
+    is configured with `env_file=str(ROOT / ".env")` -- an absolute path -- so
+    the hand-built environment never isolated the subprocess from the
+    operator's gitignored file. On a machine without that file the subprocess
+    printed a traceback instead of JSON and the caller reported "Restored
+    application verification failed": a missing setting presented as data loss,
+    during a restore.
+
+    Asserted over `Settings.model_fields` rather than against a list of three
+    names, so a required setting added later fails here instead of failing on
+    somebody else's machine.
+    """
+    import inspect
+
+    from api.config import Settings
+    from api.services import recovery
+
+    required = {
+        (field.alias or name).upper()
+        for name, field in Settings.model_fields.items()
+        if field.is_required()
+    }
+    assert required, "no required settings found; this test would be vacuous"
+
+    source = inspect.getsource(recovery._run_operational_restore_verifier)
+    missing = sorted(name for name in required if f'"{name}":' not in source)
+    assert missing == [], (
+        f"the restore verifier's environment does not set {missing}, so it "
+        "depends on a .env file that a CI runner or a fresh clone does not have"
+    )
+
+
+def test_the_verifier_runs_in_private_operator_mode():
+    """Not merely present -- correct.
+
+    Inheriting `APP_MODE` from an untracked file meant the verifier could have
+    run in hosted mode, which is synthetic-only, against real restored data.
+    """
+    import inspect
+
+    from api.services import recovery
+
+    source = inspect.getsource(recovery._run_operational_restore_verifier)
+    assert '"APP_MODE": "private_operator"' in source
+    assert '"TELEMETRY_ENABLED": "false"' in source
+
+
+def test_a_verifier_that_cannot_start_is_a_different_error_from_one_that_says_no():
+    """Conflating them is how a missing setting reads as a corrupted restore.
+
+    Both raise `recovery_bundle_invalid` -- the code is part of the safe-error
+    vocabulary and not worth expanding -- but the messages differ, and the
+    message is what an operator reads at two in the morning.
+    """
+    import inspect
+
+    from api.services import recovery
+
+    source = inspect.getsource(recovery._run_operational_restore_verifier)
+    assert "Restore verifier did not run." in source
+    assert "Restored application verification failed." in source
