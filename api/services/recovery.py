@@ -41,12 +41,22 @@ from sqlalchemy import create_engine
 
 from ..config import Settings, get_settings
 
-FORMAT_VERSION = 1
-BUNDLE_FILENAME = "espn-edge-recovery-v1.json"
+# Bumped from 1 for this phase. The frozen catalog changed -- eight tables,
+# three columns, and `alembic_version` leaving the fingerprint -- and the
+# comment above `_FORMAT_V2_CATALOG_SHA256` requires a reviewed version for
+# exactly that. Leaving this at 1 while the format is v2 would make the number
+# in every bundle and every state file a false statement.
+#
+# A v1 bundle cannot be read by this code and should not pretend otherwise: its
+# catalog would fail `validate_catalog` regardless, so the version marker makes
+# the refusal say WHY. No v1 bundle exists outside a test -- no restore has ever
+# been authorized -- so nothing is being orphaned.
+FORMAT_VERSION = 2
+BUNDLE_FILENAME = "espn-edge-recovery-v2.json"
 RECOVERY_TAG = "espn-edge-private-v1"
 REAUTH_SWID_SENTINEL = "{REAUTH-REQUIRED}"
 REAUTH_S2_SENTINEL = "not-a-fernet-token"
-RECOVERY_CANARY = "espn-edge-recovery-format-v1"
+RECOVERY_CANARY = "espn-edge-recovery-format-v2"
 _SCRATCH_ROOT_MARKER = ".espn-edge-recovery-root-v1"
 _SCRATCH_RUN_MARKER = ".espn-edge-recovery-run-v1"
 _MAX_BUNDLE_BYTES = 128 * 1024 * 1024

@@ -274,78 +274,123 @@ which is a different mechanism and survives different edits).
 
 ---
 
-## A pre-existing breakage, now named
+## A pre-existing breakage, found, counted, and then fixed
 
-**89 tests fail, in three recovery files, and none of them because of Phase
-41** — measured, not assumed: `WorkerHeartbeat` was removed from
-`api/models.py`, the files re-run, and the counts were identical both ways.
+**89 tests failed in three recovery files when Phase 41's work landed, and
+none of them because of it** — measured by removing `WorkerHeartbeat` from the
+models and re-running: identical both ways.
 
-They are also not one failure wearing eighty-nine hats, which is what my first
-pass at this claimed before I counted the causes:
+They were not one failure wearing eighty-nine hats, which is what my first
+pass claimed before I counted the causes:
 
 | Failures | Cause |
 |---|---|
-| 70 | recovery format v1 no longer matches any database this app can build |
-| 10 | `<repo>/.venv/bin/python` missing or broken — **environmental** |
+| 70 | recovery format v1 no longer matched any database this app can build |
+| 10 | `<repo>/.venv/bin/python` missing or unresolvable — **environmental** |
 | 1 | tenant seeding collision in the oracle's own fixture |
 | 8 | assorted, downstream of the two above |
 
-Outside those three files: **1155 tests, 0 failures.** Suite total **1462**, of which 307 are in the three recovery files.
+### The format drift had three independent parts
 
-Only the first group is a code problem, and it has **three independent
-parts**, each measured by calling `validate_catalog` on a database built from
-the current models and watching which of its four checks refused:
+Each measured by calling `validate_catalog` on a database built from the
+current models and watching which of its four checks refused:
 
-1. **Eight tables the allowlist has never heard of** — `tenants`, `users`,
+1. **Eight tables the allowlist had never heard of** — `tenants`, `users`,
    `memberships`, `app_sessions`, `jobs`, `schedules`, `outbox`,
    `worker_heartbeats`.
-2. **Three allowlisted tables gained an unlisted column** — `accounts`,
+2. **Three allowlisted tables had gained an unlisted column** — `accounts`,
    `leagues` and `raw_cache` each carry a `tenant_id` from migrations
-   0003/0004. Removing the eight unknown tables is *not* enough to pass, and
-   this is the part my first pass missed.
-3. **The pinned catalog digest matches nothing buildable.** Both documented
-   recipes — `create_all` over the current models, and an older
-   `opportunity_weeks` brought forward by the additive ALTERs — were run and
-   neither reproduces `_FORMAT_V1_CATALOG_SHA256` even with every Phase 36–41
-   table excluded.
+   0003/0004. **Fixing part one alone still failed**, which is the part my
+   first explanation missed: a fix that changes nothing visible is
+   indistinguishable from no fix.
+3. **The pinned catalog digest matched nothing buildable.** Both documented
+   recipes were run and neither reproduced `_FORMAT_V1_CATALOG_SHA256` even
+   with every Phase 36–41 table excluded.
 
-The control is fail-closed and working. It has simply not been updated.
+And a fourth thing, found only by building the schema the *documented* way:
+`catalog_spec` read every table out of `sqlite_schema`, which in a **migrated**
+database includes alembic's own `alembic_version`. The allowlist never listed
+it, so `alembic upgrade head` could not validate under v1 at all. It went
+unnoticed because the suite builds with `create_all`, where that table does
+not exist — the suite exercised one provenance and the operator ran the other.
 
-The ten environmental failures are the ones `docs/CLOSE-OUT.md` already
-describes: `api/recovery.py` launches the backup job through
-`ROOT / ".venv/bin/python"` — deliberately the *lexical* venv path, so a
-launchd plist survives a Python upgrade — and in a sandbox where that venv was
-never created the symlink dangles. Those tests pass on a machine with a real
-repo venv.
+The same hazard bit `leagues`: `tenant_id` is **appended** in a migrated
+database and **fifth** in a `create_all` one, because alembic 0003 added it
+with a batch rebuild while the model declares it after `account_id`. A
+single-order allowlist passes exactly one of the two, silently, in whichever
+direction nobody tests.
 
-**The number 89 appears in `CLOSE-OUT.md` attached to the environmental cause
-alone. That is a coincidence of arithmetic, not a shared cause** — worth
-stating plainly, because conflating them would send the next person to rebuild
-a venv and find 79 tests still red.
+### Format v2
 
-`tests/test_recovery_format_drift.py` turns 89 opaque errors into seven
-explicit assertions: one per part of the drift, plus the environmental cause
-stated structurally so its result does not depend on the machine it runs on.
-Each fails in both directions — a new table or column added without a thought
-about recovery fails it, and so does removing one because the format was
-re-versioned, at which point the file should be deleted in that change.
-Control removals: emptying the column-drift list fails part two; dropping one
-table from the table list fails part one.
+- Eight tables listed, three column tuples corrected, `leagues` admitted in
+  both real orders, `alembic_version` out of the fingerprint.
+- Three digests re-pinned from three real databases.
+- `FORMAT_VERSION`, `BUNDLE_FILENAME` and `RECOVERY_CANARY` bumped to 2 —
+  leaving them at 1 would make the number in every bundle a false statement.
+  `RECOVERY_TAG` and the two scratch sentinels stay at `-v1` on purpose:
+  changing the Restic tag orphans every existing snapshot. A test names those
+  three exclusions, because the first version of it said "no v1 marker
+  survives anywhere" and failed on all three.
+- **What a bundle carries is now a named set with a reason per entry**, not
+  four scattered `raw_cache` special cases. Out: `raw_cache` (private
+  payloads), `users` (`email` is unique, so the single-sentinel substitution
+  `accounts` uses for credentials would violate the constraint on the second
+  row, and a per-row stand-in would be fabricating identity), `memberships`
+  (every row points at a `users` row that is not in the bundle),
+  `app_sessions` (restoring them re-admits whoever was signed in hours ago),
+  `jobs` (a restored lease names a worker that does not exist), `outbox` (a
+  notification cannot be un-sent), `worker_heartbeats`. In: `tenants` (three
+  bundled tables reference it) and `schedules` (configuration the operator
+  created; dropping it means nothing ever syncs again, with nothing saying so,
+  and `materialize_due` keys on `(schedule, slot)` so a restored schedule
+  cannot double-execute).
+- **The restore starts from empty.** `create_all` seeds the default tenant, so
+  the bundle's own tenant row collided on the primary key — which is what 24
+  integration tests and the oracle reported once the allowlist let them get
+  that far. Rows are deleted in reverse dependency order so no cascade has
+  anything to reach, every table is asserted empty, and a target holding
+  anything else is refused up front, so the clearing step can only remove rows
+  the schema seeded.
 
-### Why it is not fixed here
+`tests/test_recovery_format.py` (20 tests) replaces the drift file, which had
+said to delete it in the change that re-versions the format and which failed
+three of its seven assertions once this landed — the test telling me it was
+done. The central new test is the one that did not exist for six phases: build
+every shape the application can produce, hash it, require the digest to be
+pinned — and require the reverse, that no pinned digest is one nothing
+produces, which is exactly what v1 became.
 
-Re-versioning means extending the allowlist with eight tables and three
-columns, deciding bundled-or-excluded for each, re-pinning two digests from
-real databases, and re-reading what a restore would then do to tenant
-isolation. The comment above `_FORMAT_V1_CATALOG_SHA256` requires a "reviewed
-recovery-format version" for exactly this, and no real restore is currently
-authorised.
+**Control removals, 8:** a table dropped from the allowlist (2 failures); one
+pinned digest altered by a single character (3); the `leagues` dual-order
+accommodation removed (1); `alembic_version` back in the catalog (4);
+`memberships` bundled so its foreign key dangles (2); the not-empty refusal
+removed (1); the clearing step removed (11 across two files); `FORMAT_VERSION`
+left at 1 (1).
 
-**Attempted and backed out:** adding `worker_heartbeats` to
-`EXPECTED_TABLE_COLUMNS` to clear the error. It did not clear it — parts two
-and three were still there — and it would have asserted membership in a frozen
-format nobody reviewed. Making one table's claim true while ten other things
-stay false is not progress, it is a quieter failure.
+One of those initially left my own test green, for a worse reason than usual:
+it passed `b"{}"` as the bundle and asserted "either error code", so execution
+never reached the line under test — the bundle is parsed before the target is
+looked at. **A test that cannot reach its subject is not a weak test, it is a
+different test.** It now builds a valid bundle and asserts the exact code.
+
+### What is left, and why it stays
+
+**18 failures, all in `tests/test_recovery.py`, all environmental.**
+
+Seventeen need `<repo>/.venv/bin/python`. `api/recovery.py` launches the backup
+job through the *lexical* venv path deliberately — resolving the symlink
+selects the base framework interpreter and loses the venv's package search path
+under launchd — and that symlink points at
+`/Library/Frameworks/Python.framework/.../python3.14`, which resolves on the
+operator's Mac and nowhere else. Measured: pointing `api.recovery.ROOT` at a
+tree whose `.venv/bin/python` does resolve takes the file from 18 failures to
+3, and two of those three need that venv to carry the app's dependencies too.
+
+The eighteenth asserts an orphaned credential child has *not yet* exited. The
+child sleeps 1.2s; here the broker-timeout path takes long enough that it is
+already gone. Five runs, five failures — environment-dependent, not flaky. The
+window should not be widened to make it pass: the assertion is about a real
+property of orphan lifetime.
 
 ---
 
@@ -361,19 +406,16 @@ a gitignored `.env` happened to exist.
 
 | Check | Result |
 |---|---|
-| 1155 tests outside the three recovery files | **0 failures** |
-| `tests/test_recovery.py` | 275 tests, 64 failures |
-| `tests/test_recovery_integration.py` + `_oracle.py` | 32 tests, 25 failures |
-| **Total** | **1462 tests, 89 failures** — identical to the worktree |
+| 1200 tests outside `tests/test_recovery.py` | **0 failures** |
+| `tests/test_recovery.py` | 275 tests, 18 failures (all environmental) |
+| **Total** | **1475 tests, 18 failures** |
 | `docs/sprint-9/faults/harness.py` standalone | exit 0, 10 pairs distinct |
 | `alembic upgrade head` | 0011 |
 | `ruff check api tests` | clean |
 
-One nuance the clone exposed: the venv-attributable failures are **7 here and
-10 in the worktree**, because the worktree has a *dangling*
-`.venv/bin/python` symlink while the clone has no `.venv` at all, and those
-two take slightly different error paths. The total is 64 either way. Worth
-recording because "10 of the 89" is only true of one of the two conditions.
+The clone is the honest place to measure the venv-dependent failures, because
+it has no `.venv` at all while the worktree has a *dangling* one, and the two
+conditions take slightly different error paths.
 
 ---
 

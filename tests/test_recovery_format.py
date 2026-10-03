@@ -245,6 +245,56 @@ def test_the_v1_pin_is_dead_and_unused(shape_digests):
     )
 
 
+def test_the_version_marker_says_two_everywhere_it_appears():
+    """The number in every bundle, state file and canary must be the version
+    the catalog actually is.
+
+    Asserted across all three markers rather than one, because they are three
+    separate literals and the failure mode is updating some of them: a bundle
+    stamped v1 whose catalog is v2 refuses for the right reason and reports the
+    wrong one, which is the sort of error message that costs an afternoon.
+    """
+    from api.services import recovery
+
+    assert recovery.FORMAT_VERSION == 2
+    assert recovery.BUNDLE_FILENAME.endswith("-v2.json")
+    assert recovery.RECOVERY_CANARY.endswith("-format-v2")
+
+
+def test_only_the_three_format_markers_moved_to_v2():
+    """What did NOT change, and why, stated as an assertion.
+
+    Three `-v1` strings survive on purpose and this test names them, because
+    the first version of it said "no v1 marker survives anywhere" and failed on
+    all three -- a claim true of the format markers and asserted of the class,
+    which is the pattern this repository has recorded thirty-odd times.
+
+    `RECOVERY_TAG` is the Restic snapshot tag: changing it orphans every
+    snapshot already in the repository, which is the opposite of what a
+    recovery format change should do. The two scratch sentinels name directory
+    roots a previous run may still own, and a run that cannot recognise its own
+    scratch root cannot clean it up.
+    """
+    from api.services import recovery
+
+    deliberate = {
+        "RECOVERY_TAG": "espn-edge-private-v1",
+        "_SCRATCH_ROOT_MARKER": ".espn-edge-recovery-root-v1",
+        "_SCRATCH_RUN_MARKER": ".espn-edge-recovery-run-v1",
+    }
+    for name, value in deliberate.items():
+        assert getattr(recovery, name) == value, name
+
+    body = open(recovery.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    allowed = set(deliberate.values()) | {"_FORMAT_V1_CATALOG_SHA256"}
+    offenders = [
+        line.strip()
+        for line in body.splitlines()
+        if "-v1" in line and not any(token in line for token in allowed)
+    ]
+    assert offenders == [], offenders
+
+
 # --------------------------------------------------------------------------
 # The allowlist covers the models
 # --------------------------------------------------------------------------

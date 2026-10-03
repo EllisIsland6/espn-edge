@@ -1,8 +1,9 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1462 tests, 1373 passing**; the 89 failures are all in three recovery
-files and all predate this work — see "The recovery format has drifted" below for the measured
-decomposition. ruff clean.
+Merged to `main`. Suite **1475 tests, 1457 passing**. The 18 failures are all in
+`tests/test_recovery.py` and all environmental: 17 depend on `<repo>/.venv/bin/python`, which
+points at a macOS framework interpreter and cannot resolve from a Linux VM, and one loses a timing
+race about an orphaned child process. `ruff check api tests` clean.
 
 This closes the project at **Phase 41 (narrowed)**. Phases 39, 40 and 41 were done after the first
 close-out was written; 42–45 need AWS access and spend, which was never authorized.
@@ -71,6 +72,22 @@ fault harness proves four faults produce four pairwise-distinct observations, an
 baseline distinct from all four — because a harness where every fault lights every alarm has proved
 nothing.
 
+**The recovery format matches a real database again, and a test now checks that it does.** Format v1
+froze the whole SQLite catalog and pinned its digest — a good control that nobody updated. Phases
+36–41 added eight tables and a `tenant_id` to three existing ones, and the format came to match no
+database the application could build: every backup and every restore refused, in 71 tests reporting
+one opaque error code. Format v2 lists the tables, admits `leagues` in both its real column orders
+(appended in a migrated database, fifth in a `create_all` one — the suite builds one shape and the
+operator runs the other), stops fingerprinting alembic's own bookkeeping table, and pins three
+digests read off three real databases. A restore now starts from empty, because `create_all` seeds
+the default tenant and the bundle's own tenant row collided with it.
+
+What a bundle carries is a named set with a reason per entry rather than four scattered special
+cases: credentials, identity, sessions, queue state and heartbeats do not travel; tenants and
+schedules do. The test that did not exist for six phases now does — build every shape the
+application can produce, hash it, and require the digest to be pinned, and require the reverse, that
+no pinned digest is one nothing produces.
+
 **The opportunity read path costs 40% less memory.** 396 → 245 MiB at 100k player-game rows on arm64.
 Equivalence was checked before the swap: same rows, same key order, identical values, identical
 scored output.
@@ -134,20 +151,7 @@ reach a transcript either way.
    remains unmeasured. Phase 32 retired the measurement-instrument risk and explicitly did not retire
    this one.
 
-8. **The recovery format has drifted and a restore cannot be attempted.** Recovery format v1
-   freezes the whole SQLite catalog and pins its digest; Phases 36–41 added eight tables and a
-   `tenant_id` to three existing ones, and the format was never re-versioned. So it matches no
-   database this application can create, and 70 of the 89 failing tests are that. The control is
-   fail-closed and working — it simply has not been updated. The drift has three independent parts
-   (unknown tables, unlisted columns, a dead digest pin), all measured, all named in
-   `tests/test_recovery_format_drift.py`.
-
-   A further 10 failures are environmental — the missing `<repo>/.venv/bin/python` described below
-   — 1 is a tenant seeding collision in the oracle's own fixture, and 8 are downstream. **The
-   number 89 also appears below attached to the venv cause alone; that is a coincidence of
-   arithmetic, not a shared cause.** Rebuilding the venv leaves 79 red.
-
-9. **The offline suite cannot test isolation.** SQLite has no row-level security. Every isolation
+8. **The offline suite cannot test isolation.** SQLite has no row-level security. Every isolation
    claim here rests on the PostgreSQL runs, and an offline assertion would be a green tick
    establishing nothing.
 
@@ -186,21 +190,34 @@ fault harness exits 0, `alembic upgrade head` reaches 0011, `ruff check api test
 counts reproduce exactly. The clone also showed that the venv-attributable share of the 89 is **7
 with no `.venv` and 10 with a dangling one** — different error paths, same total.
 
-**CI is red, and it is red for the reason in item 8.** `.github/workflows/ci.yml` runs
-`ruff check api tests` (clean) and then `python -m pytest -p no:cacheprovider`, which fails on the
-89. The first green build after this needs recovery format v2, not a change to the workflow — and
-the CI environment has no `<repo>/.venv`, so 10 of the 89 are guaranteed there regardless.
+**CI will still be red, for one remaining reason.** `.github/workflows/ci.yml` runs
+`ruff check api tests` (clean) and then `python -m pytest -p no:cacheprovider`. Seventeen of the
+eighteen remaining failures need `<repo>/.venv/bin/python` to exist, and CI's checkout has no
+`.venv` at all — `pip install -e ".[dev]"` into the runner's own environment does not create one.
+Making CI green means either creating that venv in the workflow or giving those tests a way to be
+skipped when the lexical venv is absent; the second is probably right, since what they assert is a
+property of an installed deployment rather than of the code. That is a small, self-contained piece
+of work and it is the last thing between this repository and a green build.
 
 Run the suite: `APP_MODE=private_operator python -m pytest tests/ -p no:cacheprovider`. Expect
-**1462 tests and 89 failures, all in `test_recovery*`** — see item 8 above for the measured
-decomposition. Ten of the 89 need `<repo>/.venv/bin/python` to exist, because `api/recovery.py`
-launches the backup job through the lexical venv path on purpose (so a launchd plist survives a
-Python upgrade); on a machine where that venv is absent those ten fail before touching any
-application code. The other 79 are the format drift and will not go away when the venv is rebuilt.
+**1475 tests and 18 failures, all in `tests/test_recovery.py`**, and all environmental.
+
+Seventeen of them need `<repo>/.venv/bin/python`, because `api/recovery.py` launches the backup job
+through the *lexical* venv path on purpose — resolving the symlink would select the base framework
+interpreter and lose the venv's package search path under launchd. That symlink points at
+`/Library/Frameworks/Python.framework/.../python3.14`, so it resolves on the operator's Mac and
+cannot resolve anywhere else. Measured rather than assumed: pointing `api.recovery.ROOT` at a tree
+whose `.venv/bin/python` does resolve takes the file from 18 failures to 3, and two of those three
+need that venv to also carry the application's dependencies.
+
+The eighteenth is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`. It
+asserts an orphaned credential child has *not yet* exited — the child sleeps 1.2s — and on this
+machine the broker-timeout path takes long enough that the child is already gone. Five consecutive
+runs, five failures, so it is environment-dependent rather than flaky. Do not widen the window to
+make it pass; the assertion is about a real property of orphan lifetime.
 
 The suite takes longer than a single sandbox command window. Split it, or run
-`--ignore=tests/test_recovery.py` first (1187 tests, 25 failures, all in the other two recovery
-files); the 1155 tests outside all three recovery files pass clean.
+`--ignore=tests/test_recovery.py` first: 1200 tests, 0 failures.
 
 Migrations: `alembic upgrade head` (currently **0011**). On SQLite, 0005 and 0007 do nothing — they
 are PostgreSQL-only. To exercise the policies you need a real PostgreSQL, a non-owner role, and
@@ -279,6 +296,25 @@ This was a practice project. These are the findings that are not about fantasy f
     recorded "89 tests fail" for an environmental reason. A later run also failed 89, for mostly
     different reasons. Believing the coincidence would have sent the next person to rebuild a venv
     and find 79 still red.
+
+16. **A pin nothing produces is a control that reads as working and is not.** The recovery
+    format's catalog fingerprint described a schema from six phases earlier, so it matched no
+    database the application could build — and nothing noticed, because no test ever compared the
+    pin to a real database. The fix that mattered was not re-pinning; it was the test that builds
+    every shape the code can produce and requires both that each one is pinned and that no pin is
+    one nothing produces.
+
+17. **The suite builds one shape and the operator runs another.** A migrated database and a
+    `create_all` database disagreed about one table's column order, and one of them contained a
+    table the other did not. A single-order allowlist passes exactly one of them, silently, in
+    whichever direction nobody tests — and for an entire sprint the direction nobody tested was the
+    one the operator actually runs.
+
+18. **Fixing the obvious part of a problem can leave the symptom unchanged.** The recovery drift
+    had three independent parts. Listing the eight missing tables — the part anyone would find
+    first — still failed validation, because three older tables had also gained a column. A fix
+    that changes nothing visible is indistinguishable from no fix, and the only way to tell them
+    apart is to measure which check is refusing.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
