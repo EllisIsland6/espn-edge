@@ -179,6 +179,13 @@ time-boxed. The architecture lessons it exists to teach have been learned and re
 
 ## Picking this up again
 
+**Verified from a clean clone, not from the worktree.** `git clone --no-hardlinks` of the merge
+commit into a scratch directory with no `.env` and no `.venv`, every required setting supplied from
+the environment: 1155 tests outside the recovery files pass, the three recovery files fail 89, the
+fault harness exits 0, `alembic upgrade head` reaches 0011, `ruff check api tests` is clean. The
+counts reproduce exactly. The clone also showed that the venv-attributable share of the 89 is **7
+with no `.venv` and 10 with a dangling one** — different error paths, same total.
+
 **CI is red, and it is red for the reason in item 8.** `.github/workflows/ci.yml` runs
 `ruff check api tests` (clean) and then `python -m pytest -p no:cacheprovider`, which fails on the
 89. The first green build after this needs recovery format v2, not a change to the workflow — and

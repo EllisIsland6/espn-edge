@@ -349,6 +349,34 @@ stay false is not progress, it is a quieter failure.
 
 ---
 
+## Verified from a clean clone
+
+Not from the worktree. The close-out's second most useful habit is "before
+believing a green suite, run it somewhere that is not where you built it" —
+last time that habit found three tests that had been green for months because
+a gitignored `.env` happened to exist.
+
+`git clone --no-hardlinks` of `e83be9d` into a scratch directory with no
+`.env` and no `.venv`, every required setting supplied from the environment:
+
+| Check | Result |
+|---|---|
+| 1155 tests outside the three recovery files | **0 failures** |
+| `tests/test_recovery.py` | 275 tests, 64 failures |
+| `tests/test_recovery_integration.py` + `_oracle.py` | 32 tests, 25 failures |
+| **Total** | **1462 tests, 89 failures** — identical to the worktree |
+| `docs/sprint-9/faults/harness.py` standalone | exit 0, 10 pairs distinct |
+| `alembic upgrade head` | 0011 |
+| `ruff check api tests` | clean |
+
+One nuance the clone exposed: the venv-attributable failures are **7 here and
+10 in the worktree**, because the worktree has a *dangling*
+`.venv/bin/python` symlink while the clone has no `.venv` at all, and those
+two take slightly different error paths. The total is 64 either way. Worth
+recording because "10 of the 89" is only true of one of the two conditions.
+
+---
+
 ## Deferred, with reasons
 
 | Acceptance clause | Status |
