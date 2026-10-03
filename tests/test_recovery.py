@@ -3905,6 +3905,61 @@ def test_credential_broker_failure_is_bounded_secret_free_and_preserves_state(
         pass
 
 
+def test_the_descriptor_identity_scan_can_actually_report_authority(tmp_path):
+    """An instrument check for the test below, and it needed one.
+
+    That test asserts a forked descendant's open descriptors do NOT include the
+    recovery repository or the lock file -- it reads "clean". Removing the
+    `close_fds=True` that holds that property does make it fail, but it fails
+    with the marker file MISSING rather than reading "bad", because the extra
+    descriptors break the broker before the credential command runs at all. So
+    the removal proves the spawn is fragile without proving the scan can ever
+    say "bad".
+
+    A probe that cannot report the defect is not a probe. This one proves the
+    scan both ways, with no recovery code involved: an inherited descriptor is
+    detected, and a closed one is not. Three previous phases recorded
+    instruments that could not have reported the thing they were watching for;
+    this is the cheap version of not repeating that.
+    """
+    watched = tmp_path / "watched"
+    watched.write_text("x", encoding="ascii")
+    identity = (watched.stat().st_dev, watched.stat().st_ino)
+    seen = tmp_path / "seen"
+    unseen = tmp_path / "unseen"
+
+    def scan_in_child(result: Path, *, keep_open: bool) -> None:
+        handle = os.open(watched, os.O_RDONLY)
+        child = os.fork()
+        if child == 0:  # pragma: no cover - the child never returns
+            try:
+                if not keep_open:
+                    os.close(handle)
+                identities = set()
+                for descriptor in range(128):
+                    try:
+                        current = os.fstat(descriptor)
+                    except OSError:
+                        continue
+                    identities.add((current.st_dev, current.st_ino))
+                result.write_text(
+                    "bad" if identity in identities else "clean", encoding="ascii"
+                )
+            finally:
+                os._exit(0)
+        os.close(handle)
+        os.waitpid(child, 0)
+
+    scan_in_child(seen, keep_open=True)
+    scan_in_child(unseen, keep_open=False)
+
+    assert seen.read_text(encoding="ascii") == "bad", (
+        "the scan did not notice an inherited descriptor on a watched file, so "
+        'a "clean" reading from it establishes nothing'
+    )
+    assert unseen.read_text(encoding="ascii") == "clean"
+
+
 def test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock(
     tmp_path, monkeypatch
 ):
@@ -3919,7 +3974,22 @@ def test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock(
     marker = tmp_path / "credential-orphan-authority"
     pid_file = tmp_path / "credential-orphan-pid"
     exit_marker = tmp_path / "credential-orphan-exited"
+    release = tmp_path / "credential-orphan-release"
     command = Path(settings.recovery_credential_command)
+    # The escaped descendant waits for `release` rather than sleeping.
+    #
+    # It used to `time.sleep(1.2)` and the test asserted, further down, that it
+    # had not yet exited -- a liveness PRECONDITION for the lock check that
+    # follows, dressed as a race. The race was unwinnable by construction: the
+    # test sets the broker timeout to 1.5s, so `run_backup` cannot return in
+    # less than that, and 1.5 > 1.2. Measured here at 2.085s against a 1.2s
+    # sleep, with the child already gone by 0.885s. It could only ever have
+    # passed where `run_backup` returned early for some other reason.
+    #
+    # So the ordering is now controlled instead of hoped for. The deadline is a
+    # backstop against leaving a process behind if the test dies before
+    # releasing it, and it writes a DIFFERENT word, so an exit on the deadline
+    # fails the final assertion loudly rather than passing as a timely one.
     command.write_text(
         f"""#!{sys.executable}
 import os
@@ -3930,6 +4000,7 @@ expected = {((repository_stat.st_dev, repository_stat.st_ino), (lock_stat.st_dev
 marker = Path({str(marker)!r})
 pid_file = Path({str(pid_file)!r})
 exit_marker = Path({str(exit_marker)!r})
+release = Path({str(release)!r})
 child = os.fork()
 if child == 0:
     os.setsid()
@@ -3942,8 +4013,12 @@ if child == 0:
         identities.add((current.st_dev, current.st_ino))
     marker.write_text("bad" if any(item in identities for item in expected) else "clean", encoding="ascii")
     pid_file.write_text(str(os.getpid()), encoding="ascii")
-    time.sleep(1.2)
-    exit_marker.write_text("exited", encoding="ascii")
+    deadline = time.monotonic() + 30
+    while not release.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    exit_marker.write_text(
+        "exited" if release.exists() else "deadline", encoding="ascii"
+    )
     os._exit(0)
 time.sleep(60)
 """,
@@ -3968,13 +4043,26 @@ time.sleep(60)
         time.sleep(0.01)
     assert marker.read_text(encoding="ascii") == "clean"
     assert pid_file.exists()
+
+    # The orphan is alive, asserted directly rather than inferred from the
+    # absence of a file. This is the precondition that makes the lock check
+    # below mean anything at all: a dead process holds no locks, so acquiring
+    # the lock after the orphan had exited would prove nothing.
+    orphan_pid = int(pid_file.read_text(encoding="ascii"))
+    os.kill(orphan_pid, 0)
     assert not exit_marker.exists()
+
+    # The claim: the escaped descendant does not hold the recovery lock. Taken
+    # while it is provably still running and waiting.
     with recovery_lock(settings.recovery_lock_file, blocking=False):
         pass
 
-    deadline = time.monotonic() + 3
+    # And it exits when told to, which is the definitive liveness proof -- a
+    # zombie would satisfy `os.kill(pid, 0)` but cannot answer a handshake.
+    release.write_text("go", encoding="ascii")
+    deadline = time.monotonic() + 10
     while not exit_marker.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
+        time.sleep(0.02)
     assert exit_marker.read_text(encoding="ascii") == "exited"
 
 
