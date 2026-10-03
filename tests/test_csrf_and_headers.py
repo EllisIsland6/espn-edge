@@ -160,7 +160,18 @@ def test_clearing_uses_the_same_flags_it_set(monkeypatch):
     set_session_cookies(setter, "s", "c")
     clear_session_cookies(clearer)
 
-    for (name, set_kw), (cleared_name, clear_kw) in zip(setter.calls, clearer.calls):
+    # `strict=True`, not bare `zip`: a clearer that forgot one of the two
+    # cookies would otherwise truncate the loop to the pair it did clear, and
+    # this test would report that clearing matches setting while sign-out left
+    # a cookie in place. Asserted first as a count, because the strict=
+    # failure is a ValueError at the end of the loop rather than a readable
+    # message about what went wrong.
+    assert len(clearer.calls) == len(setter.calls), (
+        f"{len(setter.calls)} cookies set, {len(clearer.calls)} cleared"
+    )
+    for (name, set_kw), (cleared_name, clear_kw) in zip(
+        setter.calls, clearer.calls, strict=True
+    ):
         assert name == cleared_name
         assert clear_kw["path"] == set_kw["path"]
         assert clear_kw["httponly"] == set_kw["httponly"]

@@ -201,7 +201,7 @@ than left implied.
 
 ---
 
-## Seven defects found, six of them mine
+## Eight defects found, seven of them mine
 
 1. **`oldest_due_age` lived in `schedules.py` while querying the `jobs`
    table** — its own docstring said "the oldest job that is due". So there was
@@ -255,6 +255,15 @@ than left implied.
    to the signature and asserted it per scenario; the removal now fails the
    harness too.
 
+8. **My own first explanation of the recovery failures was wrong**, and I had
+   already committed it. The drift test's docstring said all 89 failures were
+   one schema-drift cause. Counting them showed four causes, and the schema
+   drift itself had three independent parts — removing the eight unknown
+   tables still fails, because three older tables gained a `tenant_id` the
+   allowlist does not list. Found by reading the failure messages instead of
+   the total. Corrected in the same session, with a control removal on each
+   part.
+
 Two comments also overclaimed what their code did and were corrected rather
 than left to talk a reviewer out of reading: `evaluate`'s padding comment
 (a short history is padded with breaches, but that does **not** force an
@@ -267,34 +276,76 @@ which is a different mechanism and survives different edits).
 
 ## A pre-existing breakage, now named
 
-**89 tests fail, in three files, and none of them because of Phase 41** —
-measured, not assumed: `WorkerHeartbeat` was removed from `api/models.py`, the
-files re-run, and the counts were identical both ways.
+**89 tests fail, in three recovery files, and none of them because of Phase
+41** — measured, not assumed: `WorkerHeartbeat` was removed from
+`api/models.py`, the files re-run, and the counts were identical both ways.
 
-| File | Failures | Cause |
-|---|---|---|
-| `tests/test_recovery.py` | 64 | `recovery_schema_drift` |
-| `tests/test_recovery_integration.py` | 24 | `recovery_schema_drift` |
-| `tests/test_recovery_oracle.py` | 1 | `UNIQUE constraint failed: tenants.id` |
+They are also not one failure wearing eighty-nine hats, which is what my first
+pass at this claimed before I counted the causes:
 
-Outside those three files: **1370 tests, 0 failures.** Suite total 1459.
+| Failures | Cause |
+|---|---|
+| 70 | recovery format v1 no longer matches any database this app can build |
+| 10 | `<repo>/.venv/bin/python` missing or broken — **environmental** |
+| 1 | tenant seeding collision in the oracle's own fixture |
+| 8 | assorted, downstream of the two above |
 
-Recovery format v1 freezes the entire SQLite catalog and pins its digest.
-Phases 36–40 added seven tables and the format was never re-versioned, so it
-now matches no database this application can create. The control is
-fail-closed and working; it has simply not been updated.
+Outside those three files: **1155 tests, 0 failures.** Suite total **1462**, of which 307 are in the three recovery files.
 
-`tests/test_recovery_format_drift.py` turns 64 opaque errors into one explicit
-statement of which eight tables are outside the format and what fixing it
-requires. It fails in both directions: a new table added without a thought
+Only the first group is a code problem, and it has **three independent
+parts**, each measured by calling `validate_catalog` on a database built from
+the current models and watching which of its four checks refused:
+
+1. **Eight tables the allowlist has never heard of** — `tenants`, `users`,
+   `memberships`, `app_sessions`, `jobs`, `schedules`, `outbox`,
+   `worker_heartbeats`.
+2. **Three allowlisted tables gained an unlisted column** — `accounts`,
+   `leagues` and `raw_cache` each carry a `tenant_id` from migrations
+   0003/0004. Removing the eight unknown tables is *not* enough to pass, and
+   this is the part my first pass missed.
+3. **The pinned catalog digest matches nothing buildable.** Both documented
+   recipes — `create_all` over the current models, and an older
+   `opportunity_weeks` brought forward by the additive ALTERs — were run and
+   neither reproduces `_FORMAT_V1_CATALOG_SHA256` even with every Phase 36–41
+   table excluded.
+
+The control is fail-closed and working. It has simply not been updated.
+
+The ten environmental failures are the ones `docs/CLOSE-OUT.md` already
+describes: `api/recovery.py` launches the backup job through
+`ROOT / ".venv/bin/python"` — deliberately the *lexical* venv path, so a
+launchd plist survives a Python upgrade — and in a sandbox where that venv was
+never created the symlink dangles. Those tests pass on a machine with a real
+repo venv.
+
+**The number 89 appears in `CLOSE-OUT.md` attached to the environmental cause
+alone. That is a coincidence of arithmetic, not a shared cause** — worth
+stating plainly, because conflating them would send the next person to rebuild
+a venv and find 79 tests still red.
+
+`tests/test_recovery_format_drift.py` turns 89 opaque errors into seven
+explicit assertions: one per part of the drift, plus the environmental cause
+stated structurally so its result does not depend on the machine it runs on.
+Each fails in both directions — a new table or column added without a thought
 about recovery fails it, and so does removing one because the format was
-re-versioned — at which point the file should be deleted in that change.
+re-versioned, at which point the file should be deleted in that change.
+Control removals: emptying the column-drift list fails part two; dropping one
+table from the table list fails part one.
+
+### Why it is not fixed here
+
+Re-versioning means extending the allowlist with eight tables and three
+columns, deciding bundled-or-excluded for each, re-pinning two digests from
+real databases, and re-reading what a restore would then do to tenant
+isolation. The comment above `_FORMAT_V1_CATALOG_SHA256` requires a "reviewed
+recovery-format version" for exactly this, and no real restore is currently
+authorised.
 
 **Attempted and backed out:** adding `worker_heartbeats` to
-`EXPECTED_TABLE_COLUMNS` to clear the error. It did not clear it (seven older
-tables were still missing) and it would have asserted membership in a frozen
-format nobody reviewed. Making one table's claim true while six stay false is
-not progress, it is a quieter failure.
+`EXPECTED_TABLE_COLUMNS` to clear the error. It did not clear it — parts two
+and three were still there — and it would have asserted membership in a frozen
+format nobody reviewed. Making one table's claim true while ten other things
+stay false is not progress, it is a quieter failure.
 
 ---
 
