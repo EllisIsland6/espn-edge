@@ -140,11 +140,18 @@ reach a transcript either way.
    budget, and a tenant-scoped role can modify another tenant's ledger rows. The operator grant
    should withhold DELETE on both ledger tables. This is a product decision nobody has made.
 
-5. **The contract migration is parked** (`alembic/pending/0006`). `tenant_id` stays nullable on
-   `leagues`, `accounts` and `raw_cache` until every writer supplies one; roughly 32 test
-   constructions do not. It is proven on both SQLite and PostgreSQL and lands the day the call sites
-   are converted — together with the model change and the deletion of the test that pins the window
-   open, or the parity test fails.
+5. **The contract migration is parked** (`alembic/pending/0012_tenant_kernel_contract.py` — it has
+   been renumbered seven times as the chain grew). `tenant_id` stays nullable on `leagues`,
+   `accounts` and `raw_cache` until every writer supplies one. Counted by AST rather than grep,
+   because lesson 7 below exists: **42 construction sites across 12 files** — 31 `League`, 10
+   `Account`, 1 `RawCache` — with `tests/test_metrics.py` (9), `test_recovery.py` (6),
+   `test_ai.py` (6) and `test_views.py` (6) holding most of them. The earlier figure of "roughly 32
+   test constructions" predates the `accounts` and `raw_cache` columns and was an undercount.
+
+   The migration is proven on both SQLite and PostgreSQL and lands the day those sites are
+   converted — together with the model change and the deletion of
+   `test_the_leagues_tenant_column_is_still_nullable`, which pins the window open, or the parity
+   test fails. It is mechanical work with a clear finish line and no decisions in it.
 
 6. **The opportunity path still materialises one dict per player-game** before aggregating to one row
    per player (99,990 rows in, 4,166 out). Pushing that aggregation into SQL would make the peak a
