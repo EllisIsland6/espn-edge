@@ -1,9 +1,11 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1475 tests, 1457 passing**. The 18 failures are all in
-`tests/test_recovery.py` and all environmental: 17 depend on `<repo>/.venv/bin/python`, which
-points at a macOS framework interpreter and cannot resolve from a Linux VM, and one loses a timing
-race about an orphaned child process. `ruff check api tests` clean.
+Merged to `main`. Suite **1477 tests, 1459 passing, 17 skipped, 1 failing**. The seventeen
+skips are the tests that assert a property of an installed deployment — they need
+`<repo>/.venv/bin/python`, which points at a macOS framework interpreter and resolves only on the
+operator's Mac — and each skip names that path in its reason. The one failure asserts an orphaned
+credential child has not yet exited and loses that race on this machine, deterministically.
+`ruff check api tests` clean.
 
 This closes the project at **Phase 41 (narrowed)**. Phases 39, 40 and 41 were done after the first
 close-out was written; 42–45 need AWS access and spend, which was never authorized.
@@ -190,31 +192,43 @@ fault harness exits 0, `alembic upgrade head` reaches 0011, `ruff check api test
 counts reproduce exactly. The clone also showed that the venv-attributable share of the 89 is **7
 with no `.venv` and 10 with a dangling one** — different error paths, same total.
 
-**CI will still be red, for one remaining reason.** `.github/workflows/ci.yml` runs
-`ruff check api tests` (clean) and then `python -m pytest -p no:cacheprovider`. Seventeen of the
-eighteen remaining failures need `<repo>/.venv/bin/python` to exist, and CI's checkout has no
-`.venv` at all — `pip install -e ".[dev]"` into the runner's own environment does not create one.
-Making CI green means either creating that venv in the workflow or giving those tests a way to be
-skipped when the lexical venv is absent; the second is probably right, since what they assert is a
-property of an installed deployment rather than of the code. That is a small, self-contained piece
-of work and it is the last thing between this repository and a green build.
+**CI has one failure left, and it is not something to fix by loosening a test.**
+`.github/workflows/ci.yml` runs `ruff check api tests` (clean) and then
+`python -m pytest -p no:cacheprovider`. The seventeen tests that need `<repo>/.venv/bin/python`
+now skip when it is absent, with the path named in the reason — they assert a property of an
+installed deployment rather than of the code, and CI's checkout has no `.venv` at all because
+`pip install -e ".[dev]"` goes into the runner's own environment.
 
-Run the suite: `APP_MODE=private_operator python -m pytest tests/ -p no:cacheprovider`. Expect
-**1475 tests and 18 failures, all in `tests/test_recovery.py`**, and all environmental.
+The skips are guarded rather than taken on trust.
+`test_the_lexical_venv_skip_condition_matches_the_production_check` compares the skip predicate
+against `_launchd_plist`'s own refusal and is never skipped itself, so a predicate that disagreed
+with the code it stands in for fails the build instead of quietly hiding seventeen tests. Measured:
+hardcoding the predicate to "usable" fails that guard and makes the seventeen run and fail, which
+is the direction that matters.
 
-Seventeen of them need `<repo>/.venv/bin/python`, because `api/recovery.py` launches the backup job
-through the *lexical* venv path on purpose — resolving the symlink would select the base framework
+The remaining failure is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`.
+Whether it fails on a GitHub runner is unknown — it is a timing race, and on this machine it loses
+it every time. Do not widen the window: the assertion is about a real property of orphan lifetime.
+The honest fix is to make the test measure the orphan's remaining lifetime rather than assume the
+path ahead of it is fast, and that is a rewrite of its timing structure, not a tweak.
+
+Run the suite: `APP_MODE=private_operator python -m pytest tests/ -p no:cacheprovider`.
+
+**On the operator's Mac**, with a working `<repo>/.venv`, expect everything to run. Seventeen tests
+in `tests/test_recovery.py` assert properties of that installed deployment and will execute rather
+than skip.
+
+**Anywhere else** — a container, a CI runner, a fresh clone — expect **17 skips and 1 failure**.
+The skips name `<repo>/.venv/bin/python` in their reason. `api/recovery.py` launches the backup job
+through the *lexical* venv path on purpose: resolving the symlink would select the base framework
 interpreter and lose the venv's package search path under launchd. That symlink points at
-`/Library/Frameworks/Python.framework/.../python3.14`, so it resolves on the operator's Mac and
-cannot resolve anywhere else. Measured rather than assumed: pointing `api.recovery.ROOT` at a tree
-whose `.venv/bin/python` does resolve takes the file from 18 failures to 3, and two of those three
-need that venv to also carry the application's dependencies.
+`/Library/Frameworks/Python.framework/.../python3.14`, so it resolves on the Mac and nowhere else.
+Measured rather than assumed: pointing `api.recovery.ROOT` at a tree whose `.venv/bin/python` does
+resolve took the file from 18 failures to 3, and two of those three need that venv to carry the
+application's dependencies too.
 
-The eighteenth is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`. It
-asserts an orphaned credential child has *not yet* exited — the child sleeps 1.2s — and on this
-machine the broker-timeout path takes long enough that the child is already gone. Five consecutive
-runs, five failures, so it is environment-dependent rather than flaky. Do not widen the window to
-make it pass; the assertion is about a real property of orphan lifetime.
+The one failure is `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`,
+described in the CI note above.
 
 The suite takes longer than a single sandbox command window. Split it, or run
 `--ignore=tests/test_recovery.py` first: 1200 tests, 0 failures.

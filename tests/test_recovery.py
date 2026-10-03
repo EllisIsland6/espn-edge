@@ -27,6 +27,10 @@ from pathlib import Path
 
 import pytest
 
+# `api.recovery` holds `ROOT` and `_launchd_plist`; `api.services.recovery`,
+# aliased `recovery_module` below, is a different module. Both are imported,
+# under names that cannot be confused at a call site.
+from api import recovery as app_recovery
 from api.config import Settings
 from api.crypto import encrypt
 from api.models import Account, League, RawCache, Team
@@ -58,6 +62,128 @@ from api.services.recovery import (
     validate_catalog,
 )
 from api.services.sync import SyncService
+
+# ---------------------------------------------------------------------------
+# The lexical venv, and why seventeen tests below can be skipped without that
+# being a weakening.
+#
+# `api/recovery.py` puts `<repo>/.venv/bin/python` into the launchd plist and
+# refuses to build one if that path is not an executable file. The path is
+# LEXICAL on purpose: resolving the symlink selects the base framework
+# interpreter and loses the venv's package search path under launchd. On the
+# operator's Mac the symlink resolves; in a Linux container, or a CI checkout
+# where `pip install -e .` goes into the runner's own environment, it does not
+# exist at all.
+#
+# So seventeen tests here assert a property of an INSTALLED DEPLOYMENT rather
+# than of this code, and in an environment with no such deployment they fail
+# before reaching anything they are about. Skipping them there is honest;
+# skipping them silently would not be, which is why:
+#
+#   * the predicate is the same three-part check `_launchd_plist` makes, and
+#     `test_the_lexical_venv_skip_condition_matches_the_production_check`
+#     asserts the two agree rather than trusting that they do;
+#   * the two tests that run the interpreter and import the application carry a
+#     STRONGER condition, because a venv that exists but cannot import `api`
+#     would skip them for the wrong reason;
+#   * the skip reason names the path, so a reader of a CI log is told what is
+#     missing rather than that something was skipped.
+# ---------------------------------------------------------------------------
+
+LEXICAL_VENV_PYTHON = app_recovery.ROOT / ".venv/bin/python"
+
+
+def _lexical_venv_is_usable() -> bool:
+    """Exactly `_launchd_plist`'s check, so the skip cannot drift from it."""
+    return (
+        LEXICAL_VENV_PYTHON.is_absolute()
+        and LEXICAL_VENV_PYTHON.is_file()
+        and os.access(LEXICAL_VENV_PYTHON, os.X_OK)
+    )
+
+
+def _lexical_venv_imports_the_app() -> bool:
+    """And can it actually run the application?
+
+    A venv that exists but has no dependencies installed is a different
+    condition from one that is absent, and only two tests care about the
+    difference -- the ones that execute the interpreter and import `api`.
+    """
+    if not _lexical_venv_is_usable():
+        return False
+    try:
+        completed = subprocess.run(
+            [str(LEXICAL_VENV_PYTHON), "-c", "import api"],
+            cwd=app_recovery.ROOT,
+            capture_output=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+requires_lexical_venv = pytest.mark.skipif(
+    not _lexical_venv_is_usable(),
+    reason=(
+        f"{LEXICAL_VENV_PYTHON} is not an executable file, so no launchd plist "
+        "can be built. This asserts a property of an installed deployment, not "
+        "of the code."
+    ),
+)
+
+requires_lexical_venv_with_dependencies = pytest.mark.skipif(
+    not _lexical_venv_imports_the_app(),
+    reason=(
+        f"{LEXICAL_VENV_PYTHON} cannot import the application, so the "
+        "interpreter it names cannot run the backup job."
+    ),
+)
+
+
+def test_the_lexical_venv_skip_condition_matches_the_production_check():
+    """Guards the skip. Never skipped itself.
+
+    A skip whose condition disagreed with the code it stands in for would hide
+    real failures in exactly the environments where it fires. So the predicate
+    and `_launchd_plist`'s own refusal are compared, in whichever state this
+    machine happens to be: either the venv is usable and the plist builds, or
+    it is not and the plist refuses with `recovery_tool_invalid`. There is no
+    third outcome, and asserting the equivalence is what makes the skips above
+    safe to read as "not applicable here" rather than as "not checked".
+    """
+    usable = _lexical_venv_is_usable()
+    refused = False
+    try:
+        app_recovery._launchd_plist()
+    except RecoveryError as exc:
+        refused = exc.code == "recovery_tool_invalid"
+    except Exception:  # noqa: BLE001 - any other failure is not this condition
+        refused = False
+    # Which direction this can catch depends on the machine, and that is worth
+    # saying rather than leaving as an apparent gap. Here the venv is genuinely
+    # unusable, so a predicate hardcoded to `True` fails this test AND makes
+    # the seventeen skipped tests run and fail -- the direction that matters,
+    # because it is the one where a skip would hide a real failure. A predicate
+    # hardcoded to `False` is simply the correct answer on this machine and
+    # cannot be detected here; on a machine with a working venv the two
+    # directions swap. The assertion holds in both.
+    assert usable == (not refused), (
+        f"the skip predicate says usable={usable} while _launchd_plist "
+        f"{'refused' if refused else 'did not refuse'} for a missing runtime; "
+        "the skip condition has drifted from the check it stands in for"
+    )
+
+
+def test_the_stronger_condition_implies_the_weaker_one():
+    """A venv that can import the application is necessarily usable.
+
+    Stated because the two predicates are separate functions and the ordering
+    between them is the thing that makes the stronger skip narrower rather than
+    merely different.
+    """
+    if _lexical_venv_imports_the_app():
+        assert _lexical_venv_is_usable()
 
 
 def _settings(tmp_path: Path, *, required: bool = True) -> Settings:
@@ -4657,6 +4783,7 @@ def test_retention_cli_bounds_and_redacts_hostile_parser_failures(
     assert len(output) < 256
 
 
+@requires_lexical_venv
 def test_runner_install_loads_hourly_backup_only(tmp_path, monkeypatch):
     from api import recovery
 
@@ -4716,6 +4843,7 @@ def test_hourly_runner_refuses_stale_retention_install(tmp_path, monkeypatch):
     assert not (agents / "com.espn-edge.private-recovery.plist").exists()
 
 
+@requires_lexical_venv
 def test_recurring_plist_uses_only_armed_scheduled_mode():
     import plistlib
 
@@ -4729,6 +4857,7 @@ def test_recurring_plist_uses_only_armed_scheduled_mode():
 
 
 @pytest.mark.parametrize("retention", [False, True], ids=("hourly", "retention"))
+@requires_lexical_venv
 def test_launchd_plist_preserves_lexical_venv_interpreter(retention):
     from api import recovery
 
@@ -4747,6 +4876,7 @@ def test_launchd_plist_preserves_lexical_venv_interpreter(retention):
 
 
 @pytest.mark.parametrize("retention", [False, True], ids=("hourly", "retention"))
+@requires_lexical_venv_with_dependencies
 def test_launchd_generated_interpreter_imports_application_dependencies(retention):
     from api.recovery import _launchd_plist
 
@@ -4790,6 +4920,7 @@ def test_launchd_plist_rejects_unavailable_runtime_without_path_leak(
     assert sentinel not in envelope
 
 
+@requires_lexical_venv
 def test_retention_runner_install_is_rolled_back_when_load_fails(tmp_path, monkeypatch):
     from api import recovery
 
@@ -4826,6 +4957,7 @@ def test_retention_runner_install_is_rolled_back_when_load_fails(tmp_path, monke
     ]
 
 
+@requires_lexical_venv
 def test_retention_runner_is_rolled_back_when_state_arm_fails(tmp_path, monkeypatch):
     from api import recovery
 
@@ -4880,6 +5012,7 @@ def test_retention_runner_is_rolled_back_when_state_arm_fails(tmp_path, monkeypa
     ]
 
 
+@requires_lexical_venv
 def test_retention_state_arm_oserror_is_redacted_and_rolled_back(
     tmp_path, monkeypatch
 ):
@@ -4955,6 +5088,7 @@ def test_retention_state_arm_oserror_is_redacted_and_rolled_back(
         os.fstat(installed[0].directory_fd)
 
 
+@requires_lexical_venv
 def test_retention_cli_redacts_state_arm_oserror(tmp_path, monkeypatch, capsys):
     from api import recovery
 
@@ -5048,6 +5182,7 @@ def test_retention_preflight_timeout_blocks_destructive_apply_and_arm(
     assert not recovery._retention_runner_target().exists()
 
 
+@requires_lexical_venv
 def test_retention_bootstrap_timeout_late_load_is_bounded_and_rolled_back(
     tmp_path, monkeypatch
 ):
@@ -5104,6 +5239,7 @@ def test_retention_bootstrap_timeout_late_load_is_bounded_and_rolled_back(
     ]
 
 
+@requires_lexical_venv
 def test_retention_bootout_timeout_still_verifies_and_cleans_exact_inode(
     tmp_path, monkeypatch
 ):
@@ -5160,6 +5296,7 @@ def test_retention_bootout_timeout_still_verifies_and_cleans_exact_inode(
     ]
 
 
+@requires_lexical_venv
 def test_retention_timeout_cleanup_preserves_replacement_inode(tmp_path, monkeypatch):
     from api import recovery
 
@@ -5332,6 +5469,7 @@ def test_retention_malformed_launchd_domain_blocks_apply(tmp_path, monkeypatch):
     assert apply_calls == []
 
 
+@requires_lexical_venv
 def test_retention_reconciles_registration_after_first_absent(tmp_path, monkeypatch):
     from api import recovery
 
@@ -5420,6 +5558,7 @@ def test_hourly_bootstrap_timeout_rolls_back_service_and_plist(tmp_path, monkeyp
     assert not recovery._retention_runner_target().exists()
 
 
+@requires_lexical_venv
 def test_repeated_bootout_ambiguity_returns_cleanup_required_without_arm(
     tmp_path, monkeypatch
 ):
@@ -5465,6 +5604,7 @@ def test_repeated_bootout_ambiguity_returns_cleanup_required_without_arm(
 
 
 @pytest.mark.parametrize("replacement_kind", ["directory", "symlink"])
+@requires_lexical_venv
 def test_descriptor_bound_plist_survives_parent_replacement_and_cleans_original(
     replacement_kind, tmp_path, monkeypatch
 ):
