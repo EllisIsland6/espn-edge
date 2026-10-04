@@ -1973,6 +1973,7 @@ def test_repository_rejects_any_overlapping_apfs_physical_store(
 
 def test_bundle_excludes_cache_credentials_owner_ids_and_restores_reauth(tmp_path, db_session):
     account = Account(
+        tenant_id=current_tenant_id(db_session),
         label="operator",
         swid="{PRIVATE-OWNER-CANARY}",
         espn_s2_encrypted=encrypt("PRIVATE-S2-CANARY"),
@@ -2099,8 +2100,8 @@ def test_backup_changed_noop_and_failure_preserves_coverage(tmp_path, monkeypatc
     # Change a protected table, then force the fake repository failure.
     connection = sqlite3.connect(settings.db_file)
     connection.execute(
-        "INSERT INTO accounts(label,swid,espn_s2_encrypted,status,created_at) "
-        "VALUES('x','secret-a','secret-b','active','2026-08-13 00:00:00')"
+        "INSERT INTO accounts(label,swid,espn_s2_encrypted,status,created_at,tenant_id) "
+        "VALUES('x','secret-a','secret-b','active','2026-08-13 00:00:00',(SELECT id FROM tenants LIMIT 1))"
     )
     connection.commit()
     connection.close()
@@ -2211,8 +2212,8 @@ def test_uncheckpointed_wal_and_concurrent_writer_produce_one_consistent_view(
     connection = sqlite3.connect(settings.db_file)
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute(
-        "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at) "
-        "VALUES(1,'before','a','b','active','2026-08-13 00:00:00')"
+        "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at,tenant_id) "
+        "VALUES(1,'before','a','b','active','2026-08-13 00:00:00',(SELECT id FROM tenants LIMIT 1))"
     )
     connection.execute(
         "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public,"
@@ -2239,8 +2240,8 @@ def test_uncheckpointed_wal_and_concurrent_writer_produce_one_consistent_view(
         conn = sqlite3.connect(settings.db_file)
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute(
-            "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at) "
-            "VALUES(2,'after','c','d','active','2026-08-13 00:01:00')"
+            "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at,tenant_id) "
+            "VALUES(2,'after','c','d','active','2026-08-13 00:01:00',(SELECT id FROM tenants LIMIT 1))"
         )
         conn.execute(
             "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public,"
@@ -2265,6 +2266,7 @@ def test_uncheckpointed_wal_and_concurrent_writer_produce_one_consistent_view(
 
 def test_account_reauth_gate_precedes_decrypt_and_sync_provider(db_session, monkeypatch):
     account = Account(
+        tenant_id=current_tenant_id(db_session),
         label="restored",
         swid="{REAUTH-REQUIRED}",
         espn_s2_encrypted="not-a-fernet-token",
@@ -5891,8 +5893,8 @@ def test_bundle_preserves_exact_datetime_text_and_retained_utf8_text(tmp_path):
     exact_text = "operator-\u03a9-\U0001f3c8-line\\ntext"
     connection = sqlite3.connect(settings.db_file)
     connection.execute(
-        "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at) "
-        "VALUES(1,?,?,?,?,?)",
+        "INSERT INTO accounts(id,label,swid,espn_s2_encrypted,status,created_at,tenant_id) "
+        "VALUES(1,?,?,?,?,?,(SELECT id FROM tenants LIMIT 1))",
         (exact_text, "source-secret", "ciphertext", "paused", exact_datetime),
     )
     connection.commit()

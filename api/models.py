@@ -378,14 +378,20 @@ class Account(Base):
     # tenant column and therefore no policy. It reaches no league, so there was
     # no path to scope it by; it needed one of its own.
     #
-    # Still nullable, and now the only column left in that state:
-    # `leagues.tenant_id` contracted at revision 0013 and `raw_cache.tenant_id`
-    # at 0012. This one needs a contract revision that does not exist yet, plus
-    # the ten remaining `Account(...)` writers. Until then a credential row with
-    # no tenant is constructible, and under row-level security it is invisible
-    # to everyone -- which fails closed, but silently.
-    tenant_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tenants.id"), nullable=True, index=True
+    # NOT NULL as of revision 0014 -- the last of the three windows to close,
+    # after `raw_cache` at 0012 and `leagues` at 0013. A credential row with no
+    # tenant is invisible to every policy and therefore to everyone: it fails
+    # closed, but silently, and the thing that goes quiet is a stored ESPN
+    # credential. Nullable made that merely unlikely.
+    #
+    # Unlike `leagues`, no constraint was swapped with it. Measured before the
+    # revision was written: `accounts` carries no unique constraint at all,
+    # only a primary key and this index. `swid` is therefore not unique, so two
+    # rows may hold the same ESPN credential -- within a tenant or across
+    # them -- and whether that should be constrained is a product decision
+    # nobody has made.
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False, index=True
     )
 
     leagues: Mapped[list[League]] = relationship(back_populates="account")

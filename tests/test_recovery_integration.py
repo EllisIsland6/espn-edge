@@ -347,6 +347,7 @@ def _app_reads(database: Path) -> list:
 
 def _seed_source(db_session, league_fixture, players_fixture) -> tuple[Path, int]:
     account = Account(
+        tenant_id=current_tenant_id(db_session),
         label="synthetic-operator",
         swid="{AAAA-1111}",
         espn_s2_encrypted=encrypt("synthetic-cookie"),

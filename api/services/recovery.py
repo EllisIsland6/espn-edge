@@ -166,9 +166,9 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: `validate_catalog`'s four checks each shape reaches. Any table, column
 #: order, affinity, nullability, default, PK, FK, index, predicate or catalog
 #: SQL change requires a reviewed format version and a re-run of that script.
-#: Re-pinned at revision 0013, which made `leagues.tenant_id` NOT NULL and
-#: dropped the old global `uq_league_season`. 0012 moved it before that, for
-#: `raw_cache`'s composite key. The catalog carries nullability and
+#: Re-pinned at revision 0014, which made `accounts.tenant_id` NOT NULL --
+#: the last of the three expand windows. 0013 did `leagues` and dropped the old
+#: global unique; 0012 did `raw_cache`'s composite key. The catalog carries nullability and
 #: constraints, so every schema change moves all three shapes, and the pin
 #: moving is the normal cost of a migration rather than a sign of trouble.
 #:
@@ -178,12 +178,12 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: which is what v1 silently became.
 _FORMAT_V2_CATALOG_SHA256 = frozenset(
     {
-        # alembic upgrade head -- what an operator's database actually is
-        "a3a38b867bdf1faaaa4b560bb7aab69e13961d4363c629e7a9b125866deb8b63",
-        # create_all over the current models, opportunity_weeks older then ALTERed
-        "e9863f5e7e5cbdebeca90ac7b2af4e76bdb130637faea7201ab5bdb3a7a88725",
-        # create_all over the current models -- what the suite builds
-        "6c6cceefa499488e00f01864cca600b64bf9735ce307f180c1b142fa27308572",
+        # create_all, opportunity full
+        "4fbafa2df2b6e285bf8d055b8cb352c4df5bb5006cdb8d3c319c394f9fa64bf5",
+        # alembic upgrade head
+        "82411f7e6bca19f3feb70ad63047550c29141e132ef053353d5a3a597abbd122",
+        # create_all, opportunity older
+        "d601feb7cb03cf213e0e295e1dd35699ee1a1d148f21dbf895e7229cc7f76c94",
     }
 )
 

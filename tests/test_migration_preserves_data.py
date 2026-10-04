@@ -251,3 +251,80 @@ def test_the_contract_step_backfills_rows_from_the_rollback_window(tmp_path):
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
     finally:
         connection.close()
+
+
+def test_the_accounts_contract_backfills_rows_from_the_rollback_window(tmp_path):
+    """Revision 0014's catch-up backfill, and the cascade question with it.
+
+    Same shape as 0013's: the head-upgrade test cannot reach the catch-up,
+    because 0004's backfill gives the seeded rows a tenant long before 0014
+    runs. So this stops at 0013 and writes the row the old code would have
+    written during the rollback window.
+
+    It also seeds a **league referencing that account**, because `accounts` has
+    a child and the batch rebuild drops and recreates the table. Phase 36
+    measured what that does under enforced foreign keys with `ON DELETE
+    CASCADE`: nine child tables emptied, exit zero, `PRAGMA foreign_key_check`
+    clean either way. `leagues.account_id` is NO ACTION, so nothing should
+    cascade — asserted here rather than trusted, with a row that would vanish
+    if it did.
+    """
+    from alembic import command
+
+    db_path = tmp_path / "accounts-window.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "0013")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys=ON")
+        tenant = connection.execute("SELECT id FROM tenants LIMIT 1").fetchone()[0]
+        connection.execute(
+            "INSERT INTO accounts(id, label, swid, espn_s2_encrypted, status, "
+            "created_at, tenant_id) VALUES "
+            "(1, 'window', '{A}', 'ciphertext', 'active', '2026-01-01', NULL)"
+        )
+        connection.execute(
+            "INSERT INTO leagues(espn_league_id, season, lifecycle, is_public, "
+            "account_id, tenant_id) VALUES ('child', 2026, 'active', 0, 1, ?)",
+            (tenant,),
+        )
+        connection.commit()
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM accounts WHERE tenant_id IS NULL"
+            ).fetchone()[0]
+            == 1
+        ), "the rollback-window account was not written; this test proves nothing"
+    finally:
+        connection.close()
+
+    command.upgrade(config, "0014")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute("SELECT count(*) FROM accounts").fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM accounts WHERE tenant_id IS NULL"
+            ).fetchone()[0]
+            == 0
+        ), "the catch-up backfill did not run"
+        assert connection.execute("SELECT count(*) FROM leagues").fetchone()[0] == 1, (
+            "the child league vanished in the accounts rebuild -- a cascade "
+            "fired, which is the Phase 36 defect"
+        )
+        nullable = [
+            row[3]
+            for row in connection.execute("PRAGMA table_info(accounts)")
+            if row[1] == "tenant_id"
+        ]
+        assert nullable == [1], "accounts.tenant_id is still nullable after 0014"
+        # The credential is intact, not merely present.
+        swid, cipher = connection.execute(
+            "SELECT swid, espn_s2_encrypted FROM accounts"
+        ).fetchone()
+        assert (swid, cipher) == ("{A}", "ciphertext")
+        assert not connection.execute("PRAGMA foreign_key_check").fetchall()
+    finally:
+        connection.close()

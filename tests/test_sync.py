@@ -26,6 +26,7 @@ from .conftest import FakeEspn
 
 def _make_account(session) -> Account:
     acct = Account(
+        tenant_id=current_tenant_id(session),
         label="Main",
         swid="{AAAA-1111}",
         espn_s2_encrypted=encrypt("some-espn-s2-value"),

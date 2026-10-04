@@ -71,8 +71,23 @@ TENANT_TABLES = {
     # `test_the_leagues_tenant_column_is_still_nullable` below pins it so the
     # window closing is a deliberate act rather than a surprise.
     "leagues": "tenant_id",
-    "accounts": "NOT YET SCOPED - holds swid + encrypted espn_s2",
-    "raw_cache": "NOT YET SCOPED - raw ESPN payloads for private leagues",
+    # Scoped at revision 0014. The Phase 36 audit's first finding -- swid plus
+    # the Fernet-encrypted espn_s2, no tenant column, therefore no policy. It
+    # reaches no league, so it needed a column of its own. NOT NULL now, so a
+    # credential row invisible to every policy is impossible rather than merely
+    # unlikely. No unique constraint was swapped with it: this table has none,
+    # so `swid` is not unique and two rows may hold the same credential -- a
+    # product decision nobody has made.
+    "accounts": "tenant_id",
+    # Scoped at revision 0012, which also made the key composite
+    # `(tenant_id, key)` and closed a measured enumeration oracle: with `key`
+    # alone, a second tenant's INSERT failed on the primary key, and a
+    # uniqueness error is not something row-level security hides.
+    #
+    # This entry said NOT YET SCOPED for two revisions after it was scoped, and
+    # the test below passed the whole time because it asserts the SET and this
+    # name was still in it. Green while recording something false -- lesson 1.
+    "raw_cache": "tenant_id",
     "ai_spend_months": "NOT YET SCOPED - global ceiling is shared across tenants",
     "ai_spend_entries": "NOT YET SCOPED - global ceiling is shared across tenants",
     # Durable work. Scoped by its own tenant_id, and deliberately WITHOUT an
@@ -80,17 +95,17 @@ TENANT_TABLES = {
     # claim would have to be bypassed to work at all. Enforcement for jobs is
     # the tenant the worker binds before it RUNS one, not a predicate on the
     # claim -- recorded here so "no policy" reads as a decision.
-    "jobs": "tenant_id",
+    "jobs": "tenant_id (nullable; the worker refuses a tenantless job)",
     # Recurring intents. Same reasoning as `jobs`: scoped by its own
     # tenant_id, and no RLS policy because one scheduler process materialises
     # for every tenant, so a policy on the scan would have to be bypassed to
     # function. Recorded so "no policy" reads as a decision.
-    "schedules": "tenant_id",
+    "schedules": "tenant_id (nullable; nothing refuses a tenantless one)",
     # Pending side effects. Same reasoning as `jobs` and `schedules`: scoped
     # by its own tenant_id, no RLS policy, because one relay process drains
     # for every tenant and a policy on the scan would have to be bypassed to
     # function. The tenant travels in the row for the receiver's benefit.
-    "outbox": "tenant_id",
+    "outbox": "tenant_id (nullable; nothing refuses a tenantless one)",
     "teams": "league_id",
     "draft_picks": "league_id",
     "metrics": "league_id",
@@ -225,17 +240,82 @@ def test_the_unscoped_tenant_tables_are_named_and_not_forgotten():
     """These are known holes, kept visible. When one is fixed, its entry changes
     from NOT YET SCOPED to the path, and the test above starts checking it.
 
-    `leagues` left this list when alembic 0003 landed `tenant_id`, which also
-    completed the chain for the nine tables that reach a tenant through it.
-    The four below reach no tenant by any path: `accounts` has no league at
-    all, and the spend ledger is deliberately global because the UTC-month
-    ceiling is shared -- which is a decision to make, not a column to add."""
+    The list is down to the spend ledger. `leagues` left it when 0003 landed
+    `tenant_id`, which also completed the chain for the nine tables reaching a
+    tenant through it; `raw_cache` left at 0012 and `accounts` at 0014.
+
+    The two that remain are not an unfinished column -- they are **a decision
+    nobody has made**. The UTC-month AI ceiling is deliberately shared across
+    tenants, which means one tenant's spend consumes everyone's budget and a
+    tenant-scoped role can modify another tenant's ledger rows. Adding a column
+    would not settle that; it would only move where the question is asked.
+
+    A caution this entry earned: `raw_cache` sat in this set for two revisions
+    after it was scoped, and this test passed the whole time, because it asserts
+    the SET and the stale name was still in it. Green while recording something
+    false. The remedy is not a cleverer assertion here, it is editing the entry
+    in the same change that scopes the table.
+    """
     unscoped = {t for t, p in TENANT_TABLES.items() if p.startswith("NOT YET")}
-    assert unscoped == {
-        "accounts", "raw_cache", "ai_spend_months", "ai_spend_entries",
-    }, (
+    assert unscoped == {"ai_spend_months", "ai_spend_entries"}, (
         f"the set of known-unprotected tenant tables changed: {sorted(unscoped)}. "
         f"If one was fixed, record its path instead of removing it from the list."
     )
+
+
+def test_a_plain_tenant_id_path_means_the_column_cannot_be_null():
+    """"Scoped by tenant_id" should mean the tenant is required.
+
+    Otherwise it means "has somewhere to put a tenant", which is what the
+    expand windows were and not what they became. A table that has not
+    contracted has to say so in its entry -- see the three below -- so the
+    unqualified claim is the strong one.
+
+    This check is new, and it found three entries making the strong claim on a
+    nullable column the moment it existed. They now say `(nullable; ...)` with
+    what enforces them instead.
+    """
+    overclaiming = sorted(
+        table
+        for table, path in TENANT_TABLES.items()
+        if path == "tenant_id"
+        and Base.metadata.tables[table].columns["tenant_id"].nullable
+    )
+    assert overclaiming == [], (
+        f"{overclaiming} are recorded as scoped by tenant_id but the column is "
+        "nullable, so a row with no tenant is constructible and invisible to "
+        "every policy. Either contract the column or qualify the entry."
+    )
+
+
+def test_the_nullable_tenant_columns_are_exactly_these_three():
+    """Phase 39's tables, and three different situations rather than one gap.
+
+    `jobs` -- the worker refuses a tenantless job at run time
+    (`TenantlessJob`, non-retryable), so the application enforces what the
+    schema does not. Note that `tests/test_worker.py` constructs one
+    deliberately to test that refusal: a NOT NULL would leave the guard's own
+    test unable to build its subject, which is an argument to think rather than
+    an argument not to do it.
+
+    `schedules` and `outbox` -- **nothing refuses one.** A tenantless schedule
+    materialises tenantless jobs, which the worker then refuses, so the failure
+    surfaces one layer late and as somebody else's error. A tenantless outbox
+    message is delivered with no tenant and the receiver copes.
+
+    Fails when the set changes, in either direction, so contracting one of them
+    is a deliberate act and adding a fourth is not silent.
+    """
+    nullable = sorted(
+        table
+        for table, path in TENANT_TABLES.items()
+        if path.startswith("tenant_id (nullable")
+    )
+    assert nullable == ["jobs", "outbox", "schedules"]
+    for table in nullable:
+        assert Base.metadata.tables[table].columns["tenant_id"].nullable, (
+            f"{table} is no longer nullable; move its entry to the plain "
+            '"tenant_id" form in the same change'
+        )
 
 

@@ -23,7 +23,12 @@ def league_id():
     Base.metadata.create_all(engine)
     session = SessionLocal()
     try:
-        acct = Account(label="Main", swid="{AAAA-1111}", espn_s2_encrypted=encrypt("s2"))
+        acct = Account(
+            tenant_id=resolve_tenant_id(session),
+            label="Main",
+            swid="{AAAA-1111}",
+            espn_s2_encrypted=encrypt("s2"),
+        )
         session.add(acct)
         session.flush()
         lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
@@ -55,7 +60,12 @@ def current_team_detail_ids():
     Base.metadata.create_all(engine)
     session = SessionLocal()
     try:
-        acct = Account(label="Main", swid="{ABC}", espn_s2_encrypted=encrypt("s2"))
+        acct = Account(
+            tenant_id=resolve_tenant_id(session),
+            label="Main",
+            swid="{ABC}",
+            espn_s2_encrypted=encrypt("s2"),
+        )
         session.add(acct)
         session.flush()
         league = League(tenant_id=resolve_tenant_id(session), 

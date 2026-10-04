@@ -15,7 +15,13 @@ from .conftest import FakeEspn
 
 
 def _account(session, swid="{AAAA-1111}") -> Account:
-    a = Account(label="main", swid=swid, espn_s2_encrypted=encrypt("s2"), status="active")
+    a = Account(
+        tenant_id=current_tenant_id(session),
+        label="main",
+        swid=swid,
+        espn_s2_encrypted=encrypt("s2"),
+        status="active",
+    )
     session.add(a)
     session.flush()
     return a

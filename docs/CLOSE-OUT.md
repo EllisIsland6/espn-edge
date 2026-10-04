@@ -1,6 +1,6 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1495 tests, 1476 passing, 19 skipped, 0 failing** — verified from a
+Merged to `main`. Suite **1500 tests, 1481 passing, 19 skipped, 0 failing** — verified from a
 clean clone with no `.env` and no `.venv`, not from the worktree. `ruff check api tests` clean, the
 fault harness exits 0, `alembic upgrade head` reaches 0011.
 
@@ -75,6 +75,24 @@ two timestamps so that "looping and claiming nothing" is a state the system can 
 fault harness proves four faults produce four pairwise-distinct observations, and a healthy
 baseline distinct from all four — because a harness where every fault lights every alarm has proved
 nothing.
+
+**Every tenant column that an expand window was opened for is now NOT NULL.** `raw_cache` at
+revision 0012, `leagues` at 0013, `accounts` at 0014 — the last of the three, and the most
+sensitive table in the schema: `swid` plus the Fernet-encrypted `espn_s2`, the Phase 36 audit's
+first finding. A credential row with no tenant is invisible to every policy and therefore to
+everyone; it fails closed, but silently, and the thing that goes quiet is a stored ESPN credential.
+`alembic/pending/` is empty.
+
+`accounts` needed no constraint swapped with it, and that was measured rather than assumed: it
+carries no unique constraint at all, only a primary key and the tenant index. So `swid` is not
+unique — two rows may hold the same ESPN credential, within a tenant or across them — and whether
+that should be constrained is a product decision nobody has made.
+
+Its rebuild had a child, unlike `raw_cache`'s: `leagues.account_id`. That is where Phase 36's
+defect lived, so the revision checks at run time that nothing cascades into `accounts` rather than
+resting on a sentence, compares the row counts of both tables before and after, and refuses to
+finish if either moved. The test seeds a league pointing at the row being rebuilt, so a cascade
+would have something to destroy.
 
 **Two tenants can hold the same ESPN league and season, and before revision 0013 they could not.**
 That was not an oversight — the old global `uq_league_season` held the line through the whole expand
@@ -172,17 +190,23 @@ reach a transcript either way.
    budget, and a tenant-scoped role can modify another tenant's ledger rows. The operator grant
    should withhold DELETE on both ledger tables. This is a product decision nobody has made.
 
-4. **`accounts.tenant_id` is the last column still nullable**, and it is the most sensitive table in
-   the schema — `swid` plus the Fernet-encrypted `espn_s2`. `leagues` contracted at revision 0013
-   and `raw_cache` at 0012; `alembic/pending/` is now empty. A credential row with no tenant is
-   still constructible, and under row-level security it is invisible to everyone, which fails closed
-   but silently.
+4. **Three of Phase 39's tables are scoped by a nullable tenant column**, and the enforcement
+   differs across them — which is three situations, not one gap. Found by a check added while
+   closing `accounts`, the moment it existed:
 
-   What it needs: a contract revision that does not exist yet, and the ten remaining `Account(...)`
-   writers. The same shape as the `leagues` work and about a third of the size, with one difference
-   worth knowing — the `leagues` conversion turned up five **raw SQL** league writers that an AST
-   scan over constructor calls could not see, one of them in production code. Expect the same for
-   `accounts`, and look for them before counting.
+   - `jobs` — the worker **refuses** a tenantless job at run time (`TenantlessJob`,
+     non-retryable), so the application enforces what the schema does not. Note that
+     `tests/test_worker.py` constructs one deliberately to test that refusal: a NOT NULL would
+     leave the guard's own test unable to build its subject. That is a reason to think, not a
+     reason not to do it.
+   - `schedules` and `outbox` — **nothing refuses one.** A tenantless schedule materialises
+     tenantless jobs, which the worker then refuses, so the failure surfaces one layer late and as
+     somebody else's error. A tenantless outbox message is delivered with no tenant and the
+     receiver copes.
+
+   `tests/test_tenant_classification.py` now holds both halves under test: an unqualified
+   `"tenant_id"` entry must have a non-nullable column, and the set of qualified ones must be
+   exactly those three.
 
 5. **The opportunity path still materialises one dict per player-game** before aggregating to one row
    per player (99,990 rows in, 4,166 out). Pushing that aggregation into SQL would make the peak a
@@ -403,6 +427,13 @@ This was a practice project. These are the findings that are not about fantasy f
     could not see, one in production code. Lesson 7 says counting a grep is not counting the call
     sites. This is the same error from the other side, committed by someone who had just written
     lesson 7 down.
+
+25. **A list of known holes goes stale silently, because the test asserts the list.**
+    `raw_cache` sat in the "NOT YET SCOPED" set for two revisions after it was scoped, and the test
+    guarding that set passed the whole time — it compares the set to itself, so a stale entry is
+    invisible to it. The remedy is not a cleverer assertion; it is editing the entry in the same
+    change that closes the hole. A second check, comparing each recorded claim against the actual
+    column, found three more overclaims the moment it existed.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
