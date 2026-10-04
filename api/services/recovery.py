@@ -166,13 +166,30 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: `validate_catalog`'s four checks each shape reaches. Any table, column
 #: order, affinity, nullability, default, PK, FK, index, predicate or catalog
 #: SQL change requires a reviewed format version and a re-run of that script.
+#: Re-pinned at revision 0012, which gave `raw_cache` a composite
+#: `(tenant_id, key)` primary key and made `tenant_id` NOT NULL. The catalog
+#: carries both, so all three shapes moved. Read off real databases by
+#: `.venv/phase41/digests.py`; `tests/test_recovery_format.py` builds each
+#: shape and requires its digest to be here, and requires that nothing here is
+#: a digest no shape produces.
 _FORMAT_V2_CATALOG_SHA256 = frozenset(
     {
         # alembic upgrade head -- what an operator's database actually is
-        "1e62a65fb715c8b4587fd55fd44eed5a5371081d0f27dcc2893d5784c8223bea",
+        "fde2867328303cada8147562c519ef7dbf859dfa95a10e487a7254397c901c7a",
         # create_all over the current models, opportunity_weeks older then ALTERed
-        "9eaa4e6da0dc9de0f5e27c7332363b654110684c55045aa1c55d89bce02f2bd5",
+        "929d333224c8fea65f9fcdcfec558a40944a6f511ba8eb68bc18951a4306a346",
         # create_all over the current models -- what the suite builds
+        "36290272dad896fab67924078ee5393f0c12b6446cae8b85f4f40d6dcd5d57f4",
+    }
+)
+
+#: The pre-0012 v2 triple, kept for one revision so the history of what this
+#: pin has meant is readable rather than a single line that silently changes.
+#: Nothing reads it.
+_FORMAT_V2_CATALOG_SHA256_BEFORE_0012 = frozenset(
+    {
+        "1e62a65fb715c8b4587fd55fd44eed5a5371081d0f27dcc2893d5784c8223bea",
+        "9eaa4e6da0dc9de0f5e27c7332363b654110684c55045aa1c55d89bce02f2bd5",
         "c72829cb2d34d3f2508f6615feb4203c1ecc4553f9f49d9fdfaaab8fb12b8f5f",
     }
 )

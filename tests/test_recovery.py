@@ -33,7 +33,7 @@ import pytest
 from api import recovery as app_recovery
 from api.config import Settings
 from api.crypto import encrypt
-from api.models import Account, League, RawCache, Team
+from api.models import Account, League, RawCache, Team, Tenant
 from api.services import recovery as recovery_module
 from api.services.espn import EspnReauthRequired, cookies_for_account
 from api.services.recovery import (
@@ -2000,6 +2000,9 @@ def test_bundle_excludes_cache_credentials_owner_ids_and_restores_reauth(tmp_pat
     db_session.add(
         RawCache(
             key="cache-canary",
+            # `tenant_id` is part of the primary key as of migration 0012 and
+            # is NOT NULL, so a construction without it no longer inserts.
+            tenant_id=db_session.query(Tenant).one().id,
             fetched_at=datetime.now(UTC),
             payload_json={"private": "RAW-PAYLOAD-CANARY"},
         )
@@ -2067,9 +2070,19 @@ def test_backup_changed_noop_and_failure_preserves_coverage(tmp_path, monkeypatc
     first_state = json.loads(settings.recovery_state_file.read_text())
     # A cache-only mutation is deliberately absent from the safe-content digest.
     connection = sqlite3.connect(settings.db_file)
+    # `tenant_id` is part of the primary key and NOT NULL as of revision 0012,
+    # so a raw INSERT has to name it. The tenant is read back rather than
+    # hardcoded to 1: this database is built by `create_all`, whose seeding
+    # listener decides the id, and a literal would be right until it wasn't.
+    tenant_id = connection.execute("SELECT id FROM tenants LIMIT 1").fetchone()[0]
     connection.execute(
-        "INSERT INTO raw_cache(key,fetched_at,payload_json) VALUES(?,?,?)",
-        ("cache-only", "2026-08-13 00:01:00", '{"private":"not-in-bundle"}'),
+        "INSERT INTO raw_cache(key,fetched_at,payload_json,tenant_id) VALUES(?,?,?,?)",
+        (
+            "cache-only",
+            "2026-08-13 00:01:00",
+            '{"private":"not-in-bundle"}',
+            tenant_id,
+        ),
     )
     connection.commit()
     connection.close()

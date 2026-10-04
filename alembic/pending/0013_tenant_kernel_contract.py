@@ -43,8 +43,8 @@ downgrade restored both with child rows intact; and the collision guard below
 refused a downgrade of a database where two tenants held the same ESPN league,
 leaving it unchanged at 0004. See docs/phase-36-tenant-isolation-kernel.md.
 
-Revision ID: 0012
-Revises: 0011
+Revision ID: 0013
+Revises: 0012
 """
 from __future__ import annotations
 
@@ -52,8 +52,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0012"
-down_revision: str | None = "0011"
+revision: str = "0013"
+down_revision: str | None = "0012"
 branch_labels: str | None = None
 depends_on: str | None = None
 

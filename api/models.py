@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
     text,
@@ -811,22 +812,48 @@ class AiReport(Base):
 
 class RawCache(Base):
     __tablename__ = "raw_cache"
+    __table_args__ = (
+        # Declared explicitly, in this order, for two reasons.
+        #
+        # The DDL: declaration order would put `key` first, while migration
+        # 0012 writes `PRIMARY KEY (tenant_id, "key")`. Both enforce the same
+        # uniqueness, but they are different SQL -- so a `create_all` database
+        # and a migrated one would disagree in the recovery catalog, which is
+        # a third instance of the drift format v2 was written to fix. Caught
+        # here by checking rather than after it shipped.
+        #
+        # The meaning: `(tenant_id, key)` is the useful prefix -- "this
+        # tenant's cached keys". The reverse indexes "which tenants hold this
+        # key", which is the enumeration direction this change exists to
+        # close.
+        PrimaryKeyConstraint("tenant_id", "key", name="pk_raw_cache"),
+    )
 
-    # NOTE: `key` remains the sole primary key during the expand window, and
-    # that is a known hole rather than a settled design. Two tenants cannot
-    # hold the same cache key, so a colliding INSERT fails with a uniqueness
-    # error that row-level security does NOT hide -- which tells the second
-    # tenant that the first one has that key. Since a key carries a league id
-    # and a hashed SWID, that is an enumeration oracle. The fix is a composite
-    # (tenant_id, key) primary key, and it belongs with the contract step that
-    # makes these columns NOT NULL, because until then half the rows share a
-    # NULL tenant and the composite key would not be unique either.
+    # The primary key is `(tenant_id, key)`, and it closes a measured
+    # enumeration oracle. With `key` alone, two tenants could not hold the same
+    # cache key: the second INSERT failed on the primary key, and **a
+    # uniqueness error is not something row-level security hides.** That told
+    # the second tenant the first one holds that key, and a key carries a
+    # league id and a hashed SWID.
+    #
+    # `tenant_id` is NOT NULL because the composite needs it to be, and that
+    # is load-bearing rather than hygiene. Measured in migration 0012's probe:
+    # with the column nullable, SQLite accepted TWO rows holding NULL and the
+    # same key, because it treats NULLs as distinct for uniqueness -- so the
+    # primary key stopped being a key at all. PostgreSQL refuses a nullable
+    # column in a primary key outright, so the two engines disagree, which is
+    # the exact shape of defect this project keeps finding.
+    #
+    # Column order is unchanged from the expand window: `key` is still
+    # declared first so the recovery format's column tuple still matches a
+    # real database. The key's ORDER is `(tenant_id, key)`, which is also the
+    # useful one for the lookups in `api/services/cache.py`.
     key: Mapped[str] = mapped_column(String, primary_key=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     payload_json: Mapped[dict | None] = mapped_column(JSON)
     # Raw ESPN payloads for private leagues. Audit finding, same as `accounts`.
-    tenant_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tenants.id"), nullable=True, index=True
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False, index=True, primary_key=True
     )
 
 

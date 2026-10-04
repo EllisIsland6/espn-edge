@@ -1,6 +1,6 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1481 tests, 1462 passing, 19 skipped, 0 failing** — verified from a
+Merged to `main`. Suite **1492 tests, 1473 passing, 19 skipped, 0 failing** — verified from a
 clean clone with no `.env` and no `.venv`, not from the worktree. `ruff check api tests` clean, the
 fault harness exits 0, `alembic upgrade head` reaches 0011.
 
@@ -76,6 +76,25 @@ fault harness proves four faults produce four pairwise-distinct observations, an
 baseline distinct from all four — because a harness where every fault lights every alarm has proved
 nothing.
 
+**Two tenants can hold the same cache key, and before revision 0012 they could not.** The primary
+key on `raw_cache` was `key` alone, so a second tenant's INSERT failed on it — and a uniqueness
+error is not something row-level security hides. That told the second tenant the first one holds
+that key, and a key carries a league id and a hashed SWID: a measured enumeration oracle, recorded
+in revision 0004's own docstring and left open there because a composite key over a nullable column
+is not a key.
+
+Probed before anything was written, and the real behaviour is worse than that sentence. With
+`tenant_id` nullable, SQLite accepted **two** rows holding NULL and the same key, because it treats
+NULLs as distinct for uniqueness — so the composite would not have been a weaker key, it would have
+been no key at all. PostgreSQL refuses a nullable column in a primary key outright, so the two
+engines disagree about the same schema. The `NOT NULL` is load-bearing, and a test removes it to
+show that.
+
+The read path moved with it. Both cache lookups were `session.get(RawCache, key)` — a primary-key
+lookup that returned whichever tenant's row held the key, correct only because a policy elsewhere
+was filtering it, and nothing filtered it offline at all. They now name both columns, so a write no
+longer overwrites another tenant's payload and a read no longer returns one.
+
 **The recovery format matches a real database again, and a test now checks that it does.** Format v1
 froze the whole SQLite catalog and pinned its digest — a good control that nobody updated. Phases
 36–41 added eight tables and a `tenant_id` to three existing ones, and the format came to match no
@@ -131,38 +150,35 @@ reach a transcript either way.
    refuses to start on such a role, but the roles and grants themselves are an operator step, and a
    table added by a future migration has no grants for the app role until someone issues them.
 
-3. **`raw_cache`'s primary key is still `key` alone.** Two tenants cannot hold the same cache key, so
-   the second INSERT fails with `23505` — and a uniqueness error is not something RLS hides. One
-   tenant therefore learns another holds that key, and a key carries a league id and a hashed SWID.
-   An enumeration oracle, measured, with its fix (a composite key) blocked until the contract step.
-
-4. **The AI spend ceiling is shared across tenants**, so one tenant's spend consumes everyone's
+3. **The AI spend ceiling is shared across tenants**, so one tenant's spend consumes everyone's
    budget, and a tenant-scoped role can modify another tenant's ledger rows. The operator grant
    should withhold DELETE on both ledger tables. This is a product decision nobody has made.
 
-5. **The contract migration is parked** (`alembic/pending/0012_tenant_kernel_contract.py` — it has
-   been renumbered seven times as the chain grew). `tenant_id` stays nullable on `leagues`,
-   `accounts` and `raw_cache` until every writer supplies one. Counted by AST rather than grep,
-   because lesson 7 below exists: **42 construction sites across 12 files** — 31 `League`, 10
-   `Account`, 1 `RawCache` — with `tests/test_metrics.py` (9), `test_recovery.py` (6),
-   `test_ai.py` (6) and `test_views.py` (6) holding most of them. The earlier figure of "roughly 32
-   test constructions" predates the `accounts` and `raw_cache` columns and was an undercount.
+4. **The contract migration for `leagues` and `accounts` is still parked**
+   (`alembic/pending/0013_tenant_kernel_contract.py` — renumbered eight times as the chain grew).
+   `tenant_id` stays nullable on those two until every writer supplies one. **`raw_cache` left this
+   list at revision 0012.**
 
-   The migration is proven on both SQLite and PostgreSQL and lands the day those sites are
+   Counted by AST rather than grep, because lesson 7 below exists: **41 construction sites across
+   11 files** — 31 `League` and 10 `Account` — with `tests/test_metrics.py` (9),
+   `test_recovery.py` (6), `test_ai.py` (6) and `test_views.py` (6) holding most of them.
+
+   The parked revision covers `leagues` only; `accounts` needs one that does not exist yet. The
+   `leagues` revision is proven on both SQLite and PostgreSQL and lands the day those sites are
    converted — together with the model change and the deletion of
    `test_the_leagues_tenant_column_is_still_nullable`, which pins the window open, or the parity
-   test fails. It is mechanical work with a clear finish line and no decisions in it.
+   test fails. Mechanical work with a clear finish line and no decisions in it.
 
-6. **The opportunity path still materialises one dict per player-game** before aggregating to one row
+5. **The opportunity path still materialises one dict per player-game** before aggregating to one row
    per player (99,990 rows in, 4,166 out). Pushing that aggregation into SQL would make the peak a
    function of players rather than player-games. Not done: it moves where an analytics formula is
    evaluated.
 
-7. **No live ESPN read has ever been performed or authorized**, and the provider's network term
+6. **No live ESPN read has ever been performed or authorized**, and the provider's network term
    remains unmeasured. Phase 32 retired the measurement-instrument risk and explicitly did not retire
    this one.
 
-8. **The offline suite cannot test isolation.** SQLite has no row-level security. Every isolation
+7. **The offline suite cannot test isolation.** SQLite has no row-level security. Every isolation
    claim here rests on the PostgreSQL runs, and an offline assertion would be a green tick
    establishing nothing.
 
@@ -359,6 +375,13 @@ This was a practice project. These are the findings that are not about fantasy f
     subprocess before the probe ran. The removal proved the spawn was fragile and left the probe
     unproven. A probe needs its own two-way instrument check, and it is cheap: a dozen lines with
     no production code in them.
+
+23. **A constraint can be present and its name invisible.** Hand-written SQLite DDL wrapped
+    `CONSTRAINT fk_raw_cache_tenant_id` and `FOREIGN KEY(...)` onto two lines for readability.
+    SQLAlchemy recovers constraint names by matching the stored DDL text, so the key reflected as
+    *unnamed* — and the failure surfaced in a **different migration four revisions further down**,
+    as `No such constraint`. Formatting changed behaviour, the symptom appeared nowhere near the
+    cause, and no amount of reading the new revision would have found it.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
