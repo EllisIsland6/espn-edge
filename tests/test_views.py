@@ -9,6 +9,7 @@ from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
 from api.models import Account, League, Player, Team
 from api.services.sync import SyncService
+from api.tenancy import resolve_tenant_id
 
 from .conftest import FakeEspn, load_fixture
 
@@ -25,7 +26,7 @@ def league_id():
         acct = Account(label="Main", swid="{AAAA-1111}", espn_s2_encrypted=encrypt("s2"))
         session.add(acct)
         session.flush()
-        lg = League(espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
+        lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
         session.add(lg)
         session.flush()
         SyncService(
@@ -57,7 +58,7 @@ def current_team_detail_ids():
         acct = Account(label="Main", swid="{ABC}", espn_s2_encrypted=encrypt("s2"))
         session.add(acct)
         session.flush()
-        league = League(
+        league = League(tenant_id=resolve_tenant_id(session), 
             espn_league_id="current-roster",
             season=2026,
             account_id=acct.id,
@@ -122,6 +123,7 @@ def test_league_identity_rejects_cross_league_team_reference(league_id):
         for team in session.scalars(select(Team).where(Team.league_id == league_id)):
             team.is_me = False
         other = League(
+            tenant_id=resolve_tenant_id(session),
             espn_league_id="identity-other",
             season=2026,
             lifecycle="drafted",
@@ -273,7 +275,12 @@ def test_team_detail_marks_failed_sync_stale(current_team_detail_ids):
 def test_team_detail_rejects_team_outside_league(current_team_detail_ids):
     league_id, _team_id = current_team_detail_ids
     with SessionLocal() as session:
-        other = League(espn_league_id="other", season=2026, is_public=True)
+        other = League(
+            tenant_id=resolve_tenant_id(session),
+            espn_league_id="other",
+            season=2026,
+            is_public=True,
+        )
         session.add(other)
         session.flush()
         foreign = Team(league_id=other.id, espn_team_id=99, name="Foreign")

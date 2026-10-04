@@ -47,6 +47,10 @@ def _seed(db_path) -> None:
     try:
         connection.execute("PRAGMA foreign_keys=ON")
         for league_id, espn_id in ((1, "111"), (2, "222")):
+            # This seeds a database at revision 0002, where `tenant_id` does
+            # not exist yet -- the whole point is to migrate it forward. So no
+            # tenant here, deliberately, and revision 0013's catch-up backfill
+            # is what gives these rows one.
             connection.execute(
                 "INSERT INTO leagues (id, espn_league_id, season, lifecycle, "
                 "is_public) VALUES (?, ?, ?, ?, ?)",
@@ -148,6 +152,102 @@ def test_upgrading_to_head_preserves_child_rows(migrated_to_0002):
             f"run, or ran before the column existed."
         )
 
+        assert not connection.execute("PRAGMA foreign_key_check").fetchall()
+
+        # --- revision 0013, the contract step -----------------------------
+        # These rows were seeded at 0002, before `tenant_id` existed. 0003
+        # added it nullable and backfilled; 0013 makes it NOT NULL and runs a
+        # catch-up backfill for anything written during the rollback window.
+        # Without that catch-up the NOT NULL fails on a real database for a
+        # reason that reads as a migration bug.
+        nullable = [
+            row[3]
+            for row in connection.execute("PRAGMA table_info(leagues)")
+            if row[1] == "tenant_id"
+        ]
+        assert nullable == [1], (
+            "leagues.tenant_id is still nullable after `upgrade head`; "
+            "revision 0013 did not land"
+        )
+
+        # The old global unique is gone, and its absence is the point: it made
+        # two tenants holding the same ESPN league impossible to INSERT, which
+        # is exactly the case Phase 36 existed to test.
+        ddl = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE name='leagues'"
+        ).fetchone()[0]
+        assert "uq_league_tenant_season" in ddl
+        assert "uq_league_season" not in ddl.replace("uq_league_tenant_season", "")
+
+        # And the behaviour, not just the inventory: a constraint list can
+        # look right while the database refuses the row.
+        tenant = connection.execute("SELECT id FROM tenants LIMIT 1").fetchone()[0]
+        connection.execute(
+            "INSERT INTO tenants(id, slug, created_at) VALUES (9, 'beta', '2026-01-01')"
+        )
+        connection.executemany(
+            "INSERT INTO leagues(espn_league_id, season, lifecycle, is_public, "
+            "tenant_id) VALUES (?, ?, 'active', 0, ?)",
+            [("collide", 2026, tenant), ("collide", 2026, 9)],
+        )
+        held = connection.execute(
+            "SELECT count(*) FROM leagues WHERE espn_league_id='collide'"
+        ).fetchone()[0]
+        assert held == 2, "two tenants cannot hold the same ESPN league and season"
+    finally:
+        connection.close()
+
+
+def test_the_contract_step_backfills_rows_from_the_rollback_window(tmp_path):
+    """Revision 0013's catch-up backfill, exercised.
+
+    `test_upgrading_to_head_preserves_child_rows` cannot reach it: it seeds at
+    0002, 0003's own backfill gives those rows a tenant, and by the time 0013
+    runs there is nothing tenantless left. That test passed with the catch-up
+    deleted — a probe that cannot reach the defect is not a probe.
+
+    The catch-up exists for the window between 0003 and 0013, when the old
+    application code is still running and still inserting leagues with no
+    tenant. Without it the NOT NULL fails on a production database for a reason
+    that reads as a migration bug. So this stops at 0012, writes the row the
+    old code would have written, and then runs the contract step.
+    """
+    from alembic import command
+
+    db_path = tmp_path / "window.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "0012")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute(
+            "INSERT INTO leagues(espn_league_id, season, lifecycle, is_public, "
+            "tenant_id) VALUES ('rollback-window', 2026, 'active', 0, NULL)"
+        )
+        connection.commit()
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM leagues WHERE tenant_id IS NULL"
+            ).fetchone()[0]
+            == 1
+        ), "the rollback-window row was not written; this test proves nothing"
+    finally:
+        connection.close()
+
+    command.upgrade(config, "0013")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        assert (
+            connection.execute("SELECT count(*) FROM leagues").fetchone()[0] == 1
+        ), "the rollback-window row was lost rather than backfilled"
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM leagues WHERE tenant_id IS NULL"
+            ).fetchone()[0]
+            == 0
+        ), "the catch-up backfill did not run"
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
     finally:
         connection.close()

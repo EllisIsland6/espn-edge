@@ -25,6 +25,7 @@ from api.models import (
 )
 from api.services import ai_inputs
 from api.services.ai import AiError, AiService
+from api.tenancy import resolve_tenant_id
 
 from .conftest import FakeEspn, load_fixture
 
@@ -74,7 +75,7 @@ class FakeLlmClient:
 # AiService unit tests (injected fake client; enabled regardless of env key)
 # --------------------------------------------------------------------------- #
 def _league(session) -> League:
-    lg = League(espn_league_id="900", season=2026, is_public=True, lifecycle="drafted")
+    lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="900", season=2026, is_public=True, lifecycle="drafted")
     session.add(lg)
     session.flush()
     return lg
@@ -129,7 +130,7 @@ def synced_league_id():
         acct = Account(label="Main", swid="{AAAA-1111}", espn_s2_encrypted=encrypt("s2"))
         session.add(acct)
         session.flush()
-        lg = League(espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
+        lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
         session.add(lg)
         session.flush()
         from api.services.sync import SyncService
@@ -401,7 +402,7 @@ def test_schema_version_bumped_and_busts_cache(monkeypatch):
 # Phase 19: weekly recap grounded on all-play, luck & waivers (offline)
 # --------------------------------------------------------------------------- #
 def _make_weekly_league(session) -> League:
-    lg = League(espn_league_id="960", season=2026, is_public=True, lifecycle="in_season",
+    lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="960", season=2026, is_public=True, lifecycle="in_season",
                 size=4, playoff_team_count=2)
     session.add(lg)
     session.flush()
@@ -728,7 +729,7 @@ _TRADE_SLOTS = {"0": 1, "2": 2, "4": 2, "6": 1, "23": 1, "16": 1, "17": 1, "20":
 
 
 def _make_trade_league(session) -> tuple[League, Team, Team]:
-    lg = League(espn_league_id="770", season=2026, is_public=True, lifecycle="in_season",
+    lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="770", season=2026, is_public=True, lifecycle="in_season",
                 size=4, playoff_team_count=2, lineup_slots_json=_TRADE_SLOTS, last_sync_ok=True)
     session.add(lg)
     session.flush()
@@ -809,7 +810,7 @@ def test_trade_finder_input_positional_surplus_deficit_hand_computed(db_session)
 
 def test_trade_finder_input_drafted_fallback_and_pending(db_session):
     # No lineup_slots anywhere → drafted-roster fallback, labeled honestly.
-    lg = League(espn_league_id="771", season=2026, is_public=True, lifecycle="drafted",
+    lg = League(tenant_id=resolve_tenant_id(db_session), espn_league_id="771", season=2026, is_public=True, lifecycle="drafted",
                 size=2, lineup_slots_json=_TRADE_SLOTS, last_sync_ok=True)
     db_session.add(lg)
     db_session.flush()

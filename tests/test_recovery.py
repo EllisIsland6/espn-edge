@@ -62,6 +62,7 @@ from api.services.recovery import (
     validate_catalog,
 )
 from api.services.sync import SyncService
+from api.tenancy import current_tenant_id
 
 # ---------------------------------------------------------------------------
 # The lexical venv, and why seventeen tests below can be skipped without that
@@ -1979,7 +1980,7 @@ def test_bundle_excludes_cache_credentials_owner_ids_and_restores_reauth(tmp_pat
     )
     db_session.add(account)
     db_session.flush()
-    league = League(
+    league = League(tenant_id=current_tenant_id(db_session), 
         espn_league_id="8001",
         season=2026,
         account_id=account.id,
@@ -2214,8 +2215,9 @@ def test_uncheckpointed_wal_and_concurrent_writer_produce_one_consistent_view(
         "VALUES(1,'before','a','b','active','2026-08-13 00:00:00')"
     )
     connection.execute(
-        "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public) "
-        "VALUES(1,'before',2026,1,'pre_draft',0)"
+        "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public,"
+        "tenant_id) VALUES(1,'before',2026,1,'pre_draft',0,"
+        "(SELECT id FROM tenants LIMIT 1))"
     )
     connection.commit()  # committed but intentionally not checkpointed
     connection.close()
@@ -2241,8 +2243,9 @@ def test_uncheckpointed_wal_and_concurrent_writer_produce_one_consistent_view(
             "VALUES(2,'after','c','d','active','2026-08-13 00:01:00')"
         )
         conn.execute(
-            "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public) "
-            "VALUES(2,'after',2026,2,'pre_draft',0)"
+            "INSERT INTO leagues(id,espn_league_id,season,account_id,lifecycle,is_public,"
+            "tenant_id) VALUES(2,'after',2026,2,'pre_draft',0,"
+            "(SELECT id FROM tenants LIMIT 1))"
         )
         conn.commit()
         conn.close()
@@ -2269,7 +2272,7 @@ def test_account_reauth_gate_precedes_decrypt_and_sync_provider(db_session, monk
     )
     db_session.add(account)
     db_session.flush()
-    league = League(
+    league = League(tenant_id=current_tenant_id(db_session), 
         espn_league_id="9001",
         season=2026,
         account_id=account.id,
@@ -2296,7 +2299,7 @@ def test_account_reauth_gate_precedes_decrypt_and_sync_provider(db_session, monk
 
 
 def test_sync_stale_gate_precedes_production_provider_construction(db_session, monkeypatch):
-    league = League(espn_league_id="9002", season=2026, lifecycle="pre_draft", is_public=True)
+    league = League(tenant_id=current_tenant_id(db_session), espn_league_id="9002", season=2026, lifecycle="pre_draft", is_public=True)
     db_session.add(league)
     db_session.flush()
     constructors = []
@@ -2724,8 +2727,8 @@ def _restored_bundle(tmp_path, *, leagues=(), picks=0):
         connection = sqlite3.connect(db)
         for index, season in enumerate(leagues, start=1):
             connection.execute(
-                "INSERT INTO leagues(id,espn_league_id,season,name,lifecycle,is_public)"
-                " VALUES(?,?,?,?,?,1)",
+                "INSERT INTO leagues(id,espn_league_id,season,name,lifecycle,is_public,"
+                "tenant_id) VALUES(?,?,?,?,?,1,(SELECT id FROM tenants LIMIT 1))",
                 (index, f"L{index}", season, f"League {index}", "drafted"),
             )
         for overall in range(1, picks + 1):

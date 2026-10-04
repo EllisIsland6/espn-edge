@@ -376,8 +376,14 @@ class Account(Base):
     # The Phase 36 audit's first finding: this is the most sensitive table in
     # the schema -- swid plus the Fernet-encrypted espn_s2 -- and it had no
     # tenant column and therefore no policy. It reaches no league, so there was
-    # no path to scope it by; it needed one of its own. Nullable during expand,
-    # like `leagues.tenant_id`.
+    # no path to scope it by; it needed one of its own.
+    #
+    # Still nullable, and now the only column left in that state:
+    # `leagues.tenant_id` contracted at revision 0013 and `raw_cache.tenant_id`
+    # at 0012. This one needs a contract revision that does not exist yet, plus
+    # the ten remaining `Account(...)` writers. Until then a credential row with
+    # no tenant is constructible, and under row-level security it is invisible
+    # to everyone -- which fails closed, but silently.
     tenant_id: Mapped[int | None] = mapped_column(
         ForeignKey("tenants.id"), nullable=True, index=True
     )
@@ -392,18 +398,17 @@ class League(Base):
     # tenants could not both hold the same ESPN league, which is exactly the
     # "guessed/colliding IDs" case the phase names. Uniqueness is per tenant.
     __table_args__ = (
-        # Both, deliberately, for as long as `tenant_id` is nullable. The old
-        # global one is what actually holds the line during the expand window:
-        # SQL treats NULLs as distinct, so two NULL-tenant rows with the same
-        # (espn_league_id, season) satisfy the tenant-scoped constraint and
-        # nothing else would stop them. It is dropped by alembic/pending/0004,
-        # in the same commit that makes `tenant_id` NOT NULL.
+        # One constraint, tenant-scoped, as of revision 0013.
         #
-        # Its cost is real and is the reason it goes: it makes the
-        # colliding-tenant case impossible to insert, so two tenants cannot
-        # both hold the same ESPN league (P36-1) -- which is exactly the
-        # attack Phase 36 existed to test.
-        UniqueConstraint("espn_league_id", "season", name="uq_league_season"),
+        # The old global `uq_league_season` -- (espn_league_id, season), with no
+        # tenant in it -- held the line through the expand window, because SQL
+        # treats NULLs as distinct: two NULL-tenant rows with the same league
+        # and season satisfy the tenant-scoped constraint and nothing else
+        # would have stopped them. With `tenant_id` NOT NULL there are no
+        # NULL-tenant rows left for it to guard, and its cost is the reason it
+        # goes: it made the colliding-tenant case impossible to INSERT, so two
+        # tenants could not both hold the same ESPN league (P36-1) -- which is
+        # exactly the attack Phase 36 existed to test.
         UniqueConstraint(
             "tenant_id", "espn_league_id", "season", name="uq_league_tenant_season"
         ),
@@ -413,15 +418,24 @@ class League(Base):
     espn_league_id: Mapped[str] = mapped_column(String, nullable=False)
     season: Mapped[int] = mapped_column(Integer, nullable=False)
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
-    # Nullable on purpose, and this is the open half of an expand-contract pair.
-    # A league with no tenant is invisible to every policy and therefore to
-    # everyone: that fails closed, but silently, which is how a league vanishes
-    # and nobody learns why. The contract step that makes it impossible rather
-    # than merely unlikely is written and proven -- alembic/pending/0004 -- and
-    # parked until every writer supplies a tenant (Phase 37). This annotation
-    # and that file move together; tests/test_spend.py fails if only one does.
-    tenant_id: Mapped[int | None] = mapped_column(
-        ForeignKey("tenants.id"), nullable=True, index=True
+    # NOT NULL as of revision 0013, which closed an expand-contract pair that
+    # had been open since 0003.
+    #
+    # The window existed for a reason: a league with no tenant is invisible to
+    # every policy and therefore to everyone -- it fails closed, but silently,
+    # which is how a league vanishes and nobody learns why. Nullable made that
+    # merely unlikely; NOT NULL makes it impossible. The window stayed open
+    # until every writer supplied a tenant, which took 31 call-site
+    # conversions across 12 files, done first, with the suite green throughout.
+    #
+    # Eleven of those call sites use `resolve_tenant_id` rather than
+    # `current_tenant_id`, and that difference is deliberate: their fixtures
+    # build an UNBOUND session, so reading the tenant off the session raises.
+    # Fifteen tests failed that way during the conversion and that is how the
+    # unbound fixtures were found. They are marked where they occur rather than
+    # smoothed over.
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"), nullable=False, index=True
     )
 
     name: Mapped[str | None] = mapped_column(String)

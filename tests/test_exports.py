@@ -12,6 +12,7 @@ from api.db import Base, SessionLocal, engine, init_db
 from api.main import app
 from api.models import Account, League
 from api.services.sync import SyncService
+from api.tenancy import resolve_tenant_id
 
 from .conftest import FakeEspn, load_fixture
 
@@ -28,7 +29,7 @@ def synced():
         acct = Account(label="Main", swid="{AAAA-1111}", espn_s2_encrypted=encrypt("s2"))
         session.add(acct)
         session.flush()
-        lg = League(espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
+        lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
         session.add(lg)
         session.flush()
         SyncService(

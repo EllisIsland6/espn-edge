@@ -19,6 +19,7 @@ from api.models import (
     Transaction,
 )
 from api.services.sync import SyncService
+from api.tenancy import current_tenant_id
 
 from .conftest import FakeEspn
 
@@ -36,7 +37,7 @@ def _make_account(session) -> Account:
 
 
 def _make_league(session, account) -> League:
-    lg = League(
+    lg = League(tenant_id=current_tenant_id(session), 
         espn_league_id="111",
         season=2026,
         account_id=account.id,

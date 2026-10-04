@@ -32,6 +32,7 @@ from api.services import metrics
 from api.services.metrics import TeamStat, team_components, team_edge
 from api.services.playoff_sim import SimGame, SimTeam, simulate_playoff_odds
 from api.services.sync import SyncService
+from api.tenancy import resolve_tenant_id
 
 from .conftest import FakeEspn, load_fixture
 
@@ -261,7 +262,7 @@ def test_simulate_pending_when_no_spots():
 # Persistence + invalidation (DB)
 # --------------------------------------------------------------------------- #
 def _make_inseason_league(session) -> League:
-    lg = League(espn_league_id="222", season=2026, is_public=True, lifecycle="in_season",
+    lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="222", season=2026, is_public=True, lifecycle="in_season",
                 size=4, playoff_team_count=2)
     session.add(lg)
     session.flush()
@@ -355,7 +356,7 @@ def test_playoff_odds_pending_without_playoff_team_count(db_session):
 
 def test_playoff_odds_pending_without_schedule(db_session):
     # in_season but no matchups → can't model scores → pending (never fabricated).
-    lg = League(espn_league_id="223", season=2026, is_public=True, lifecycle="in_season",
+    lg = League(tenant_id=resolve_tenant_id(db_session), espn_league_id="223", season=2026, is_public=True, lifecycle="in_season",
                 size=4, playoff_team_count=2)
     db_session.add(lg)
     db_session.flush()
@@ -401,7 +402,7 @@ def test_current_week_partial_scores_stay_remaining():
 def test_no_remaining_games_uses_espn_standing(db_session):
     # Finding 2: in_season with all regular-season games played → deterministic by
     # ESPN standing (which may encode tiebreakers we don't model), not a sim.
-    lg = League(espn_league_id="224", season=2026, is_public=True, lifecycle="in_season",
+    lg = League(tenant_id=resolve_tenant_id(db_session), espn_league_id="224", season=2026, is_public=True, lifecycle="in_season",
                 size=4, playoff_team_count=2)
     db_session.add(lg)
     db_session.flush()
@@ -461,7 +462,7 @@ def synced_league_id():
         acct = Account(label="Main", swid="{AAAA-1111}", espn_s2_encrypted=encrypt("s2"))
         session.add(acct)
         session.flush()
-        lg = League(espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
+        lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="111", season=2026, account_id=acct.id, is_public=False)
         session.add(lg)
         session.flush()
         SyncService(
@@ -525,7 +526,7 @@ def test_stale_projections_do_not_block_record_scoring_pure():
 
 
 def _make_drafted_league(session) -> League:
-    lg = League(espn_league_id="333", season=2026, is_public=True, lifecycle="drafted",
+    lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="333", season=2026, is_public=True, lifecycle="drafted",
                 size=4, playoff_team_count=2)
     session.add(lg)
     session.flush()
@@ -782,7 +783,7 @@ def preseason_league_id():
     Base.metadata.create_all(engine)
     session = SessionLocal()
     try:
-        lg = League(espn_league_id="909", season=2026, is_public=True, lifecycle="drafted",
+        lg = League(tenant_id=resolve_tenant_id(session), espn_league_id="909", season=2026, is_public=True, lifecycle="drafted",
                     size=4, playoff_team_count=2)
         session.add(lg)
         session.flush()
@@ -985,7 +986,7 @@ def test_compute_lineup_efficiency_points_weighted():
 
 
 def _make_lineup_league(session) -> League:
-    lg = League(
+    lg = League(tenant_id=resolve_tenant_id(session), 
         espn_league_id="777", season=2026, is_public=True, lifecycle="in_season",
         size=2, playoff_team_count=1, lineup_slots_json={"0": 1, "23": 1},  # QB + FLEX
     )
@@ -1297,7 +1298,7 @@ def test_league_softness_persists_and_clears(db_session):
 
 
 def _make_softness_league(session) -> League:
-    lg = League(
+    lg = League(tenant_id=resolve_tenant_id(session), 
         espn_league_id="890", season=2026, is_public=True, lifecycle="in_season",
         size=4, playoff_team_count=2,
     )

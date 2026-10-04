@@ -1,6 +1,6 @@
 # ESPN Edge — close-out
 
-Merged to `main`. Suite **1492 tests, 1473 passing, 19 skipped, 0 failing** — verified from a
+Merged to `main`. Suite **1495 tests, 1476 passing, 19 skipped, 0 failing** — verified from a
 clean clone with no `.env` and no `.venv`, not from the worktree. `ruff check api tests` clean, the
 fault harness exits 0, `alembic upgrade head` reaches 0011.
 
@@ -75,6 +75,24 @@ two timestamps so that "looping and claiming nothing" is a state the system can 
 fault harness proves four faults produce four pairwise-distinct observations, and a healthy
 baseline distinct from all four — because a harness where every fault lights every alarm has proved
 nothing.
+
+**Two tenants can hold the same ESPN league and season, and before revision 0013 they could not.**
+That was not an oversight — the old global `uq_league_season` held the line through the whole expand
+window, because SQL treats NULLs as distinct and two NULL-tenant rows would otherwise have satisfied
+the tenant-scoped constraint. Its cost was the reason it had to go: it made **P36-1, the
+colliding-tenant case, impossible to INSERT**, which is exactly the attack Phase 36 existed to test.
+
+`leagues.tenant_id` is NOT NULL as of 0013, so a tenantless league — invisible to every policy and
+therefore to everyone, failing closed but silently — is now impossible rather than merely unlikely.
+The expand window stayed open for five phases and closed the correct way round: **31 call sites
+converted first, with the suite green throughout**, then the schema. `alembic/pending/` is empty for
+the first time.
+
+Two things that conversion turned up. Fifteen tests failed with `TenantNotResolved` because their
+fixtures build **unbound** sessions — a configuration production never hands out — and those eleven
+sites now read the tenant from the database and say so where they do it. And **five raw SQL league
+writers**, one in production code, that an AST scan over `League(...)` constructor calls could not
+see: counting constructors is not counting the writers, and only the NOT NULL found the rest.
 
 **Two tenants can hold the same cache key, and before revision 0012 they could not.** The primary
 key on `raw_cache` was `key` alone, so a second tenant's INSERT failed on it — and a uniqueness
@@ -154,20 +172,17 @@ reach a transcript either way.
    budget, and a tenant-scoped role can modify another tenant's ledger rows. The operator grant
    should withhold DELETE on both ledger tables. This is a product decision nobody has made.
 
-4. **The contract migration for `leagues` and `accounts` is still parked**
-   (`alembic/pending/0013_tenant_kernel_contract.py` — renumbered eight times as the chain grew).
-   `tenant_id` stays nullable on those two until every writer supplies one. **`raw_cache` left this
-   list at revision 0012.**
+4. **`accounts.tenant_id` is the last column still nullable**, and it is the most sensitive table in
+   the schema — `swid` plus the Fernet-encrypted `espn_s2`. `leagues` contracted at revision 0013
+   and `raw_cache` at 0012; `alembic/pending/` is now empty. A credential row with no tenant is
+   still constructible, and under row-level security it is invisible to everyone, which fails closed
+   but silently.
 
-   Counted by AST rather than grep, because lesson 7 below exists: **41 construction sites across
-   11 files** — 31 `League` and 10 `Account` — with `tests/test_metrics.py` (9),
-   `test_recovery.py` (6), `test_ai.py` (6) and `test_views.py` (6) holding most of them.
-
-   The parked revision covers `leagues` only; `accounts` needs one that does not exist yet. The
-   `leagues` revision is proven on both SQLite and PostgreSQL and lands the day those sites are
-   converted — together with the model change and the deletion of
-   `test_the_leagues_tenant_column_is_still_nullable`, which pins the window open, or the parity
-   test fails. Mechanical work with a clear finish line and no decisions in it.
+   What it needs: a contract revision that does not exist yet, and the ten remaining `Account(...)`
+   writers. The same shape as the `leagues` work and about a third of the size, with one difference
+   worth knowing — the `leagues` conversion turned up five **raw SQL** league writers that an AST
+   scan over constructor calls could not see, one of them in production code. Expect the same for
+   `accounts`, and look for them before counting.
 
 5. **The opportunity path still materialises one dict per player-game** before aggregating to one row
    per player (99,990 rows in, 4,166 out). Pushing that aggregation into SQL would make the peak a
@@ -382,6 +397,12 @@ This was a practice project. These are the findings that are not about fantasy f
     *unnamed* — and the failure surfaced in a **different migration four revisions further down**,
     as `No such constraint`. Formatting changed behaviour, the symptom appeared nowhere near the
     cause, and no amount of reading the new revision would have found it.
+
+24. **Counting constructor calls is not counting the writers.** An AST scan found 31 `League(...)`
+    sites and I converted all of them; the NOT NULL then found **five raw SQL inserts** the scan
+    could not see, one in production code. Lesson 7 says counting a grep is not counting the call
+    sites. This is the same error from the other side, committed by someone who had just written
+    lesson 7 down.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.

@@ -15,6 +15,7 @@ from api.services.exposure import build_exposure, players_for_view
 from api.services.ffc_adp import apply_ffc_snapshots_to_players, refresh_ffc_adp
 from api.services.metrics import StrategyPick, classify_draft_strategy, pick_value
 from api.services.portfolio_filters import PortfolioFilters
+from api.tenancy import resolve_tenant_id
 
 from .conftest import load_fixture
 
@@ -39,7 +40,7 @@ def _ppr_scoring() -> dict:
 
 
 def _league(session, espn_id: str, *, draft_type: str = "SNAKE") -> League:
-    league = League(
+    league = League(tenant_id=resolve_tenant_id(session), 
         espn_league_id=espn_id,
         season=2026,
         name=f"League {espn_id}",

@@ -42,6 +42,7 @@ from api.services.spend import (
     utc_month,
     worst_case_micro_usd,
 )
+from api.tenancy import current_tenant_id
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "test-model"
@@ -460,7 +461,7 @@ class RecordingClient:
 
 @pytest.fixture
 def league(db_session):
-    row = League(espn_league_id="911", season=2026, is_public=True)
+    row = League(tenant_id=current_tenant_id(db_session), espn_league_id="911", season=2026, is_public=True)
     db_session.add(row)
     db_session.flush()
     return row

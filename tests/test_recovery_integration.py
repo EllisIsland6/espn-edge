@@ -55,6 +55,7 @@ from api.services.recovery import (
     run_backup,
 )
 from api.services.sync import SyncService
+from api.tenancy import current_tenant_id
 
 from .conftest import FakeEspn
 
@@ -353,7 +354,7 @@ def _seed_source(db_session, league_fixture, players_fixture) -> tuple[Path, int
     )
     db_session.add(account)
     db_session.flush()
-    league = League(
+    league = League(tenant_id=current_tenant_id(db_session), 
         espn_league_id="phase30-synthetic",
         season=2025,
         account_id=account.id,

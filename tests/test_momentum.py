@@ -9,10 +9,11 @@ from sqlalchemy import func, select
 
 from api.models import League, Metric, MetricSnapshot, Team
 from api.services import momentum
+from api.tenancy import current_tenant_id
 
 
 def _league_team(session, league_ref: str = "momentum-1") -> tuple[League, Team]:
-    league = League(
+    league = League(tenant_id=current_tenant_id(session), 
         espn_league_id=league_ref,
         season=2026,
         lifecycle="in_season",
@@ -165,7 +166,7 @@ def test_league_delete_cascades_history_before_id_reuse(db_session):
     db_session.flush()
     assert db_session.scalar(select(func.count()).select_from(MetricSnapshot)) == 0
 
-    replacement = League(
+    replacement = League(tenant_id=current_tenant_id(db_session), 
         id=old_league_id,
         espn_league_id="momentum-readded",
         season=2026,

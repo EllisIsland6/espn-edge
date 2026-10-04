@@ -31,6 +31,7 @@ from api.services.opportunity import (
     refresh_opportunity,
 )
 from api.services.portfolio_filters import PortfolioFilters
+from api.tenancy import current_tenant_id
 
 
 def _stat(
@@ -219,7 +220,7 @@ def test_not_published_is_expected_before_the_season(db_session):
     assert db_session.get(NflversePlayerMap, 1000).status == "matched"
 
     db_session.add(
-        League(
+        League(tenant_id=current_tenant_id(db_session), 
             espn_league_id="in-season-empty",
             season=2026,
             lifecycle="in_season",
@@ -392,7 +393,7 @@ def test_phase29_charts_use_exact_shared_values_stable_population_and_diagnostic
         force=True,
         client=FakeNflverse(_registry(12), stats),
     )
-    league = League(
+    league = League(tenant_id=current_tenant_id(db_session), 
         espn_league_id="phase29",
         season=2026,
         name="Chart League",
@@ -513,7 +514,7 @@ def test_roster_availability_requires_a_current_successful_snapshot(db_session):
         force=True,
         client=FakeNflverse(_registry(10), stats),
     )
-    league = League(
+    league = League(tenant_id=current_tenant_id(db_session), 
         espn_league_id="27",
         season=2026,
         name="Opportunity League",

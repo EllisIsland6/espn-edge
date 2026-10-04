@@ -158,6 +158,69 @@ def test_each_scoped_tenant_table_has_the_column_its_path_names(table):
     )
 
 
+def test_the_leagues_tenant_column_is_not_null():
+    """The expand window is closed, and reopening it should be as loud as
+    closing it was.
+
+    Its predecessor asserted the opposite -- that the column was still
+    nullable -- and said to delete it in the change that landed the contract.
+    This is that change. Replacing the assertion rather than removing it keeps
+    the fact under test: `leagues.tenant_id` being NOT NULL is what makes a
+    tenantless league impossible rather than merely unlikely, and a league with
+    no tenant is invisible to every policy and therefore to everyone.
+    """
+    tenant_id = Base.metadata.tables["leagues"].columns["tenant_id"]
+    assert tenant_id.nullable is False
+
+
+def test_the_old_global_unique_is_gone():
+    """`uq_league_season` made the colliding-tenant case impossible to INSERT.
+
+    Two tenants could not both hold the same ESPN league and season -- which
+    is exactly the attack Phase 36 existed to test. It held the line through
+    the expand window, because SQL treats NULLs as distinct and two
+    NULL-tenant rows would otherwise have satisfied the tenant-scoped
+    constraint. With the column NOT NULL there are no such rows left to guard.
+    """
+    names = {c.name for c in Base.metadata.tables["leagues"].constraints}
+    assert "uq_league_season" not in names
+    assert "uq_league_tenant_season" in names
+
+
+def test_two_tenants_can_hold_the_same_espn_league(db_session):
+    """P36-1, as a behaviour rather than a schema claim.
+
+    The whole point of dropping the global unique. Asserted by inserting,
+    because a constraint inventory can look right while the database refuses
+    the row.
+    """
+    from api.models import League, Tenant
+
+    first = db_session.query(Tenant).one()
+    second = Tenant(slug="beta")
+    db_session.add(second)
+    db_session.flush()
+
+    for tenant in (first, second):
+        db_session.add(
+            League(
+                tenant_id=tenant.id,
+                espn_league_id="collide-1",
+                season=2026,
+                is_public=True,
+            )
+        )
+    db_session.flush()
+
+    held = [
+        row.tenant_id
+        for row in db_session.query(League).filter(
+            League.espn_league_id == "collide-1"
+        )
+    ]
+    assert sorted(held) == sorted([first.id, second.id])
+
+
 def test_the_unscoped_tenant_tables_are_named_and_not_forgotten():
     """These are known holes, kept visible. When one is fixed, its entry changes
     from NOT YET SCOPED to the path, and the test above starts checking it.
@@ -176,21 +239,3 @@ def test_the_unscoped_tenant_tables_are_named_and_not_forgotten():
     )
 
 
-def test_the_leagues_tenant_column_is_still_nullable():
-    """Pins the expand window open, and fails when it closes.
-
-    `leagues.tenant_id` being nullable is not an accident to be tidied up: it
-    is what lets the 37 League construction sites be converted a few at a time
-    with the suite green. When alembic/pending/0004 lands this test fails, and
-    the fix is to delete it -- in the same change that moves the migration and
-    edits the model, so the three cannot drift apart silently.
-
-    Until then, do not read `"leagues": "tenant_id"` above as "leagues are
-    isolated". The column exists; nothing yet requires it to be filled.
-    """
-    tenant_id = Base.metadata.tables["leagues"].columns["tenant_id"]
-    assert tenant_id.nullable, (
-        "leagues.tenant_id is NOT NULL, so the contract step has landed. "
-        "Delete this test, and check that alembic/pending/0004 moved into "
-        "alembic/versions/ in the same change."
-    )

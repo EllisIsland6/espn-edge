@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from api.crypto import encrypt
 from api.models import Account, League, LineupSlot, Metric, Player, Team, Transaction
 from api.services.sync import SyncService
+from api.tenancy import current_tenant_id
 
 from .conftest import FakeEspn
 
@@ -21,7 +22,7 @@ def _account(session, swid="{AAAA-1111}") -> Account:
 
 
 def _league(session, account) -> League:
-    lg = League(espn_league_id="111", season=2026, account_id=account.id, is_public=False)
+    lg = League(tenant_id=current_tenant_id(session), espn_league_id="111", season=2026, account_id=account.id, is_public=False)
     session.add(lg)
     session.flush()
     return lg
