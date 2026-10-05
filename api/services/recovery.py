@@ -172,18 +172,23 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: constraints, so every schema change moves all three shapes, and the pin
 #: moving is the normal cost of a migration rather than a sign of trouble.
 #:
-#: Read off real databases by `.venv/phase41/digests.py`.
+#: Read off real databases by `.venv/phase41/digests.py`. What gets hashed is
+#: deliberately narrower than the raw DDL: `_canonical_table_sql` sorts a
+#: table's constraint clauses first, because two checkouts of the identical
+#: commit were measured producing `leagues` DDL that differed only in the
+#: order of two CONSTRAINT clauses -- so a pin computed in one tree refused a
+#: database built in the other. See that function for what was ruled out.
 #: `tests/test_recovery_format.py` builds each shape and requires its digest to
 #: be here, and requires that nothing here is a digest no shape produces --
 #: which is what v1 silently became.
 _FORMAT_V2_CATALOG_SHA256 = frozenset(
     {
-        # create_all, opportunity full
-        "4fbafa2df2b6e285bf8d055b8cb352c4df5bb5006cdb8d3c319c394f9fa64bf5",
         # alembic upgrade head
-        "82411f7e6bca19f3feb70ad63047550c29141e132ef053353d5a3a597abbd122",
+        "2f5f1a480e9c3604964f8d227b32cdb828ff4397e945bbca133dfcbb287aa40b",
+        # create_all, opportunity full
+        "7e3c229396ea9490246efdc63a607999eac2b8bc51305035c281f78e87c4ea2a",
         # create_all, opportunity older
-        "d601feb7cb03cf213e0e295e1dd35699ee1a1d148f21dbf895e7229cc7f76c94",
+        "c81f4de83cc16691e60af4de1b724f4c4e48f1b4ee75fe0f4dc42c7b8fe0dd15",
     }
 )
 
@@ -1054,6 +1059,76 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _canonical_table_sql(sql: str | None) -> str:
+    """A table's DDL with its constraint clauses in a fixed order.
+
+    WHY THIS EXISTS
+    ---------------
+    The catalog fingerprint hashes this text, and the text carried an ordering
+    that means nothing. Measured: two checkouts of the identical commit
+    produced `leagues` DDL differing only in whether
+    `CONSTRAINT fk_leagues_tenant_id` came before or after
+    `CONSTRAINT uq_league_tenant_season` -- same constraints, same semantics,
+    different SHA-256. The pin computed in one tree therefore refused a
+    database built in the other, and a clean clone is what caught it.
+
+    The ordering comes out of alembic's batch rebuild, which reflects a table
+    and re-emits its constraints. I could not pin the root cause to the source:
+    it is stable within a tree, survives six different `PYTHONHASHSEED` values,
+    and is not the stale bytecode that first looked responsible. That is enough
+    to conclude the fingerprint must not depend on it. A control whose verdict
+    changes with something outside the source is not a control.
+
+    Column order is deliberately NOT sorted. It is part of the schema the
+    allowlist checks, `leagues` has two legitimate column orders already, and
+    sorting it would hide a real change.
+
+    `foreign_keys` in the same catalog was already sorted, for the same reason.
+    """
+    if not sql:
+        # Same empty string the un-canonicalised path produced, so a table
+        # SQLite reports no DDL for keeps the reading it always had.
+        return _normalize_sql(sql)
+    opener = sql.find("(")
+    closer = sql.rfind(")")
+    if opener == -1 or closer <= opener:
+        return _normalize_sql(sql)
+
+    head, body, tail = sql[: opener + 1], sql[opener + 1 : closer], sql[closer:]
+
+    # Split the body on TOP-LEVEL commas only: a clause may itself contain
+    # parenthesised column lists, as every UNIQUE and FOREIGN KEY does.
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in body:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+
+    columns: list[str] = []
+    constraints: list[str] = []
+    for part in parts:
+        stripped = part.strip()
+        if not stripped:
+            continue
+        first = stripped.split(None, 1)[0].upper().strip('"')
+        if first in {"CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK"}:
+            constraints.append(stripped)
+        else:
+            columns.append(stripped)
+
+    ordered = columns + sorted(constraints)
+    return _normalize_sql(head + ", ".join(ordered) + tail)
+
+
 def _table_catalog(conn: sqlite3.Connection, table: str) -> dict[str, Any]:
     columns = [
         {
@@ -1096,7 +1171,7 @@ def _table_catalog(conn: sqlite3.Connection, table: str) -> dict[str, Any]:
         "columns": columns,
         "foreign_keys": foreign_keys,
         "indexes": sorted(indexes, key=lambda item: item["name"]),
-        "sql": _normalize_sql(table_sql[0] if table_sql else None),
+        "sql": _canonical_table_sql(table_sql[0] if table_sql else None),
     }
 
 

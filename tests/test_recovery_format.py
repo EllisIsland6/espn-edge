@@ -39,6 +39,7 @@ import sqlalchemy as sa
 
 import api.models  # noqa: F401 - registers every table on Base.metadata
 from api.db import Base
+from api.services import recovery
 from api.services.recovery import (
     _CREATE_ALL_LEAGUES_ORDER,
     _CREATE_ALL_OPPORTUNITY_ORDER,
@@ -578,3 +579,146 @@ def test_a_verifier_that_cannot_start_is_a_different_error_from_one_that_says_no
     source = inspect.getsource(recovery._run_operational_restore_verifier)
     assert "Restore verifier did not run." in source
     assert "Restored application verification failed." in source
+
+
+# --------------------------------------------------------------------------
+# The fingerprint must not depend on constraint-clause order
+# --------------------------------------------------------------------------
+#
+# Measured: two checkouts of the identical commit produced `leagues` DDL that
+# differed only in whether the FK clause came before or after the UNIQUE one.
+# Same constraints, same semantics, different SHA-256 -- so the pin computed in
+# one tree refused a database built in the other, and the clean clone is what
+# caught it. `_canonical_table_sql` sorts the constraint clauses. These tests
+# hold that fix in place from BOTH sides: reordering must not change the
+# reading, and a real change must still change it. A canonicaliser that threw
+# the clauses away would satisfy the first half alone.
+
+_CLAUSE_ORDER_FK_FIRST = """
+CREATE TABLE clause_order (
+    id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
+    season INTEGER NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_clause_order_tenant_id FOREIGN KEY(tenant_id) REFERENCES tenants (id),
+    CONSTRAINT uq_clause_order_season UNIQUE (tenant_id, season)
+)
+"""
+
+_CLAUSE_ORDER_UNIQUE_FIRST = """
+CREATE TABLE clause_order (
+    id INTEGER NOT NULL,
+    tenant_id INTEGER NOT NULL,
+    season INTEGER NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_clause_order_season UNIQUE (tenant_id, season),
+    CONSTRAINT fk_clause_order_tenant_id FOREIGN KEY(tenant_id) REFERENCES tenants (id)
+)
+"""
+
+#: One column swapped inside the UNIQUE clause. A real schema difference.
+_CLAUSE_ORDER_DIFFERENT_UNIQUE = _CLAUSE_ORDER_FK_FIRST.replace(
+    "UNIQUE (tenant_id, season)", "UNIQUE (tenant_id, id)"
+)
+
+#: The same constraints, but two columns swapped. Column order is part of the
+#: schema and must still read differently.
+_CLAUSE_ORDER_DIFFERENT_COLUMNS = _CLAUSE_ORDER_FK_FIRST.replace(
+    "    tenant_id INTEGER NOT NULL,\n    season INTEGER NOT NULL,",
+    "    season INTEGER NOT NULL,\n    tenant_id INTEGER NOT NULL,",
+)
+
+
+def _reading_of(ddl: str) -> str:
+    """What the catalog records for a table created by this exact DDL.
+
+    Through a real SQLite database, not by calling the canonicaliser on a
+    string: the catalog hashes what SQLite stores, and SQLite is free to
+    rewrite what it was handed.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(ddl)
+        return json.dumps(
+            recovery._table_catalog(conn, "clause_order"),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    finally:
+        conn.close()
+
+
+def test_the_two_clause_orders_really_are_different_text():
+    """The instrument check. If SQLite normalised the DDL on the way in, the
+    next test would be comparing a string to itself and would pass with the
+    canonicaliser deleted."""
+    stored = []
+    for ddl in (_CLAUSE_ORDER_FK_FIRST, _CLAUSE_ORDER_UNIQUE_FIRST):
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(ddl)
+            (sql,) = conn.execute(
+                "SELECT sql FROM sqlite_schema WHERE name='clause_order'"
+            ).fetchone()
+        finally:
+            conn.close()
+        stored.append(sql)
+    assert stored[0] != stored[1]
+    # And they differ ONLY in that ordering: same clauses, so the un-sorted
+    # normalisation differs while the sorted character multiset does not.
+    assert recovery._normalize_sql(stored[0]) != recovery._normalize_sql(stored[1])
+    assert sorted(recovery._normalize_sql(stored[0])) == sorted(recovery._normalize_sql(stored[1]))
+
+
+def test_constraint_clause_order_does_not_change_the_reading():
+    """The defect, as a test. This is what differed between two checkouts."""
+    assert _reading_of(_CLAUSE_ORDER_FK_FIRST) == _reading_of(_CLAUSE_ORDER_UNIQUE_FIRST)
+
+
+def test_a_changed_constraint_still_changes_the_reading():
+    """The other direction: sorting the clauses must not amount to ignoring
+    them. One column swapped inside the UNIQUE clause is a real difference and
+    must read differently."""
+    assert _reading_of(_CLAUSE_ORDER_FK_FIRST) != _reading_of(_CLAUSE_ORDER_DIFFERENT_UNIQUE)
+
+
+def test_a_changed_column_order_still_changes_the_reading():
+    """Column order is deliberately not sorted -- `leagues` has two legitimate
+    orders and the allowlist is what decides which are acceptable, so the
+    fingerprint has to be able to see the difference."""
+    assert _reading_of(_CLAUSE_ORDER_FK_FIRST) != _reading_of(_CLAUSE_ORDER_DIFFERENT_COLUMNS)
+
+
+def test_the_canonical_sql_lists_every_clause_it_was_given():
+    """Nothing is dropped on the way through. Counted, because a split on
+    top-level commas is exactly the kind of parser that silently eats a clause
+    containing a parenthesised column list."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute(_CLAUSE_ORDER_FK_FIRST)
+        (sql,) = conn.execute("SELECT sql FROM sqlite_schema WHERE name='clause_order'").fetchone()
+    finally:
+        conn.close()
+    canonical = recovery._canonical_table_sql(sql)
+    for fragment in (
+        "id integer not null",
+        "tenant_id integer not null",
+        "season integer not null",
+        "primary key (id)",
+        "constraint fk_clause_order_tenant_id foreign key(tenant_id)",
+        "constraint uq_clause_order_season unique (tenant_id, season)",
+    ):
+        assert fragment in canonical, fragment
+    # Three column definitions and three constraint clauses, so five top-level
+    # commas and not one more.
+    assert canonical.count(",") == 5 + 1, canonical  # +1 inside the UNIQUE list
+
+
+def test_an_unparseable_table_sql_is_passed_through_unsorted():
+    """A DDL with no parenthesised body is not something to guess at: it keeps
+    the reading the un-canonicalised path gave it."""
+    assert recovery._canonical_table_sql(None) == ""
+    assert recovery._canonical_table_sql("") == ""
+    assert recovery._canonical_table_sql("CREATE TABLE t AS SELECT 1") == (
+        "create table t as select 1"
+    )
