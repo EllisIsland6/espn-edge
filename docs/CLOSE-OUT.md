@@ -435,6 +435,27 @@ This was a practice project. These are the findings that are not about fantasy f
     change that closes the hole. A second check, comparing each recorded claim against the actual
     column, found three more overclaims the moment it existed.
 
+26. **A fingerprint can hash something that means nothing — and then the fingerprint is the
+    defect.** The recovery catalog's SHA-256 included each table's stored DDL text. Two checkouts
+    of the *identical commit* produced `leagues` DDL differing only in whether the FK clause came
+    before or after the UNIQUE one: same constraints, same semantics, different digest. So the pin
+    computed in one tree refused a database built in the other, and the refusal says
+    `Database schema is not allowlisted` — a reproducibility problem wearing the costume of data
+    loss during a restore. I never pinned the root cause: it is produced inside alembic's batch
+    rebuild, it is stable within a tree, it survives six `PYTHONHASHSEED` values, and the stale
+    `.pyc` that looked responsible did not survive a three-state experiment. **Not pinning the
+    cause did not block the fix**, because the conclusion did not depend on it: a control whose
+    verdict changes with something outside the source is not a control, so the fingerprint stops
+    hashing the ordering. The honest write-up records the open question rather than quietly
+    implying it was solved.
+
+    The second half of that fix matters as much as the first. Sorting the clauses makes reordering
+    invisible — and *dropping* them would too. So the tests assert both directions: reordering does
+    not change the reading, a changed constraint still does, a changed column order still does, and
+    every clause survives the parse, counted. Only the invariance test fails when the control is
+    removed; the other three exist so that the canonicaliser cannot pass by throwing information
+    away.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
