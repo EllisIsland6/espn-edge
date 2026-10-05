@@ -456,6 +456,43 @@ This was a practice project. These are the findings that are not about fantasy f
     removed; the other three exist so that the canonicaliser cannot pass by throwing information
     away.
 
+27. **The suite had never been run the way it is actually going to run.** Every green reading in
+    this project came from macOS, Python 3.14, `APP_MODE=private_operator`, and the machine the code
+    was written on. CI runs ubuntu-latest, Python 3.12, and a bare `python -m pytest` with no
+    `APP_MODE` at all; the container image is `python:3.12-slim`. Running CI's own commands on CI's
+    own interpreter -- in a cloud container, because the dev machine has only 3.14 -- turned up three
+    failures in ten minutes, and **none of them was a 3.12-vs-3.14 difference**. All three were
+    platform or wall-clock assumptions that macOS happened to satisfy:
+
+    - `os.kill(pid, 0)` cannot tell a running process from a **zombie**. A process-group kill left
+      the descendant dead-but-unreaped for ~1.5s (measured: `/proc` state `Z`, ppid 1), the probe
+      read "alive" throughout, and a correct control was reported broken. macOS reaps orphans
+      promptly, so the test passed there on an accident of timing rather than on a sound reading.
+    - Two tests asserted `elapsed < 3` against a path configured to wait 2.6s. 0.4s of headroom is
+      less than the cost of cold-starting the subprocesses they spawn: ~2.1s on macOS, 3.12-3.42s on
+      Linux across five runs. The bound now comes from the configured timeouts plus named slack,
+      with a separate assertion that the configuration is still a prompt-return one.
+    - A provenance test drew 25 random UUIDs and required `min(entropy) > 3.0`. The production floor
+      is **2.5** -- so the test guarded a number the scanner does not use, with a margin the real
+      distribution crosses. Measured over 50,000 draws: 7 (0.014%) below 3.0, **none** below the
+      production floor. It was a 1-in-290 red build whose message accused the scanner.
+
+    The lesson is not "test on Linux too". It is that **the environment is part of what a green
+    suite establishes**, and it is the part nobody writes down. A suite that has only ever run in one
+    place has been measured in one place.
+
+28. **A bound that is only a backstop should not be sized like a claim.** Separately from the above,
+    `test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]` fails on macOS in a
+    whole-file run and passes when selected alone -- and **raising its 5s deadline to 30s does not
+    help**, which is how we know it is not a timing bound at all. Instrumented, every prompt child
+    terminates in 0.01-0.12s. It is order-dependent state: the prompt child is a `pty.fork()` of the
+    test process, so it inherits the process's signal mask, and the production code blocks signals
+    with `pthread_sigmask` around a critical section -- a SIGINT blocked in the child is pending
+    forever rather than fatal. A teardown hook asserting an empty mask after every test came back
+    clean on Linux, where the failure does not reproduce; it has not been run on macOS, where it
+    would name the leaker. Recorded as open with that lead rather than closed with a widened
+    deadline.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

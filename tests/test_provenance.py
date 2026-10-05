@@ -9,6 +9,7 @@ exactly how this phase's own false alarm happened.
 from __future__ import annotations
 
 import json
+import statistics
 import uuid
 from pathlib import Path
 
@@ -67,14 +68,42 @@ def test_a_synthetic_placeholder_of_identical_shape_is_not():
 
 
 def test_the_two_sides_are_not_near_the_threshold():
-    """Guard against a threshold that happens to work by luck."""
+    """Guard against a threshold that happens to work by luck -- asserted
+    against the threshold the scanner actually uses.
+
+    This read `min(real) > 3.0` and `max(fake) < 2.0`, and 3.0 is not the
+    production floor: `_MIN_IDENTIFIER_ENTROPY_BITS` is 2.5. So a test whose
+    stated purpose is to stop a lucky threshold was guarding a number the
+    scanner does not use, with a margin the real distribution crosses.
+
+    Measured over 50,000 `uuid4()` draws: min 2.8585, p01 3.2653, median
+    3.6289, max 3.9528. Seven draws (0.014%) fell below 3.0 and **none** fell
+    below the production floor, so the old bound tripped roughly once in 290
+    runs -- a coin-flip failure that announces itself as a provenance-scanner
+    defect. It fired on the first run of this suite the way CI runs it (Linux,
+    Python 3.12), at `min = 2.9747`.
+
+    The synthetic side, over 9,950 placeholders: min 0.3373, median 1.0559,
+    max 1.1809 -- 1.32 bits of headroom below the floor, and not one of them
+    is flagged as a real identifier.
+
+    A failure here now means something true: a real identifier whose entropy
+    does not clear the floor the scanner gates on.
+    """
     real = [shannon_entropy_bits(str(uuid.uuid4()).replace("-", "")) for _ in range(25)]
     fake = [
         shannon_entropy_bits(synthetic_swid(7, i).strip("{}").replace("-", ""))
         for i in range(25)
     ]
-    assert min(real) > 3.0
-    assert max(fake) < 2.0
+    # Both populations on the correct side of the floor the scanner uses.
+    assert min(real) > _MIN_IDENTIFIER_ENTROPY_BITS, min(real)
+    assert max(fake) < _MIN_IDENTIFIER_ENTROPY_BITS, max(fake)
+    # And not by a hair -- stated on the medians, which do not carry the tail
+    # that made the old bound flaky. This is the "not near the threshold"
+    # claim: a property of the two distributions rather than of one sample's
+    # unluckiest draw.
+    assert statistics.median(real) - _MIN_IDENTIFIER_ENTROPY_BITS > 0.5
+    assert _MIN_IDENTIFIER_ENTROPY_BITS - statistics.median(fake) > 0.5
 
 
 def test_scanner_reports_candidates_separately_from_findings():

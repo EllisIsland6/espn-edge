@@ -187,6 +187,116 @@ def test_the_stronger_condition_implies_the_weaker_one():
         assert _lexical_venv_is_usable()
 
 
+def _is_executing(pid: int) -> bool:
+    """Whether `pid` names a process that is still RUNNING.
+
+    `os.kill(pid, 0)` cannot answer this, and the difference is not academic.
+    A process killed in a group sweep whose own parent died in the same sweep
+    becomes a **zombie**: reparented to init, holding no locks, executing
+    nothing -- and its pid is retained until somebody reaps it, so the signal
+    probe keeps answering "alive" for as long as that takes.
+
+    Measured, in a Linux container, on the descendant of
+    `test_bounded_runner_parent_interrupt_kills_noninteractive_process_group`:
+    `/proc/<pid>/stat` read `Z` with ppid 1 from 0.5s after the group kill
+    until about 2.0s, while `os.kill(pid, 0)` returned cleanly the whole time.
+    The group kill had worked. The probe could not see that, and the test's
+    one-second deadline expired inside the zombie window -- so a correct
+    control was reported broken. On macOS the same test passed, because
+    orphans are reaped promptly there: the instrument was inadequate on both
+    platforms and only Linux made it say so. CI runs ubuntu-latest, and the
+    hosted deployment is Linux.
+
+    There is no silent fallback to the signal probe. A platform this cannot
+    read raises, because a test that quietly reverts to the inadequate
+    instrument is worse than one that will not run.
+    """
+    stat_path = Path(f"/proc/{pid}/stat")
+    if Path("/proc/self/stat").exists():
+        try:
+            raw = stat_path.read_text(encoding="ascii", errors="replace")
+        except (FileNotFoundError, ProcessLookupError):
+            return False
+        # The comm field is parenthesised and may itself contain spaces, so the
+        # fields after it are found from the LAST close paren, not by split().
+        state = raw[raw.rindex(")") + 2 :].split()[0]
+        return state not in {"Z", "X", "x"}
+    probe = subprocess.run(
+        ["ps", "-o", "state=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+    )
+    if probe.returncode or not probe.stdout.strip():
+        return False
+    return not probe.stdout.strip().startswith("Z")
+
+
+def test_the_liveness_helper_can_tell_a_zombie_from_a_running_process():
+    """The instrument check for `_is_executing`, and the measurement that
+    condemns the probe it replaced.
+
+    A helper that answered "not executing" unconditionally would satisfy every
+    kill assertion in this file, so both readings are checked here, against a
+    zombie this test creates deliberately rather than one it waits around for:
+    the child is ours, so not calling `wait()` is what keeps it unreaped.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        deadline = time.monotonic() + 2
+        while not _is_executing(proc.pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert _is_executing(proc.pid), "a running process must read as executing"
+
+        proc.kill()  # dead, and deliberately NOT reaped
+        deadline = time.monotonic() + 5
+        while _is_executing(proc.pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not _is_executing(proc.pid), "a zombie must not read as executing"
+
+        # And this is the whole reason the helper exists: the pid is still
+        # signalable, because nothing has reaped it yet.
+        os.kill(proc.pid, 0)
+    finally:
+        proc.wait()
+
+
+#: How long the escaped descendant's parent sleeps. The timing bound in
+#: `test_escaped_credential_descendant_is_authority_free_and_does_not_hold_lock`
+#: is meaningful only while it stays well under this: that is the duration a
+#: `run_backup` which waited out the descendant would take.
+_ESCAPED_PARENT_SLEEP_SECONDS = 60
+
+#: Slack over a configured wait, for process startup and scheduling. Named
+#: rather than folded into a magic total, because it is the only part of that
+#: bound which is a guess about the machine rather than a fact about the code.
+_SUBPROCESS_STARTUP_SLACK_SECONDS = 2.0
+
+
+def _credential_path_budget() -> float:
+    """Wall-clock budget for a credential path that fails on its own timeouts.
+
+    The sum of the waits that path is CONFIGURED to make, plus named slack for
+    process startup. Read at call time, so a monkeypatched timeout is included
+    and a future change to one of the constants moves the budget instead of
+    silently eating the margin.
+
+    Two tests asserted `elapsed < 3` against a configured sum of 2.6s -- 1.5s
+    broker timeout (both patch it to that) + 0.5s exit + 0.5s cleanup + 0.1s
+    command. Both passed on macOS at about 2.1s and both failed on Linux, at
+    3.12s and at 3.15-3.42s across five runs: the same controls, bounds set by
+    wall clock rather than by the configuration, and 0.4s of slack is less
+    than the cost of cold-starting the python subprocesses they spawn. CI runs
+    ubuntu-latest and the deployment is Linux.
+    """
+    return (
+        recovery_module._CREDENTIAL_BROKER_TIMEOUT_SECONDS
+        + recovery_module._CREDENTIAL_BROKER_EXIT_TIMEOUT_SECONDS
+        + recovery_module._CREDENTIAL_BROKER_CLEANUP_SECONDS
+        + recovery_module._CREDENTIAL_COMMAND_TIMEOUT_SECONDS
+        + _SUBPROCESS_STARTUP_SLACK_SECONDS
+    )
+
+
 def _settings(tmp_path: Path, *, required: bool = True) -> Settings:
     repository = tmp_path / "external" / "repo"
     repository.mkdir(parents=True)
@@ -1683,11 +1793,14 @@ def test_bounded_runner_parent_interrupt_kills_noninteractive_process_group(
     elapsed = time.monotonic() - started
     assert descendant_pid.exists()
     pid = int(descendant_pid.read_text(encoding="ascii"))
-    deadline = time.monotonic() + 1
+    # Read the process STATE, not the signalability of its pid: the
+    # descendant's parent died in the same sweep, so what is left behind is a
+    # zombie for however long this platform takes to reap it. See
+    # `_is_executing`, which was written after this test failed on Linux with
+    # the control working correctly.
+    deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+        if not _is_executing(pid):
             break
         time.sleep(0.01)
     else:
@@ -3918,7 +4031,12 @@ def test_credential_broker_failure_is_bounded_secret_free_and_preserves_state(
     assert failed.last_snapshot_at == prior.last_snapshot_at
     assert failed.artifact_bytes == prior.artifact_bytes
     assert failed.last_result_code == "recovery_repository_error"
-    assert elapsed < 3
+    # Same configured waits as the escaped-descendant test below, and the same
+    # bound: see `_credential_path_budget`, which replaced `elapsed < 3` after
+    # both tests failed on Linux with the controls working.
+    budget = _credential_path_budget()
+    assert budget <= 5.0, budget
+    assert elapsed < budget, (elapsed, budget)
     with recovery_lock(settings.recovery_lock_file, blocking=False):
         pass
 
@@ -4038,7 +4156,7 @@ if child == 0:
         "exited" if release.exists() else "deadline", encoding="ascii"
     )
     os._exit(0)
-time.sleep(60)
+time.sleep({_ESCAPED_PARENT_SLEEP_SECONDS})
 """,
         encoding="utf-8",
     )
@@ -4055,7 +4173,30 @@ time.sleep(60)
     elapsed = time.monotonic() - started
 
     assert caught.value.code == "recovery_repository_error"
-    assert elapsed < 3
+
+    # The claim is that `run_backup` returns on the broker timeout instead of
+    # waiting out the escaped descendant. It used to be written `elapsed < 3`,
+    # a number 0.4s above the sum of the waits this path is CONFIGURED to make
+    # -- 1.5s broker timeout (patched above) + 0.5s exit + 0.5s cleanup + 0.1s
+    # command = 2.6s. Measured at ~2.1s on macOS and at 3.15, 3.22, 3.27 and
+    # 3.42s on Linux: the same control, passing or failing on how fast the box
+    # cold-starts the several python subprocesses this test spawns. CI runs
+    # ubuntu-latest and the deployment is Linux, so the bound had to come from
+    # the configuration rather than from a wall clock.
+    #
+    # Three separate facts, because one number was carrying all of them:
+    budget = _credential_path_budget()
+    # (a) The configuration is a prompt-return configuration. Raising one of
+    #     those timeouts fails HERE, with that as the diagnosis, rather than
+    #     later as an unexplained slow machine.
+    assert budget <= 5.0, budget
+    # (b) The bound still sits inside the window that discriminates: a
+    #     `run_backup` that waited out the descendant takes
+    #     `_ESCAPED_PARENT_SLEEP_SECONDS`, and the budget must stay well under
+    #     it or the assertion stops meaning anything.
+    assert budget * 2 < _ESCAPED_PARENT_SLEEP_SECONDS, budget
+    # (c) And it honoured that budget.
+    assert elapsed < budget, (elapsed, budget)
     deadline = time.monotonic() + 1
     while not marker.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -4067,7 +4208,7 @@ time.sleep(60)
     # below mean anything at all: a dead process holds no locks, so acquiring
     # the lock after the orphan had exited would prove nothing.
     orphan_pid = int(pid_file.read_text(encoding="ascii"))
-    os.kill(orphan_pid, 0)
+    assert _is_executing(orphan_pid)
     assert not exit_marker.exists()
 
     # The claim: the escaped descendant does not hold the recovery lock. Taken
