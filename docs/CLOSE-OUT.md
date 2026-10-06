@@ -487,9 +487,23 @@ This was a practice project. These are the findings that are not about fantasy f
 
 28. **Four falsified hypotheses are a result, and recording them is what stops the next person
     repeating them.** `test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]`
-    fails in a whole-file run under 3.14 and passes when selected alone; it does not reproduce under
-    3.12, and it reproduces on a clean clone of the commit *before* this work, so it is neither new
-    nor CI-blocking. What is measured rather than guessed:
+    is **intermittent** under 3.14 and does not reproduce under 3.12, which is what CI runs. It also
+    reproduces on a clean clone of the commit *before* this work, so it is not new.
+
+    The characterisation above was wrong twice before it was right, and both corrections came from
+    measuring rather than from thinking harder. First it was recorded as "fails in a whole-file run,
+    passes when selected alone" -- **falsified**: at the current commit the file alone passes, and a
+    bisect over the file's own 91 predecessors plus the target passes at every prefix. Then the
+    trigger was assumed to be an earlier file -- **falsified**: all 32 files that sort before it,
+    plus the target, pass too. There is no prefix that reproduces it. Six consecutive full-suite
+    runs failed it while the machine was loaded with other work; three later runs on a quiet machine
+    did not. Load is a hypothesis consistent with that and is untested.
+
+    One run did something worse than fail: the whole suite **blocked**. `/proc/loadavg` read 0.06
+    with 151 threads, which says the process was not computing but waiting -- a measurement, not an
+    inference, and the one available when a sandbox hides the process table. A hang in CI burns the
+    whole six-hour budget instead of printing a red test, which makes this more than a flaky-test
+    nuisance even though 3.12 has never shown it. What is measured rather than guessed:
 
     - It is **not a timing bound.** Raising the 5s deadline to 30s does not help, and instrumented,
       every prompt child that does terminate takes 0.01-0.12s. Watching a failure survive a sixfold
@@ -511,9 +525,16 @@ This was a practice project. These are the findings that are not about fantasy f
     flag, and under PEP 475 an interrupted syscall is restarted when the handler does not raise --
     so the flag is seen only when the poll loop next ticks. The loop is sound (it checks the flag
     before and after a 0.1s-capped select), which points at a blocking call *between* the prompt
-    write and the loop. The next step is a bisect over shrinking prefixes of the file, which is the
-    only approach left that a wrong guess cannot fool. Four guesses, four measurements, four
-    eliminations -- and the cost of each was one instrumented run.
+    write and the loop -- `termios.tcsetattr`, `_capture_independent_tty_state` and the `/dev/tty`
+    open all sit in that window. **The next step is not another bisect**: a bisect needs a
+    deterministic reproducer and there is none. It is to instrument that window in the child, where
+    the transcript already carries anything it writes.
+
+    A procedural note from the bisect that failed: the first harness printed a confident trigger
+    (`[nul]`) from a search whose **invariant never held** -- both ends passed, so every step moved
+    the same way and the final value was an artefact of the loop, not a measurement. The second
+    harness checks both ends first and refuses to conclude. **A search that cannot state its
+    precondition will still print an answer.**
 
 29. **The author of lesson 27 had the environment wrong while writing it.** This project's two
     environments were described throughout as "macOS" and "Linux". They are both Linux: the Claude
