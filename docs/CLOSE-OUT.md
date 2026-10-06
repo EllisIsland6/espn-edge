@@ -673,6 +673,18 @@ This was a practice project. These are the findings that are not about fantasy f
     eliminations, the boundary, and the next command to run. The alternative is the next person
     spending the same hours to learn the same four things.
 
+37. **A silent instrument is a measurement when you have proved the instrument works.** A
+    session-wide faulthandler watchdog, armed at 55 seconds and verified minutes earlier by
+    dumping twice on a five-second sleeper at a two-second timeout, stayed completely silent while
+    the suite sat blocked on one test for over 175 seconds. That is not a failed attempt. A
+    faulthandler watchdog is a C thread that does not need the GIL, so its silence says the process
+    cannot run *any* thread -- which eliminates every Python-level explanation at once and is worth
+    more than the three instruments before it, each of which only eliminated itself.
+
+    The order matters: the same silence, from an instrument nobody had checked, would have meant
+    nothing at all. Verify the instrument on a known positive **first**, and a null result becomes
+    evidence instead of an absence of evidence.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
