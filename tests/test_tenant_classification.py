@@ -112,12 +112,12 @@ TENANT_TABLES = {
     # tenant_id, and no RLS policy because one scheduler process materialises
     # for every tenant, so a policy on the scan would have to be bypassed to
     # function. Recorded so "no policy" reads as a decision.
-    "schedules": "tenant_id (nullable; nothing refuses a tenantless one)",
+    "schedules": "tenant_id (nullable; no production writer -- see test_outbox_schedules_unwired)",
     # Pending side effects. Same reasoning as `jobs` and `schedules`: scoped
     # by its own tenant_id, no RLS policy, because one relay process drains
     # for every tenant and a policy on the scan would have to be bypassed to
     # function. The tenant travels in the row for the receiver's benefit.
-    "outbox": "tenant_id (nullable; nothing refuses a tenantless one)",
+    "outbox": "tenant_id (nullable; no production writer -- see test_outbox_schedules_unwired)",
     "teams": "league_id",
     "draft_picks": "league_id",
     "metrics": "league_id",
@@ -352,6 +352,14 @@ def test_a_plain_tenant_id_path_means_the_column_cannot_be_null():
     This check is new, and it found three entries making the strong claim on a
     nullable column the moment it existed. They now say `(nullable; ...)` with
     what enforces them instead.
+
+    Two of those three were qualified wrongly at first. `schedules` and
+    `outbox` said "nothing refuses a tenantless one", which reads as a live
+    hole; measured by AST scan plus a raw-SQL check, **nothing under `api/`
+    writes either table** -- the modules are reached only by `snapshot.py`,
+    and only for their two measurement functions. So it is an obligation for
+    whoever wires them up, not an exposure, and `test_outbox_schedules_unwired`
+    fails the moment that changes.
     """
     overclaiming = sorted(
         table

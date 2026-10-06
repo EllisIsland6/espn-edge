@@ -605,6 +605,25 @@ This was a practice project. These are the findings that are not about fantasy f
     "hung" at 17 bytes finished in 161 seconds. **`wc -c` on a log is not a measurement of a
     process**, and lesson 5 said "reading is not measuring" twenty-seven lessons ago.
 
+33. **A recorded gap can overstate itself, and the fix is a gate rather than a guard.** The tenant
+    classification said `schedules` and `outbox` have "nothing refusing a tenantless row" -- true of
+    the code, and misleading as a statement of exposure, because an AST scan plus a raw-SQL check
+    found that **nothing under `api/` writes either table**. Both modules are built, tested and
+    measured, and reached only for their two measurement functions.
+
+    Writing the guard anyway would have meant inventing policy for a feature with no caller and no
+    requirements: skip and retry forever, disable the row, or raise and stop every tenant's
+    scheduler are three different answers and nothing in the repository chooses between them. So the
+    uncalled state is pinned instead, and the test fails the moment a production caller appears,
+    naming the `jobs` precedent to follow. **The choice becomes unavoidable exactly when it becomes
+    answerable**, which is the opposite of deciding it now and being wrong cheaply.
+
+    The scan's first run flagged `snapshot.py`, which imports `outbox` for `undelivered_age` and
+    separately imports **observability's** unrelated `emit` -- a bare name attributed to the wrong
+    module. A bare name now counts only when bound by `from <module> import <name>`. **A false alarm
+    in a build gate is worse than a missed one**, because a gate people override is a gate that is
+    not there, and the three negative cases are tested as carefully as the positive ones.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
