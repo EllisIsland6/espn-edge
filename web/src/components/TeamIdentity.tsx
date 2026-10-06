@@ -57,7 +57,18 @@ export function TeamAvatar({
           loading="lazy"
           referrerPolicy="no-referrer"
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-contain p-0.5 ${imageFailed || !imageReady ? "opacity-0" : "opacity-100"}`}
+          // Three states, not two. A FAILED logo is hidden outright, like
+          // PlayerIdentity does with its portraits; a logo that has not
+          // loaded YET is merely transparent, so it fades in over the
+          // initials rather than popping. Collapsing the two into `opacity-0`
+          // made the states indistinguishable in the DOM -- and
+          // `e2e/smoke.spec.ts`'s "team logo failure keeps the team initials
+          // visible" asserts `display: none`, copied from the portrait test,
+          // which this component could never produce. That test had never run
+          // until the e2e suite was first executed.
+          className={`absolute inset-0 h-full w-full object-contain p-0.5 ${
+            imageFailed ? "hidden" : imageReady ? "opacity-100" : "opacity-0"
+          }`}
           onLoad={() => setImageReady(true)}
           onError={() => {
             setImageReady(false);

@@ -624,6 +624,31 @@ This was a practice project. These are the findings that are not about fantasy f
     in a build gate is worse than a missed one**, because a gate people override is a gate that is
     not there, and the three negative cases are tested as carefully as the positive ones.
 
+34. **"Unconfirmed, needs the right environment" can sometimes be settled by reading.** The one
+    failure in the first-ever run of the Playwright suite was filed as probably-a-browser-artefact,
+    because it had run against chromium-1194 rather than the pinned 1228. It was not. Two sibling
+    components hide a broken image by different mechanisms -- `PlayerIdentity` with Tailwind's
+    `hidden` (`display: none`), `TeamIdentity` with `opacity-0` -- and the failing test asserts
+    `display: none`, copied from the portrait test. `TeamIdentity` could never produce it on any
+    browser. The test had simply never been executed, which is what a suite nobody has run means.
+
+    The fix was in the component, not the test: three states where there were two, so a FAILED logo
+    is hidden and a logo that has not loaded YET is merely transparent. That also restores a
+    distinction the DOM had lost -- with one class for both, the test could not have proved the
+    error path ran even if it had asserted the right property.
+
+    The habit worth keeping: before accepting "it needs an environment I do not have", check whether
+    the claim is about the environment at all. This one was decidable from two files.
+
+35. **A control removal is a claim about the harness as much as the test.** Three of this session's
+    harnesses were wrong in ways that produced confident output: a bisect whose invariant never held
+    printed a trigger that was an artefact of its own loop; a control removal replaced the first
+    occurrence of `npm ci` in a Dockerfile, which was inside a *comment*, and reported the test as
+    passing with the control supposedly gone; and a `pkill -f` pattern matched the shell that issued
+    it. Each was caught by looking at what the experiment actually did rather than at its verdict.
+    After "the control removal passed", the next question is not "which control is unheld" but
+    **"did the removal remove anything"**.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
