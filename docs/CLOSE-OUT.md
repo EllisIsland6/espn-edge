@@ -457,41 +457,81 @@ This was a practice project. These are the findings that are not about fantasy f
     away.
 
 27. **The suite had never been run the way it is actually going to run.** Every green reading in
-    this project came from macOS, Python 3.14, `APP_MODE=private_operator`, and the machine the code
-    was written on. CI runs ubuntu-latest, Python 3.12, and a bare `python -m pytest` with no
-    `APP_MODE` at all; the container image is `python:3.12-slim`. Running CI's own commands on CI's
-    own interpreter -- in a cloud container, because the dev machine has only 3.14 -- turned up three
-    failures in ten minutes, and **none of them was a 3.12-vs-3.14 difference**. All three were
-    platform or wall-clock assumptions that macOS happened to satisfy:
+    this project came from one machine with one interpreter -- CPython 3.14.7 -- and from
+    `APP_MODE=private_operator` on the command line. CI runs ubuntu-latest, Python 3.12, and a bare
+    `python -m pytest` with no `APP_MODE` at all; the container image is `python:3.12-slim`. (The
+    `APP_MODE` half turned out to be inert: `tests/conftest.py` **assigns** it, so CI's bare
+    invocation is the same run. Measured, after assuming otherwise.) Running CI's own commands on
+    CI's own interpreter, in a second environment because the dev machine has only 3.14, turned up
+    three failures in ten minutes:
 
     - `os.kill(pid, 0)` cannot tell a running process from a **zombie**. A process-group kill left
       the descendant dead-but-unreaped for ~1.5s (measured: `/proc` state `Z`, ppid 1), the probe
-      read "alive" throughout, and a correct control was reported broken. macOS reaps orphans
-      promptly, so the test passed there on an accident of timing rather than on a sound reading.
+      read "alive" throughout, and a correct control was reported broken. Why it had been passing
+      in the dev environment was never measured -- only that it did. The probe could not have
+      established the claim in either place; one of them let it look like it had.
     - Two tests asserted `elapsed < 3` against a path configured to wait 2.6s. 0.4s of headroom is
-      less than the cost of cold-starting the subprocesses they spawn: ~2.1s on macOS, 3.12-3.42s on
-      Linux across five runs. The bound now comes from the configured timeouts plus named slack,
+      less than the cost of cold-starting the subprocesses they spawn: ~2.1s on the dev machine,
+      3.12-3.42s on the other across five runs. The bound now comes from the configured timeouts plus named slack,
       with a separate assertion that the configuration is still a prompt-return one.
     - A provenance test drew 25 random UUIDs and required `min(entropy) > 3.0`. The production floor
       is **2.5** -- so the test guarded a number the scanner does not use, with a margin the real
       distribution crosses. Measured over 50,000 draws: 7 (0.014%) below 3.0, **none** below the
       production floor. It was a 1-in-290 red build whose message accused the scanner.
 
-    The lesson is not "test on Linux too". It is that **the environment is part of what a green
-    suite establishes**, and it is the part nobody writes down. A suite that has only ever run in one
-    place has been measured in one place.
+    The lesson is not "test on another OS too" -- and the first version of this lesson said exactly
+    that, because its author had the environments wrong (see lesson 29). It is that **the
+    environment is part of what a green suite establishes**, and it is the part nobody writes down.
+    A suite that has only ever run in one place has been measured in one place, and "the place"
+    includes the interpreter.
 
-28. **A bound that is only a backstop should not be sized like a claim.** Separately from the above,
-    `test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]` fails on macOS in a
-    whole-file run and passes when selected alone -- and **raising its 5s deadline to 30s does not
-    help**, which is how we know it is not a timing bound at all. Instrumented, every prompt child
-    terminates in 0.01-0.12s. It is order-dependent state: the prompt child is a `pty.fork()` of the
-    test process, so it inherits the process's signal mask, and the production code blocks signals
-    with `pthread_sigmask` around a critical section -- a SIGINT blocked in the child is pending
-    forever rather than fatal. A teardown hook asserting an empty mask after every test came back
-    clean on Linux, where the failure does not reproduce; it has not been run on macOS, where it
-    would name the leaker. Recorded as open with that lead rather than closed with a widened
-    deadline.
+28. **Four falsified hypotheses are a result, and recording them is what stops the next person
+    repeating them.** `test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]`
+    fails in a whole-file run under 3.14 and passes when selected alone; it does not reproduce under
+    3.12, and it reproduces on a clean clone of the commit *before* this work, so it is neither new
+    nor CI-blocking. What is measured rather than guessed:
+
+    - It is **not a timing bound.** Raising the 5s deadline to 30s does not help, and instrumented,
+      every prompt child that does terminate takes 0.01-0.12s. Watching a failure survive a sixfold
+      deadline is what proves a backstop was never the thing failing.
+    - The signal **is** sent and the prompt **is** seen -- `sent=True`, `marker_seen=True`, and a
+      transcript that is exactly the 43-byte prompt and nothing after.
+    - The child is genuinely alive, not a reaped pid: the failure path's `kill(pid, 9)` and
+      `waitpid(pid, 0)` both succeed.
+    - **Resending** SIGINT every 0.25s for the full five seconds changes nothing, so it is not one
+      signal lost in a race window.
+    - No signal-mask leak and no changed disposition after any test in the file (a teardown hook
+      over SIGINT/SIGTERM/SIGHUP/SIGQUIT: zero hits in 279 tests).
+    - No leaked stdlib patch: `selectors.SelectSelector`, `selectors.DefaultSelector`,
+      `termios.tcsetattr` and `termios.tcgetattr` are unmodified after every test, despite several
+      tests assigning them **directly** rather than through `monkeypatch`.
+
+    What remains: the child wrote the prompt and then sat in something that neither returns nor
+    checks `interrupted_signal`, immune to repeated signals. The production handler only sets a
+    flag, and under PEP 475 an interrupted syscall is restarted when the handler does not raise --
+    so the flag is seen only when the poll loop next ticks. The loop is sound (it checks the flag
+    before and after a 0.1s-capped select), which points at a blocking call *between* the prompt
+    write and the loop. The next step is a bisect over shrinking prefixes of the file, which is the
+    only approach left that a wrong guess cannot fool. Four guesses, four measurements, four
+    eliminations -- and the cost of each was one instrumented run.
+
+29. **The author of lesson 27 had the environment wrong while writing it.** This project's two
+    environments were described throughout as "macOS" and "Linux". They are both Linux: the Claude
+    desktop workspace is an isolated Linux VM on the Mac (Ubuntu aarch64, CPython 3.14.7, PID 1
+    `bwrap`) and the cloud container is Linux with CPython 3.12.3. They differ by **interpreter
+    version, architecture and machine speed**, and nothing in that session ever ran on macOS.
+
+    Every fix in lesson 27 stands, because each was proven by removing its control and watching the
+    test fail -- a procedure that does not depend on the OS. What was wrong was the *explanation*,
+    and one explanation was a guess wearing the clothes of a measurement: "macOS reaps orphans
+    promptly" was never measured, it was inferred from the thing it was offered to explain. The
+    `[ctrl-c]` finding's reason for not blocking CI changed too, from "it is macOS-only" to "it does
+    not reproduce under 3.12, which is what CI runs" -- same conclusion, weaker evidence, and the
+    two factors cannot be separated with the interpreters available.
+
+    The general form: **`uname` is a measurement and "the dev machine" is an assumption**, and this
+    was committed by someone who had just written down that the environment is the part nobody
+    writes down. Check what the shell actually is before attributing anything to it.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
