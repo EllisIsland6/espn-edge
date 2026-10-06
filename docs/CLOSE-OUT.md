@@ -649,6 +649,30 @@ This was a practice project. These are the findings that are not about fantasy f
     After "the control removal passed", the next question is not "which control is unheld" but
     **"did the removal remove anything"**.
 
+36. **Saying what you could not measure, and why, is part of the finding.** A second intermittent
+    blocker turned up: three consecutive full-suite runs on the newer interpreter blocked at one
+    test, `/proc/loadavg` at 0.00 proving they were waiting rather than computing. The run before
+    them finished in 166 seconds and a later one sailed past that test, so it is intermittent; the
+    file alone passes; and the interpreter CI uses has completed the suite cleanly five times.
+
+    Two measurements ruled out the obvious cause and one ruled out the obvious instrument. A SQLite
+    busy-lock cannot be it: no `timeout` is passed in `connect_args`, so sqlite3's 5-second default
+    applies and a conflict raises `database is locked` rather than hanging for minutes. And
+    `timeout -s ABRT` produced **no faulthandler dump at all** -- which is a clue rather than a
+    failed experiment, because a dump needs the interpreter to run the handler, so the main thread
+    is stuck below it in a C-level wait.
+
+    What is left needs a native stack, and this environment cannot take one: every shell call runs
+    in its own PID namespace, so a process another call started is unattachable, and a background
+    job started with a bare `&` dies when its call's sandbox tears down. So the write-up carries the
+    recipe that *would* work -- start the suite, sleep past the hang, and read
+    `/proc/<pid>/task/*/{stat,wchan,syscall}` **inside one call** -- which is how the healthy
+    reading that proved the later run was fine got taken.
+
+    An investigation that ends without the answer is still worth the write-up if it ends with the
+    eliminations, the boundary, and the next command to run. The alternative is the next person
+    spending the same hours to learn the same four things.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
