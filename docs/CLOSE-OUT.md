@@ -685,6 +685,27 @@ This was a practice project. These are the findings that are not about fantasy f
     nothing at all. Verify the instrument on a known positive **first**, and a null result becomes
     evidence instead of an absence of evidence.
 
+38. **A comparison that changes two things at once measures neither.** Two problems -- an
+    intermittent `[ctrl-c]` failure and six full-suite hangs -- were recorded across two commits as
+    "only under Python 3.14, and CI pins 3.12". Wrong, and the error was structural: every 3.14 run
+    happened in the repository worktree and every 3.12 run happened in a container-local checkout.
+    The interpreter and the filesystem moved together, and the variable that got named was the one
+    that was easier to see.
+
+    `mount` ended it in one line. The worktree is **`type fuse`** -- a userspace filesystem bridging
+    to the Mac host -- and a stalled FUSE daemon produces precisely what every instrument had been
+    reporting: uninterruptible `D` state, no signal delivery, no faulthandler dump however it is
+    armed, no CPU consumed, and a block at whatever point the suite next touches a file, which is
+    why the hang moved between six different tests. The controlled comparison, same commit and same
+    3.14 interpreter, on a local block device: 1517 passed, 0 failing, twice, with `[ctrl-c]`
+    passing. Roughly ten VM-local runs that day, zero hangs; six in the mounted worktree.
+
+    The conclusion -- CI is unaffected -- survived, which is the trap. **A right conclusion resting
+    on the wrong mechanism is still wrong**, because the mechanism is what the next person acts on:
+    "upgrade CI to 3.14 and watch it break" was the advice implied, and it would have wasted a day.
+    Lesson 9 said this already. It needed saying again, because this time the confound was the
+    machine rather than the code.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
