@@ -9,10 +9,19 @@ Every denial is paired with a control proving the same operation inside the
 tenant's own scope is ACCEPTED. A test that only shows a refusal cannot tell
 a working policy from a missing grant or a typo'd column.
 """
+import os
+
 import psycopg
 
-DSN_OWNER = "host=/tmp/pg/run port=5433 user=pgowner dbname=edge"
-DSN_APP = "host=/tmp/pg/run port=5433 user=edge_app dbname=edge"
+# Overridable, because the originals hard-wired one machine's socket path and
+# port -- so nobody else could run the only proof of tenant isolation this
+# project has. Same defaults as before when the variables are unset.
+DSN_OWNER = os.environ.get(
+    "ATTACK_DSN_OWNER", "host=/tmp/pg/run port=5433 user=pgowner dbname=edge"
+)
+DSN_APP = os.environ.get(
+    "ATTACK_DSN_APP", "host=/tmp/pg/run port=5433 user=edge_app dbname=edge"
+)
 
 results = []
 
@@ -150,14 +159,38 @@ def main():
               rows == [("league:999:alpha",)], str(rows))
         c.rollback()
 
-    # --- A8b: the recorded hole. Key collision is an enumeration oracle. -----
+    # --- A8b: the hole that WAS here, and the fix that closed it -------------
+    #
+    # This asserted the defect: `raw_cache`'s primary key was `key` alone, so a
+    # second tenant inserting a key another tenant already held failed `23505`,
+    # and a uniqueness error is not something row-level security hides. One
+    # tenant could therefore test whether another held a given cache key.
+    #
+    # Revision 0012 made the primary key `(tenant_id, key)`. The INSERT below
+    # now SUCCEEDS, which is the fix: the two rows are distinct keys. Asserting
+    # the old refusal would keep failing forever while reporting a hole that no
+    # longer exists -- it failed exactly that way the first time this suite was
+    # run against the migrated schema.
+    #
+    # Both halves are checked, because "the insert succeeded" on its own would
+    # also be true of a schema with no isolation at all.
     with psycopg.connect(DSN_APP) as c:
         as_tenant(c, 1)
-        ok, detail = denied(lambda: c.execute(
-            "INSERT INTO raw_cache (key, fetched_at, payload_json, tenant_id)"
-            " VALUES ('league:999:bravo', now(), '{}', 1)"), want="23505")
-        check("A8b KNOWN HOLE: colliding cache key leaks existence (23505, not 42501)",
-              ok, detail)
+        accepted = True
+        try:
+            c.execute(
+                "INSERT INTO raw_cache (key, fetched_at, payload_json, tenant_id)"
+                " VALUES ('league:999:bravo', now(), '{}', 1)")
+        except psycopg.Error as exc:
+            accepted, detail = False, f"{exc.sqlstate}: {exc}"[:80]
+        else:
+            detail = "accepted, as it should be since 0012"
+        check("A8b the colliding cache key is accepted (0012 closed the oracle)",
+              accepted, detail)
+        # ...and it is still the inserting tenant's own row only.
+        rows = one(c, "SELECT key, tenant_id FROM raw_cache ORDER BY key")
+        check("A8b2 and the other tenant's row with that key stays invisible",
+              rows == [("league:999:alpha", 1), ("league:999:bravo", 1)], str(rows))
         c.rollback()
 
     # --- A9: users are reachable only through a membership -------------------
