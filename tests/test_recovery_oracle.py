@@ -214,7 +214,10 @@ def test_independent_oracle_covers_every_retained_value_and_detects_substitution
             for column, source_value in source_row.items():
                 adjusted = source_value
                 if table == "accounts" and column == "swid":
-                    adjusted = "{REAUTH-REQUIRED}"
+                    # Per-row distinct as of format v3. The oracle recomputes
+                    # the substitution independently, so it spells the form out
+                    # rather than calling the function under test.
+                    adjusted = "{REAUTH-REQUIRED-" + str(source_row["id"]) + "}"
                 elif table == "accounts" and column == "espn_s2_encrypted":
                     adjusted = "not-a-fernet-token"
                 elif table == "accounts" and column == "status":

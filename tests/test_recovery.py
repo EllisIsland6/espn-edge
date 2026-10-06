@@ -50,6 +50,7 @@ from api.services.recovery import (
     assert_recovery_write_allowed,
     build_logical_bundle,
     catalog_spec,
+    is_reauth_placeholder,
     load_state,
     recovery_lock,
     recovery_status,
@@ -2084,6 +2085,61 @@ def test_repository_rejects_any_overlapping_apfs_physical_store(
     assert caught.value.code == "recovery_target_unavailable"
 
 
+def test_two_accounts_in_one_tenant_survive_a_restore(tmp_path, db_session):
+    """The collision the `UNIQUE (tenant_id, swid)` constraint would have hit.
+
+    Nothing limits a tenant to one ESPN account, and the restore substitutes a
+    placeholder for every account's swid. While that placeholder was a single
+    constant, two accounts in one tenant restored to two identical
+    `(tenant_id, swid)` pairs -- so adding the constraint would have turned the
+    one path that exists for the worst day into a path that refuses.
+
+    No test had two accounts in one tenant, which is why the suite would not
+    have caught it. This one does, and it asserts the three things that have to
+    hold together: both rows survive, both are marked for re-auth, and their
+    placeholders are DISTINCT.
+    """
+    tenant_id = current_tenant_id(db_session)
+    for label, swid in (("first", "{AAAA-1111}"), ("second", "{BBBB-2222}")):
+        db_session.add(
+            Account(
+                tenant_id=tenant_id,
+                label=label,
+                swid=swid,
+                espn_s2_encrypted=encrypt(f"S2-{label}"),
+                status="active",
+            )
+        )
+    db_session.commit()
+    assert (
+        db_session.query(Account).filter(Account.tenant_id == tenant_id).count() == 2
+    ), "the fixture must really hold two accounts in ONE tenant"
+
+    source = Path(str(db_session.get_bind().url.database))
+    bundle, _manifest = build_logical_bundle(source)
+    restored = tmp_path / "restored.db"
+    assert restore_bundle_to_scratch(bundle, restored)["integrity"] == "ok"
+
+    connection = sqlite3.connect(restored)
+    try:
+        rows = connection.execute(
+            "SELECT tenant_id,swid,status FROM accounts ORDER BY id"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert len(rows) == 2, rows
+    assert {row[0] for row in rows} == {tenant_id}, "both rows in the one tenant"
+    assert [row[2] for row in rows] == ["needs_reauth", "needs_reauth"]
+    swids = [row[1] for row in rows]
+    assert all(is_reauth_placeholder(value) for value in swids), swids
+    # The point of the whole test: the placeholders differ, so the pair
+    # `(tenant_id, swid)` is unique and the constraint admits them.
+    assert len(set(swids)) == 2, swids
+    # And no real credential travelled.
+    assert "{AAAA-1111}" not in swids and "{BBBB-2222}" not in swids
+
+
 def test_bundle_excludes_cache_credentials_owner_ids_and_restores_reauth(tmp_path, db_session):
     account = Account(
         tenant_id=current_tenant_id(db_session),
@@ -2142,7 +2198,13 @@ def test_bundle_excludes_cache_credentials_owner_ids_and_restores_reauth(tmp_pat
     connection = sqlite3.connect(restored)
     try:
         row = connection.execute("SELECT swid,espn_s2_encrypted,status FROM accounts").fetchone()
-        assert row == ("{REAUTH-REQUIRED}", "not-a-fernet-token", "needs_reauth")
+        # The placeholder is per-row distinct as of format v3, so this asserts
+        # the PROPERTY rather than one spelling: pinning the old constant here
+        # is what would have to be edited every time the form changed, and the
+        # thing that matters is that it is a placeholder and not a credential.
+        assert is_reauth_placeholder(row[0]), row[0]
+        assert row[0] != "{PRIVATE-OWNER-CANARY}"
+        assert row[1:] == ("not-a-fernet-token", "needs_reauth")
         assert connection.execute("SELECT count(*) FROM raw_cache").fetchone()[0] == 0
         assert (
             connection.execute(

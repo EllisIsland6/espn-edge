@@ -41,22 +41,66 @@ from sqlalchemy import create_engine
 
 from ..config import Settings, get_settings
 
-# Bumped from 1 for this phase. The frozen catalog changed -- eight tables,
-# three columns, and `alembic_version` leaving the fingerprint -- and the
-# comment above `_FORMAT_V2_CATALOG_SHA256` requires a reviewed version for
-# exactly that. Leaving this at 1 while the format is v2 would make the number
-# in every bundle and every state file a false statement.
+# v2 bumped from 1 when the frozen catalog changed -- eight tables, three
+# columns, and `alembic_version` leaving the fingerprint. The comment above the
+# live pin requires a reviewed version for exactly that, and leaving the number
+# behind would make it a false statement in every bundle and every state file.
 #
-# A v1 bundle cannot be read by this code and should not pretend otherwise: its
-# catalog would fail `validate_catalog` regardless, so the version marker makes
-# the refusal say WHY. No v1 bundle exists outside a test -- no restore has ever
-# been authorized -- so nothing is being orphaned.
-FORMAT_VERSION = 2
-BUNDLE_FILENAME = "espn-edge-recovery-v2.json"
+# A retired bundle cannot be read by this code and should not pretend
+# otherwise: its catalog fails `validate_catalog` regardless, so the version
+# marker makes the refusal say WHY. No v1 or v2 bundle exists outside a test --
+# no restore has ever been authorized -- so nothing is being orphaned.
+# v3, and the reason is in the DATA rather than the schema: the `accounts.swid`
+# placeholder a restore writes is now per-row distinct instead of one constant
+# (see `REAUTH_SWID_SENTINEL`). A v2 bundle carries the constant, and revision
+# 0015's `UNIQUE (tenant_id, swid)` refuses it for any tenant holding two
+# accounts -- so a v2 bundle must be refused by VERSION, loudly, rather than
+# part-way through a restore by a constraint. Its catalog would fail
+# `validate_catalog` anyway, since 0015 moved all three pinned shapes; the
+# version marker is what makes the refusal say why. No v2 bundle exists
+# outside a test -- no restore has ever been authorized -- so nothing is
+# orphaned.
+FORMAT_VERSION = 3
+BUNDLE_FILENAME = "espn-edge-recovery-v3.json"
 RECOVERY_TAG = "espn-edge-private-v1"
+#: The swid a restored account carries instead of the real one.
+#:
+#: Per-row distinct as of format v3, and that is not cosmetic. `accounts` has
+#: a `UNIQUE (tenant_id, swid)` constraint as of revision 0015, and this
+#: substitution used to write ONE constant into every row -- so a tenant
+#: holding two accounts produced two identical `(tenant_id, swid)` pairs and
+#: the restore failed on the constraint. Measured before the constraint
+#: existed: a two-account tenant round-tripped to two rows reading
+#: `{REAUTH-REQUIRED}`. The restore is the one path in this system that exists
+#: for the worst day; it does not get to be the path that refuses.
+#:
+#: The id is already in the bundle, so appending it leaks nothing, and the
+#: form is idempotent under `normalize_swid_braced` (strip braces, uppercase,
+#: re-wrap), so a later normalisation does not change it.
 REAUTH_SWID_SENTINEL = "{REAUTH-REQUIRED}"
+_REAUTH_SWID_PATTERN = re.compile(r"^\{REAUTH-REQUIRED(?:-\d+)?\}$")
+
+
+def reauth_swid_for(account_id: Any) -> str:
+    """The placeholder for one restored account row."""
+    if isinstance(account_id, int) and account_id >= 0:
+        return f"{{REAUTH-REQUIRED-{account_id}}}"
+    # No usable id: fall back to the constant rather than inventing one. A
+    # bundle with no account id is already refused upstream by the row-shape
+    # check; this keeps the function total instead of raising from a formatter.
+    return REAUTH_SWID_SENTINEL
+
+
+def is_reauth_placeholder(swid: object) -> bool:
+    """Whether `swid` is a restore placeholder rather than a credential.
+
+    Matched by pattern, not by prefix: `startswith("{REAUTH-REQUIRED")` would
+    also accept `{REAUTH-REQUIREDX}`. Accepts both the format-v2 constant and
+    the v3 per-row form, so a caller does not have to know which produced it.
+    """
+    return isinstance(swid, str) and _REAUTH_SWID_PATTERN.match(swid) is not None
 REAUTH_S2_SENTINEL = "not-a-fernet-token"
-RECOVERY_CANARY = "espn-edge-recovery-format-v2"
+RECOVERY_CANARY = "espn-edge-recovery-format-v3"
 _SCRATCH_ROOT_MARKER = ".espn-edge-recovery-root-v1"
 _SCRATCH_RUN_MARKER = ".espn-edge-recovery-run-v1"
 _MAX_BUNDLE_BYTES = 128 * 1024 * 1024
@@ -181,6 +225,20 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: `tests/test_recovery_format.py` builds each shape and requires its digest to
 #: be here, and requires that nothing here is a digest no shape produces --
 #: which is what v1 silently became.
+_FORMAT_V3_CATALOG_SHA256 = frozenset(
+    {
+        # alembic upgrade head
+        "5ce458244e80dfa43942bb74463f8790f34e4f279d2e5fbc05e3adbf543cb862",
+        # create_all, opportunity full
+        "786546e48eb418ae55162602481d24c5a635b2abfae723c5a12eda3b4d0dcdad",
+        # create_all, opportunity older
+        "b9271f56370bff63401d941135977488fb316fe7364a18870d7d4270bc3e14d5",
+    }
+)
+
+#: The v2 triple, kept for the same reason as the v1 pair below: so the drift
+#: test can assert nothing buildable hashes to a retired pin. These were the
+#: shapes before revision 0015 added `UNIQUE (tenant_id, swid)` to `accounts`.
 _FORMAT_V2_CATALOG_SHA256 = frozenset(
     {
         # alembic upgrade head
@@ -1239,7 +1297,7 @@ def validate_catalog(catalog: dict[str, Any]) -> str:
             raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     encoded = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
-    if digest not in _FORMAT_V2_CATALOG_SHA256:
+    if digest not in _FORMAT_V3_CATALOG_SHA256:
         raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     return digest
 
@@ -1321,10 +1379,23 @@ def _decode_value(value: list[Any]) -> Any:
     raise RecoveryError("recovery_bundle_invalid", "Recovery bundle is invalid.")
 
 
-def _adjusted_value(table: str, column: str, value: Any) -> Any:
+def _adjusted_value(table: str, column: str, value: Any, row: Any = None) -> Any:
+    """The value a bundle carries in place of `value`.
+
+    `row` exists so the `accounts.swid` placeholder can be per-row distinct;
+    see `REAUTH_SWID_SENTINEL`. It is optional so a caller that has no row
+    still gets the substitution rather than the credential -- failing closed on
+    the thing that matters -- but the accounts path asserts it is present,
+    because a silent fall back to the constant is exactly the collision this
+    change exists to remove.
+    """
     if table == "accounts":
         if column == "swid":
-            return REAUTH_SWID_SENTINEL
+            if row is None:
+                raise RecoveryError(
+                    "recovery_bundle_invalid", "Recovery row context is missing."
+                )
+            return reauth_swid_for(row["id"])
         if column == "espn_s2_encrypted":
             return REAUTH_S2_SENTINEL
         if column == "status":
@@ -1420,7 +1491,7 @@ def build_logical_bundle(
             for source_row in conn.execute(query):
                 encoded: dict[str, list[Any]] = {}
                 for column in columns:
-                    value = _adjusted_value(table, column, source_row[column])
+                    value = _adjusted_value(table, column, source_row[column], source_row)
                     encoded[column] = _tag_value(value, declared[column])
                 accumulated_bytes += len(
                     json.dumps(encoded, sort_keys=True, separators=(",", ":")).encode()

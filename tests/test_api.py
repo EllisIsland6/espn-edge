@@ -1,5 +1,7 @@
 """API smoke tests (Phase 0 AC: /api/health returns season + db path)."""
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -165,10 +167,27 @@ def test_delete_account_blocked_when_leagues_linked():
 
 # ---- credential redaction (Security: redact account validation errors) -------
 # Unique canaries so any accidental reflection is unmistakable in the raw body.
-_SWID_CANARY = "SWID-CANARY-7f3a9e21"
+#
+# The swid canary is PER TEST, via the fixture below, and that is not tidiness.
+# These tests share one database and one tenant, and revision 0015 put
+# `UNIQUE (tenant_id, swid)` on `accounts` -- so one module-level swid constant
+# meant the second test to post it got a 409 instead of the account it needed.
+# Five tests failed that way the first time the suite ran against the new
+# constraint. A per-test canary also says WHICH test leaked, if one ever does.
 _S2_CANARY = "S2-CANARY-b41c88d0"
 _S2_CANARY_OLD = "S2-CANARY-OLD-1a2b3c"
 _S2_CANARY_NEW = "S2-CANARY-NEW-9z8y7x"
+
+
+@pytest.fixture
+def swid_canary(request) -> str:
+    """A swid canary unique to the test that asks for it.
+
+    Derived from the test name so a leak names its own source, and distinct per
+    test so `UNIQUE (tenant_id, swid)` admits every one of them.
+    """
+    tag = re.sub(r"[^A-Za-z0-9]+", "-", request.node.name).strip("-")[:48]
+    return f"SWID-CANARY-{tag}-7f3a9e21"
 
 
 def _assert_no_canaries(text: str, *canaries: str) -> None:
@@ -177,7 +196,7 @@ def _assert_no_canaries(text: str, *canaries: str) -> None:
         assert canary not in text, f"credential canary {canary!r} leaked into: {text!r}"
 
 
-def test_discovery_response_and_logs_never_expose_account_credentials(monkeypatch, caplog):
+def test_discovery_response_and_logs_never_expose_account_credentials(swid_canary, monkeypatch, caplog):
     import logging
 
     from api.routers import leagues
@@ -185,9 +204,9 @@ def test_discovery_response_and_logs_never_expose_account_credentials(monkeypatc
 
     aid = client.post(
         "/api/accounts",
-        json={"label": "DiscoveryCanary", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        json={"label": "DiscoveryCanary", "swid": swid_canary, "espn_s2": _S2_CANARY},
     ).json()["id"]
-    stored_swid = f"{{{_SWID_CANARY.upper()}}}"
+    stored_swid = f"{{{swid_canary.upper()}}}"
 
     def fake_discover(cookies, season):
         assert cookies.swid == stored_swid
@@ -203,11 +222,11 @@ def test_discovery_response_and_logs_never_expose_account_credentials(monkeypatc
     assert response.json() == [
         {"espn_league_id": "701", "name": "Safe League", "season": 2026, "team_id": 4}
     ]
-    _assert_no_canaries(response.text, _SWID_CANARY, stored_swid, _S2_CANARY)
-    _assert_no_canaries(caplog.text, _SWID_CANARY, stored_swid, _S2_CANARY)
+    _assert_no_canaries(response.text, swid_canary, stored_swid, _S2_CANARY)
+    _assert_no_canaries(caplog.text, swid_canary, stored_swid, _S2_CANARY)
 
 
-def test_discovery_expired_session_sets_reauth_without_leaking(monkeypatch):
+def test_discovery_expired_session_sets_reauth_without_leaking(swid_canary, monkeypatch):
     from api.db import SessionLocal
     from api.models import Account
     from api.routers import leagues
@@ -215,9 +234,9 @@ def test_discovery_expired_session_sets_reauth_without_leaking(monkeypatch):
 
     aid = client.post(
         "/api/accounts",
-        json={"label": "DiscoveryExpired", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        json={"label": "DiscoveryExpired", "swid": swid_canary, "espn_s2": _S2_CANARY},
     ).json()["id"]
-    stored_swid = f"{{{_SWID_CANARY.upper()}}}"
+    stored_swid = f"{{{swid_canary.upper()}}}"
 
     def fake_discover(cookies, season):
         raise DiscoveryAuthError("ESPN session expired")
@@ -229,30 +248,30 @@ def test_discovery_expired_session_sets_reauth_without_leaking(monkeypatch):
     assert response.json() == {
         "detail": "ESPN session expired; re-authenticate this account"
     }
-    _assert_no_canaries(response.text, _SWID_CANARY, stored_swid, _S2_CANARY)
+    _assert_no_canaries(response.text, swid_canary, stored_swid, _S2_CANARY)
     with SessionLocal() as session:
         assert session.get(Account, aid).status == "needs_reauth"
 
 
-def test_add_account_success_has_no_credential_keys_or_values():
+def test_add_account_success_has_no_credential_keys_or_values(swid_canary):
     r = client.post(
         "/api/accounts",
-        json={"label": "Canary1", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        json={"label": "Canary1", "swid": swid_canary, "espn_s2": _S2_CANARY},
     )
     assert r.status_code == 201
     body = r.json()
     assert "swid" not in body and "espn_s2" not in body
     assert set(body) == {"id", "label", "status", "created_at"}
-    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+    _assert_no_canaries(r.text, swid_canary, _S2_CANARY)
 
 
-def test_list_accounts_never_exposes_stored_or_encrypted_credentials():
+def test_list_accounts_never_exposes_stored_or_encrypted_credentials(swid_canary):
     from api.db import SessionLocal
     from api.models import Account
 
     aid = client.post(
         "/api/accounts",
-        json={"label": "Canary2", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        json={"label": "Canary2", "swid": swid_canary, "espn_s2": _S2_CANARY},
     ).json()["id"]
     with SessionLocal() as s:
         acct = s.get(Account, aid)
@@ -264,32 +283,32 @@ def test_list_accounts_never_exposes_stored_or_encrypted_credentials():
     for row in r.json():
         assert "swid" not in row and "espn_s2" not in row
     # No plaintext canary, no stored SWID, and no encrypted blob in the raw text.
-    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY, stored_swid, encrypted_s2)
+    _assert_no_canaries(r.text, swid_canary, _S2_CANARY, stored_swid, encrypted_s2)
 
 
-def test_reauth_success_has_no_old_or_new_credentials():
+def test_reauth_success_has_no_old_or_new_credentials(swid_canary):
     aid = client.post(
         "/api/accounts",
-        json={"label": "Canary3", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY_OLD},
+        json={"label": "Canary3", "swid": swid_canary, "espn_s2": _S2_CANARY_OLD},
     ).json()["id"]
     r = client.post(
         f"/api/accounts/{aid}/reauth",
-        json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY_NEW},
+        json={"swid": swid_canary, "espn_s2": _S2_CANARY_NEW},
     )
     assert r.status_code == 200
     body = r.json()
     assert "swid" not in body and "espn_s2" not in body
-    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY_OLD, _S2_CANARY_NEW)
+    _assert_no_canaries(r.text, swid_canary, _S2_CANARY_OLD, _S2_CANARY_NEW)
 
 
-def test_add_account_missing_label_does_not_echo_credentials():
+def test_add_account_missing_label_does_not_echo_credentials(swid_canary):
     r = client.post(
-        "/api/accounts", json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY}
+        "/api/accounts", json={"swid": swid_canary, "espn_s2": _S2_CANARY}
     )
     assert r.status_code == 422
     assert r.json() == {"detail": "invalid account request"}
     # No submitted values and no sensitive field names in the sanitized body.
-    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+    _assert_no_canaries(r.text, swid_canary, _S2_CANARY)
     assert "swid" not in r.text and "espn_s2" not in r.text
 
 
@@ -303,14 +322,14 @@ def test_add_account_invalid_empty_credential_fields_does_not_echo():
     _assert_no_canaries(r.text, _S2_CANARY)
 
 
-def test_reauth_missing_fields_does_not_echo_credentials():
+def test_reauth_missing_fields_does_not_echo_credentials(swid_canary):
     aid = client.post(
         "/api/accounts", json={"label": "Canary4", "swid": "{Z-1}", "espn_s2": "s2"}
     ).json()["id"]
-    r = client.post(f"/api/accounts/{aid}/reauth", json={"swid": _SWID_CANARY})
+    r = client.post(f"/api/accounts/{aid}/reauth", json={"swid": swid_canary})
     assert r.status_code == 422
     assert r.json() == {"detail": "invalid account request"}
-    _assert_no_canaries(r.text, _SWID_CANARY)
+    _assert_no_canaries(r.text, swid_canary)
     assert "espn_s2" not in r.text
 
 
@@ -338,31 +357,31 @@ def test_reauth_empty_normalized_swid_returns_safe_wording_no_value():
     _assert_no_canaries(r.text, _S2_CANARY)
 
 
-def test_reauth_unknown_account_is_safe_404():
+def test_reauth_unknown_account_is_safe_404(swid_canary):
     r = client.post(
         "/api/accounts/999999/reauth",
-        json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+        json={"swid": swid_canary, "espn_s2": _S2_CANARY},
     )
     assert r.status_code == 404
-    _assert_no_canaries(r.text, _SWID_CANARY, _S2_CANARY)
+    _assert_no_canaries(r.text, swid_canary, _S2_CANARY)
 
 
-def test_account_requests_never_emit_credentials_to_logs(caplog):
+def test_account_requests_never_emit_credentials_to_logs(swid_canary, caplog):
     import logging
 
     with caplog.at_level(logging.DEBUG):
         client.post(
             "/api/accounts",
-            json={"label": "LogCanary", "swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+            json={"label": "LogCanary", "swid": swid_canary, "espn_s2": _S2_CANARY},
         )
         client.post(  # malformed: triggers the sanitizing validation handler
-            "/api/accounts", json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY}
+            "/api/accounts", json={"swid": swid_canary, "espn_s2": _S2_CANARY}
         )
         client.post(
             "/api/accounts/999999/reauth",
-            json={"swid": _SWID_CANARY, "espn_s2": _S2_CANARY},
+            json={"swid": swid_canary, "espn_s2": _S2_CANARY},
         )
-    _assert_no_canaries(caplog.text, _SWID_CANARY, _S2_CANARY)
+    _assert_no_canaries(caplog.text, swid_canary, _S2_CANARY)
 
 
 def test_settings_defaults_api_host_to_localhost(monkeypatch):
@@ -376,3 +395,100 @@ def test_settings_defaults_api_host_to_localhost(monkeypatch):
     monkeypatch.delenv("API_HOST", raising=False)
     settings = Settings(_env_file=None)  # ignore repo .env entirely
     assert settings.api_host == "127.0.0.1"
+
+# ---- duplicate credentials (revision 0015: UNIQUE (tenant_id, swid)) --------
+
+
+def test_a_duplicate_swid_is_refused_with_409_and_leaks_nothing(swid_canary, caplog):
+    """What the constraint made the API responsible for answering.
+
+    Before this, a duplicate reached `session.commit()` unguarded and raised
+    `IntegrityError` out of the handler -- a 500 whose exception string carries
+    the bound parameters, i.e. the swid and the encrypted espn_s2, and which an
+    ASGI server logs with its traceback. Measured before the fix: the swid was
+    in the exception text.
+    """
+    import logging
+
+    first = client.post(
+        "/api/accounts",
+        json={"label": "Original", "swid": swid_canary, "espn_s2": _S2_CANARY},
+    )
+    assert first.status_code == 201
+
+    with caplog.at_level(logging.DEBUG):
+        second = client.post(
+            "/api/accounts",
+            json={"label": "Duplicate", "swid": swid_canary, "espn_s2": _S2_CANARY},
+        )
+    assert second.status_code == 409
+    assert second.json()["detail"] == "this account is already linked"
+    stored = f"{{{swid_canary.upper()}}}"
+    _assert_no_canaries(second.text, swid_canary, stored, _S2_CANARY)
+    _assert_no_canaries(caplog.text, swid_canary, stored, _S2_CANARY)
+
+
+def test_the_integrity_branch_answers_409_without_the_pre_check(swid_canary, caplog, monkeypatch):
+    """The pre-check is racy; the constraint is not. So the `IntegrityError`
+    branch has to answer on its own, and this reaches it by disabling the
+    check -- which is what two simultaneous requests do by losing the race.
+    """
+    import logging
+
+    from api.routers import accounts as accounts_router
+
+    assert (
+        client.post(
+            "/api/accounts",
+            json={"label": "First", "swid": swid_canary, "espn_s2": _S2_CANARY},
+        ).status_code
+        == 201
+    )
+    monkeypatch.setattr(
+        accounts_router, "_refuse_duplicate_swid", lambda *a, **k: None
+    )
+    with caplog.at_level(logging.DEBUG):
+        racing = client.post(
+            "/api/accounts",
+            json={"label": "Racing", "swid": swid_canary, "espn_s2": _S2_CANARY},
+        )
+    assert racing.status_code == 409, "the constraint must answer even unchecked"
+    stored = f"{{{swid_canary.upper()}}}"
+    _assert_no_canaries(racing.text, swid_canary, stored, _S2_CANARY)
+    _assert_no_canaries(caplog.text, swid_canary, stored, _S2_CANARY)
+
+
+def test_reauth_to_a_swid_another_account_holds_is_refused(swid_canary):
+    taken = client.post(
+        "/api/accounts",
+        json={"label": "Taken", "swid": swid_canary, "espn_s2": _S2_CANARY},
+    )
+    assert taken.status_code == 201
+    other = client.post(
+        "/api/accounts",
+        json={"label": "Other", "swid": swid_canary + "-OTHER", "espn_s2": _S2_CANARY},
+    ).json()["id"]
+
+    collide = client.post(
+        f"/api/accounts/{other}/reauth",
+        json={"swid": swid_canary, "espn_s2": _S2_CANARY},
+    )
+    assert collide.status_code == 409
+    _assert_no_canaries(collide.text, swid_canary, _S2_CANARY)
+
+
+def test_reauth_with_the_accounts_own_swid_is_still_allowed(swid_canary):
+    """The ordinary case the duplicate guard must not break: a user whose
+    session expired pastes the same swid with a fresh espn_s2. The row already
+    holds that swid, so a guard that did not exclude the row being updated
+    would refuse every re-auth -- which is the whole feature."""
+    account_id = client.post(
+        "/api/accounts",
+        json={"label": "Expired", "swid": swid_canary, "espn_s2": _S2_CANARY},
+    ).json()["id"]
+    again = client.post(
+        f"/api/accounts/{account_id}/reauth",
+        json={"swid": swid_canary, "espn_s2": "fresh-secret"},
+    )
+    assert again.status_code == 200
+    assert again.json()["status"] == "active"

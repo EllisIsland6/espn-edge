@@ -88,8 +88,20 @@ TENANT_TABLES = {
     # the test below passed the whole time because it asserts the SET and this
     # name was still in it. Green while recording something false -- lesson 1.
     "raw_cache": "tenant_id",
-    "ai_spend_months": "NOT YET SCOPED - global ceiling is shared across tenants",
-    "ai_spend_entries": "NOT YET SCOPED - global ceiling is shared across tenants",
+    # The AI spend ledger. **Deliberately global**, decided by the operator on
+    # 2026-10-06 rather than left open: the UTC-month ceiling is shared across
+    # tenants, so one tenant's spend consumes everyone's budget and a
+    # tenant-scoped role can modify another tenant's ledger rows. Both
+    # consequences are accepted; the ceiling is a cost control on one
+    # Anthropic key, not a per-tenant entitlement.
+    #
+    # Recorded as a decision rather than as a gap, because "NOT YET SCOPED"
+    # invited the next session to close it and closing it would have been
+    # wrong. The two tests below pin the decision from both sides: these
+    # tables carry no tenant column at all, and the set of genuinely unscoped
+    # tables is now empty.
+    "ai_spend_months": "DELIBERATELY GLOBAL - one shared UTC-month ceiling",
+    "ai_spend_entries": "DELIBERATELY GLOBAL - one shared UTC-month ceiling",
     # Durable work. Scoped by its own tenant_id, and deliberately WITHOUT an
     # RLS policy: one worker process serves every tenant, so a policy on the
     # claim would have to be bypassed to work at all. Enforcement for jobs is
@@ -156,9 +168,46 @@ def test_the_two_classifications_are_disjoint():
     assert not overlap, f"a table cannot be both: {sorted(overlap)}"
 
 
+#: The entries that are NOT a column path. Defined once, because every test
+#: that asks "is this a path?" was asking "does it start with NOT YET" -- and
+#: the moment a second sentinel existed (DELIBERATELY GLOBAL, for the shared
+#: spend ledger) two tests started reading the sentinel as a column name and
+#: asserting that a column called `DELIBERATELY` exists. A predicate keyed on
+#: one spelling is the same defect as a test parametrised over its own input.
+SENTINEL_PREFIXES = ("NOT YET", "DELIBERATELY GLOBAL")
+
+
+def is_column_path(path: str) -> bool:
+    return not path.startswith(SENTINEL_PREFIXES)
+
+
+def test_each_sentinel_prefix_says_something_true_about_the_table_set():
+    """Both exclusions are accounted for, in the direction each one claims.
+
+    The first version of this test asserted that no entry is "neither a column
+    path nor a sentinel" -- which is a tautology, because `is_column_path` is
+    DEFINED as "does not start with a sentinel". `A and not A` cannot fail.
+    Removed rather than reworded: what is left are two assertions that can.
+
+    `NOT YET` must now match nothing -- the set emptied when the spend ledger
+    became a decision -- and `DELIBERATELY GLOBAL` must match something, since
+    a prefix nothing uses is dead weight that reads as a working exclusion.
+    """
+    not_yet = sorted(t for t, p in TENANT_TABLES.items() if p.startswith("NOT YET"))
+    assert not_yet == [], (
+        f"{not_yet} are recorded as NOT YET SCOPED. That set emptied on "
+        "2026-10-06; a new entry in it is a new known hole and should be "
+        "recorded as one deliberately, not inherited from this prefix."
+    )
+    global_tables = sorted(
+        t for t, p in TENANT_TABLES.items() if p.startswith("DELIBERATELY GLOBAL")
+    )
+    assert global_tables == ["ai_spend_entries", "ai_spend_months"], global_tables
+
+
 @pytest.mark.parametrize(
     "table",
-    sorted(t for t, path in TENANT_TABLES.items() if not path.startswith("NOT YET")),
+    sorted(t for t, path in TENANT_TABLES.items() if is_column_path(path)),
 )
 def test_each_scoped_tenant_table_has_the_column_its_path_names(table):
     """The recorded path must exist. Phase 36 generated a policy over `league_id`
@@ -240,15 +289,17 @@ def test_the_unscoped_tenant_tables_are_named_and_not_forgotten():
     """These are known holes, kept visible. When one is fixed, its entry changes
     from NOT YET SCOPED to the path, and the test above starts checking it.
 
-    The list is down to the spend ledger. `leagues` left it when 0003 landed
-    `tenant_id`, which also completed the chain for the nine tables reaching a
-    tenant through it; `raw_cache` left at 0012 and `accounts` at 0014.
+    **The list is now empty.** `leagues` left it when 0003 landed `tenant_id`,
+    which also completed the chain for the nine tables reaching a tenant
+    through it; `raw_cache` left at 0012 and `accounts` at 0014; and the two
+    spend-ledger tables left on 2026-10-06, not by acquiring a column but by
+    the operator deciding they should not have one. Their entries say
+    DELIBERATELY GLOBAL and `test_the_shared_spend_ceiling_is_a_decision`
+    below pins what that costs.
 
-    The two that remain are not an unfinished column -- they are **a decision
-    nobody has made**. The UTC-month AI ceiling is deliberately shared across
-    tenants, which means one tenant's spend consumes everyone's budget and a
-    tenant-scoped role can modify another tenant's ledger rows. Adding a column
-    would not settle that; it would only move where the question is asked.
+    The distinction matters more than the empty set does: "NOT YET SCOPED"
+    invited the next session to close these two, and closing them would have
+    been wrong.
 
     A caution this entry earned: `raw_cache` sat in this set for two revisions
     after it was scoped, and this test passed the whole time, because it asserts
@@ -257,10 +308,37 @@ def test_the_unscoped_tenant_tables_are_named_and_not_forgotten():
     in the same change that scopes the table.
     """
     unscoped = {t for t, p in TENANT_TABLES.items() if p.startswith("NOT YET")}
-    assert unscoped == {"ai_spend_months", "ai_spend_entries"}, (
+    assert unscoped == set(), (
         f"the set of known-unprotected tenant tables changed: {sorted(unscoped)}. "
         f"If one was fixed, record its path instead of removing it from the list."
     )
+
+
+def test_the_shared_spend_ceiling_is_a_decision_and_says_what_it_costs():
+    """The spend ledger is global on purpose. Pinned so it stays a decision.
+
+    Asserted three ways, because "deliberately global" is exactly the kind of
+    label that can be true of the comment and false of the schema:
+
+      * the entries say DELIBERATELY GLOBAL, so nobody reads them as a gap;
+      * the tables really have **no** tenant column, so the label is not
+        describing an unused one; and
+      * nothing claims an RLS policy for them.
+
+    What it costs, stated here rather than left to be rediscovered: one
+    tenant's spend consumes everyone's budget, and a tenant-scoped role can
+    modify another tenant's ledger rows. Both were accepted on 2026-10-06. The
+    ceiling is a cost control on one Anthropic key, not a per-tenant
+    entitlement -- and if that ever changes, this test is what fails.
+    """
+    ledger = ("ai_spend_months", "ai_spend_entries")
+    for table in ledger:
+        assert TENANT_TABLES[table].startswith("DELIBERATELY GLOBAL"), table
+        columns = set(Base.metadata.tables[table].columns.keys())
+        assert "tenant_id" not in columns, (
+            f"{table} now has a tenant_id, so it is no longer global. Either "
+            "scope it properly and change its entry, or drop the column."
+        )
 
 
 def test_a_plain_tenant_id_path_means_the_column_cannot_be_null():

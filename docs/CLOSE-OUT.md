@@ -533,6 +533,57 @@ This was a practice project. These are the findings that are not about fantasy f
     was committed by someone who had just written down that the environment is the part nobody
     writes down. Check what the shell actually is before attributing anything to it.
 
+30. **A known gap and a decision are different things, and a sentinel that conflates them invites
+    the wrong fix.** The AI spend ledger sat in the tenant classification as
+    `NOT YET SCOPED - global ceiling is shared across tenants` for a sprint. The operator has now
+    decided it should stay shared -- so the entry was never a gap, and `NOT YET SCOPED` was an
+    instruction to the next session to close something that should not be closed. It now reads
+    `DELIBERATELY GLOBAL`, with a test that pins what the decision costs (one tenant's spend
+    consumes everyone's budget; a tenant-scoped role can modify another tenant's ledger rows) and
+    asserts the tables really have no tenant column, so the label cannot be true of the comment and
+    false of the schema.
+
+    The second sentinel immediately broke two tests that keyed on the first one's spelling: a
+    parametrised test read `DELIBERATELY` as a column name and asserted that a column by that name
+    exists. `is_column_path()` is now defined once. **A predicate keyed on one spelling is the same
+    defect as a test parametrised over its own input** -- and the replacement for it was, on the
+    first attempt, a tautology (`A and not A`, which cannot fail); removed rather than reworded.
+
+31. **A constraint is a new responsibility for every writer, including the error path.**
+    `UNIQUE (tenant_id, swid)` on `accounts` was asked for as a one-line schema change. What it
+    actually touched:
+
+    - **The restore.** The bundle substitutes a placeholder for every account's swid, and that
+      placeholder was ONE constant -- so a tenant holding two accounts restored to two identical
+      pairs and the constraint would have made disaster recovery the path that refuses. Measured
+      before the constraint existed; no test had two accounts in one tenant, which is why the suite
+      would not have caught it. The placeholder is per-row distinct now, and recovery format v3
+      exists because of it.
+    - **The API.** A duplicate `POST /api/accounts` reached `session.commit()` unguarded and raised
+      `IntegrityError` out of the handler. That exception's string carries the bound parameters --
+      **the swid and the encrypted espn_s2** -- and an unhandled exception in a request handler is
+      logged with its traceback. In a module whose second half is tests proving credentials never
+      reach a response or a log. Measured: the swid was in the exception text. Now a 409 with fixed
+      text, guarded twice, with the pre-check disabled in one test so the constraint has to answer
+      on its own.
+    - **The existing tests.** Five credential-redaction tests shared one module-level swid canary in
+      one tenant, so the second one to post it got the constraint instead of an account. The canary
+      is per-test now, which also names the test if one ever leaks.
+    - **Existing data.** Nothing prevented duplicates before, so the migration refuses up front and
+      reports the tenant and the account ids -- never the swid, which is a credential identifier. A
+      migration that prints one into a terminal, a log or a CI transcript has leaked it. Asserted
+      both ways: the message identifies the rows, and the swid does not appear in the output.
+
+    The shape to carry: when a constraint is added, the writers are not the only thing to count.
+    **The error path is a writer too, and it writes to the log.**
+
+32. **I read a buffered log as a hang, twice in one session.** A background pytest run's output file
+    sat unchanged for ten minutes and I concluded the suite was stuck -- both times. It was not:
+    pytest's dot-format terminal writer buffers, so with `-q` the file grows in 4KB jumps, and with
+    `-vv` every line flushes. The second time I had already been caught by the first. The run that
+    "hung" at 17 bytes finished in 161 seconds. **`wc -c` on a log is not a measurement of a
+    process**, and lesson 5 said "reading is not measuring" twenty-seven lessons ago.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

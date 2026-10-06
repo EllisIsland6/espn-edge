@@ -365,6 +365,12 @@ class WorkerHeartbeat(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    # Scoped to the tenant, not global, as of revision 0015. A global
+    # `UNIQUE (swid)` on a tenant-scoped table re-opens the enumeration oracle
+    # 0012 closed for `raw_cache` and 0013 removed from `leagues`: a colliding
+    # INSERT raises 23505, which RLS does not hide, so one tenant learns
+    # another holds that credential.
+    __table_args__ = (UniqueConstraint("tenant_id", "swid", name="uq_account_tenant_swid"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     label: Mapped[str] = mapped_column(String, nullable=False)
