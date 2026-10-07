@@ -50,6 +50,35 @@ class Settings(BaseSettings):
     app_mode: Literal["private_operator", "public_synthetic"] = Field(frozen=True)
 
     season: int = 2026
+
+    # The tenant this deployment acts as, when it is configured rather than
+    # discovered.
+    #
+    # Discovery -- `resolve_tenant_id`'s `SELECT id FROM tenants` -- cannot
+    # work on PostgreSQL, and that was measured rather than reasoned about:
+    # the app connects as a NOSUPERUSER NOBYPASSRLS role, `tenants` has
+    # FORCE ROW LEVEL SECURITY, and the policy hides every row until
+    # `app.tenant_id` is bound. So the query that exists to find the tenant
+    # needs a tenant already bound to see anything. As `edge_app` with
+    # nothing bound, `SELECT count(*) FROM tenants` returns 0; with
+    # `SET LOCAL app.tenant_id='1'` it returns 1. Every request 500s with
+    # `TenantNotResolved` on an otherwise perfectly migrated database.
+    #
+    # SQLite has no row-level security, so discovery works there and the
+    # offline suite never saw it. This is what booting against a real
+    # PostgreSQL found on the first request.
+    #
+    # Unset means discover, which keeps SQLite and the suite unchanged.
+    tenant_id: int | None = None
+
+    # Where the BUILT frontend lives, when this process serves it too.
+    #
+    # Empty means do not serve static files at all, which is the development
+    # and test shape: Vite serves the frontend on its own port and proxies
+    # /api here. A path means one container serves both, which is what the
+    # hosted deployment does -- it removes a second service, a second load
+    # balancer target and the CORS configuration between them.
+    static_dir: str = ""
     fernet_key: str = ""
     anthropic_api_key: str = ""
     # Operator-supplied model prices in micro-USD per million tokens, keyed by

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .config import get_settings
 from .db import init_db
@@ -134,5 +135,64 @@ app.include_router(recovery.router)
 
 
 @app.get("/")
-def root() -> dict:
+def root():
+    """The JSON banner when this process is API-only; the app when it is not.
+
+    A single-container deployment serves the frontend from here, and a visitor
+    landing on `/` wants the application, not a JSON blob naming where the
+    application might be. The banner is kept for the API-only shape, which is
+    what every test and the development server use.
+    """
+    directory = get_settings().static_dir
+    if directory:
+        index = Path(directory) / "index.html"
+        if index.is_file():
+            return FileResponse(index)
     return {"app": "espn-edge", "docs": "/docs", "health": "/api/health"}
+
+
+def _mount_frontend(application: FastAPI, directory: Path) -> None:
+    """Serve the built frontend from this process, with an SPA fallback.
+
+    Registered LAST and deliberately: a catch-all route added before the API
+    routers would shadow every one of them. `/api/` is refused here rather
+    than falling through to `index.html`, because an unknown API path that
+    answers 200 with a page of HTML is a far worse error message than a 404 --
+    the caller's JSON parse fails somewhere else entirely.
+
+    The traversal guard is the part that matters. `full_path` comes from the
+    URL, so `../../etc/passwd` is a request this function would otherwise
+    honour; every candidate is resolved and checked to be inside the served
+    directory before it is opened. `tests/test_static_frontend.py` plants that
+    exact request.
+    """
+    root_dir = directory.resolve()
+
+    @application.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str) -> FileResponse:
+        if full_path.startswith("api/") or full_path == "api":
+            raise HTTPException(status_code=404, detail="not found")
+        index = root_dir / "index.html"
+        if full_path:
+            candidate = (root_dir / full_path).resolve()
+            inside = candidate == root_dir or root_dir in candidate.parents
+            if inside and candidate.is_file():
+                return FileResponse(candidate)
+        # Any other path is a client-side route: hand back the shell and let
+        # the router in the browser decide, which is what an SPA needs.
+        return FileResponse(index)
+
+
+_static_dir = get_settings().static_dir
+if _static_dir:
+    _resolved_static = Path(_static_dir)
+    if not (_resolved_static / "index.html").is_file():
+        # Loud rather than silent: a container built without the frontend
+        # would otherwise serve 404s for every page and look like a routing
+        # bug, days after the build that caused it.
+        raise RuntimeError(
+            f"STATIC_DIR={_static_dir!r} has no index.html. Either the "
+            "frontend was not built into the image or the path is wrong; "
+            "serving the API with no frontend is not a state worth starting in."
+        )
+    _mount_frontend(app, _resolved_static)

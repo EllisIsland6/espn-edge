@@ -195,6 +195,12 @@ def test_the_binding_is_reapplied_after_a_commit(monkeypatch):
 
     class _PgSettings:
         is_postgres = True
+        # No configured tenant: this test is about the REBINDING, so the
+        # configured-tenant verifier must not run and reach for a `tenants`
+        # row. Spelled out rather than left off, because leaving it off is
+        # what broke this test when the field was added -- and `getattr` with
+        # a default in production would have hidden a real typo instead.
+        tenant_id = None
 
     monkeypatch.setattr("api.tenancy.get_settings", lambda: _PgSettings())
     monkeypatch.setattr(

@@ -11,7 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field
 class HealthOut(BaseModel):
     status: str
     season: int
+    #: Kept for the Phase 0 acceptance criterion and for SQLite, where it is
+    #: the whole truth. On PostgreSQL it is NOT: `db_path` is the SQLite
+    #: setting, which still holds its default while the app talks to a server
+    #: somewhere else entirely. Measured on a real deployment, the endpoint
+    #: reported `/tmp/pg/data/edge.db` for an app connected to PostgreSQL --
+    #: a health check describing a datastore it was not using.
     db_path: str
+    #: What the application is actually talking to. `sqlite`, or
+    #: `postgresql` plus the host and database name -- never the user and
+    #: never the password, because this endpoint is the one thing a load
+    #: balancer polls unauthenticated and anything in it is public.
+    backend: str
 
 
 class RecoveryStatusOut(BaseModel):

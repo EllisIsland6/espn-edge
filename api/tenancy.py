@@ -118,10 +118,35 @@ def _seed_single_tenant(target, connection, **_kw) -> None:
 def resolve_tenant_id(session: Session) -> int:
     """The tenant this session acts as, or a refusal.
 
-    Deliberately reads two rows and not one. `LIMIT 1` would silently pick the
-    lowest id the day a second tenant exists, which is the exact failure this
-    phase is about, and it would do it without a symptom.
+    A CONFIGURED tenant short-circuits the query, because on PostgreSQL the
+    query cannot work. Measured, on a correctly migrated database: the app
+    connects as a NOSUPERUSER NOBYPASSRLS role, `tenants` has FORCE ROW LEVEL
+    SECURITY, and the policy hides every row until `app.tenant_id` is bound --
+    so the SELECT that exists to FIND the tenant needs a tenant already bound
+    to return anything. As `edge_app` with nothing bound it reads 0 rows; with
+    `SET LOCAL app.tenant_id='1'` it reads 1. Every request 500s with
+    `TenantNotResolved`. SQLite has no row-level security, so discovery works
+    there and the offline suite never saw this.
+
+    The configured id is NOT taken on trust: `bind_session` verifies it after
+    binding, which is the only order in which the check can see anything. See
+    `_verify_configured_tenant`.
+
+    Discovery below is unchanged, and deliberately reads two rows and not one.
+    `LIMIT 1` would silently pick the lowest id the day a second tenant
+    exists, which is the exact failure this phase is about, and it would do it
+    without a symptom.
     """
+    configured = get_settings().tenant_id
+    if configured is not None:
+        if configured < 1:
+            raise TenantNotResolved(
+                f"TENANT_ID={configured} is not a usable tenant id. Ids are "
+                "positive; a zero or negative value is a misconfiguration, "
+                "and binding it would read nothing under row-level security "
+                "and look like an empty database."
+            )
+        return configured
     rows = session.execute(select(Tenant.id).order_by(Tenant.id).limit(2)).scalars().all()
     if not rows:
         raise TenantNotResolved(
@@ -187,12 +212,17 @@ def bind_session(
     if user_id is not None:
         session.info["user_id"] = user_id
     session.info.setdefault("tenant_binds", 0)
+    verify_after_binding = (
+        tenant_id is not None and get_settings().tenant_id == tenant_id
+    )
 
     if not get_settings().is_postgres:
         # SQLite has no GUCs and no row-level security. The binding is still
         # recorded so the seam is observable offline; what it is NOT is a
         # substitute for the isolation, and no test should imply otherwise.
         session.info["tenant_binds"] = session.info.get("tenant_binds", 0) + 1
+        if verify_after_binding:
+            _verify_configured_tenant(session, tenant_id)
         return
 
     def _rebind(session_, transaction_, connection) -> None:
@@ -208,6 +238,40 @@ def bind_session(
         session.info["_rebind_registered"] = True
     if session.in_transaction():
         _rebind(session, None, session.connection())
+    if verify_after_binding:
+        _verify_configured_tenant(session, tenant_id)
+
+
+def _verify_configured_tenant(session: Session, tenant_id: int) -> None:
+    """Prove a CONFIGURED tenant id names a real tenant -- after binding it.
+
+    The order is the whole point and it cannot be the other way round. Under
+    FORCE ROW LEVEL SECURITY the `tenants` table is invisible to the
+    application role until `app.tenant_id` is bound, so a check before
+    binding reads nothing and would reject every id including the correct
+    one. A check after binding reads exactly the row the binding claims, so
+    it answers the only question worth asking: does the tenant this process
+    has been told it is actually exist?
+
+    Without this, a typo in `TENANT_ID` is invisible. The app binds a tenant
+    that does not exist, every policy then matches nothing, and the result is
+    an application that starts cleanly, answers 200, and shows an empty
+    database -- which is the worst of the three possible outcomes, because it
+    looks like no data rather than like a misconfiguration.
+
+    Once per bind, by primary key.
+    """
+    exists = session.execute(
+        select(Tenant.id).where(Tenant.id == tenant_id)
+    ).scalar_one_or_none()
+    if exists is None:
+        raise TenantNotResolved(
+            f"TENANT_ID={tenant_id} does not name an existing tenant. The "
+            "binding succeeded, so every row-level security policy will now "
+            "match nothing: the application would serve an empty database "
+            "rather than report a misconfiguration. Check the value against "
+            "`SELECT id, slug FROM tenants` as a role that can see them."
+        )
 
 
 def tenant_for_user(session: Session, user_id: int) -> int:
