@@ -21,6 +21,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The deployable image installs this extra, not a bare `.`.
+#
+# Nothing under `api/` imports alembic -- the application connects as a role
+# with no DDL rights and cannot migrate. But the SAME image runs the one-off
+# migrate task (`alembic upgrade head`, see infra/app.py), so alembic is a
+# dependency of the ARTEFACT even though it is not a dependency of serving.
+# Keeping it out of `[project] dependencies` keeps that distinction, and keeps
+# `api/Dockerfile`'s hand-copied list (pinned by
+# tests/test_container_dependencies.py) honest about what *serving* needs.
+#
+# It appears in `dev` as well, so a developer's `pip install -e ".[dev]"` is
+# unchanged. tests/test_image_commands.py pins the two spellings together.
+migrate = ["alembic>=1.13"]
 dev = [
     "alembic>=1.13",
     "pytest>=8.3",

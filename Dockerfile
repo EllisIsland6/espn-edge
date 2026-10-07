@@ -53,7 +53,21 @@ WORKDIR /app
 # present to find it (`[tool.setuptools.packages.find] include = ["api*"]`).
 COPY pyproject.toml ./
 COPY api ./api
-RUN pip install --no-cache-dir .
+# `".[migrate]"` and not a bare `.`.
+#
+# A bare `.` installs `[project] dependencies` only, and alembic is not one of
+# them -- deliberately, since nothing under `api/` imports it. That left this
+# image with no `alembic` module and no `alembic` binary, while the migrate
+# task below is defined as `["alembic", "upgrade", "head"]`. Every deploy's
+# migrate step would have exited `executable file not found in $PATH`, after
+# the service image itself built and ran perfectly: the schema simply would
+# never have been created.
+#
+# Measured, not reasoned: installing from a directory holding only
+# `pyproject.toml` and `api/` -- exactly what this layer sees -- produced no
+# `bin/alembic` and `ModuleNotFoundError: No module named 'alembic'`.
+# tests/test_image_commands.py is what notices if it comes back.
+RUN pip install --no-cache-dir ".[migrate]"
 
 # Migrations travel in the image so the one-off task can use the same digest
 # as the service. A deploy where the schema and the code come from different

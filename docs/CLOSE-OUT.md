@@ -706,6 +706,50 @@ This was a practice project. These are the findings that are not about fantasy f
     Lesson 9 said this already. It needed saying again, because this time the confound was the
     machine rather than the code.
 
+39. **An artefact verified as an artefact is not verified against the commands it was told to run.**
+    `Dockerfile` installed the project with a bare `pip install .`. `infra/app.py` defined the
+    schema task as `command=["alembic", "upgrade", "head"]`. alembic is not a `[project]
+    dependency` -- deliberately, because nothing under `api/` imports it. So the image would have
+    built, the service would have started, `/api/health` would have returned `ok`, and the migrate
+    task would have exited `executable file not found in $PATH`. The schema would never have been
+    created and every signal pointing at the image was green.
+
+    Three files had to agree and **none of them imports the others**: `infra/app.py` says what to
+    run, `Dockerfile` says what is installed, `pyproject.toml` says what that means. Nothing in a
+    test suite that imports `api` can see a disagreement between them, which is why eighteen tests
+    about the hosted container passed while this sat underneath.
+
+    Found by reading `pyproject.toml` with the question "what does the install layer actually see",
+    then measured without a container at all: a directory holding only `pyproject.toml` and `api/`
+    -- exactly that layer's view -- `pip install .` gives no `bin/alembic` and
+    `ModuleNotFoundError`; `pip install ".[migrate]"` gives both. **The environment I did not have
+    (docker) was not the environment the defect lived in.** Lesson 31 again, from the other side.
+
+    The general form: for every artefact, enumerate the commands *other* files have been told to
+    run with it, and check each one against what the artefact contains. `tests/test_image_commands.py`
+    does it by resolving each argv[0] to the distribution that provides it as a console script.
+
+40. **Two mechanics that make a run report nothing while looking complete.** Both cost a measurement
+    this stretch.
+
+    `addopts = "-q"` is already in `pyproject.toml`, so passing `-q` again makes it `-qq`, and
+    double-quiet **suppresses the summary line**. A split suite run finished in 27 seconds, printed
+    475 dots and `[100%]`, and said neither how many passed nor that anything had. Dots are not a
+    result; the summary line is. Run it without `-q` and read the number.
+
+    And on this device nothing survives the shell call that starts it -- `setsid`, `nohup` and
+    `tmux` are all torn down when the call returns. Two full-suite runs were read as progressing
+    (load average, a growing log) when the process was already gone, and a third as hung at 57%
+    when the output was merely buffered. Either fit the job inside one call or split it; and
+    **check liveness by the process, never by the log**, because a block-buffered log looks
+    identical whether the writer is slow or dead.
+
+    Related, and now the fourth occurrence: `pgrep -f <pattern>` and `pkill -f <pattern>` match the
+    shell that ran them, because the pattern is in that shell's own argv. Two of those killed my own
+    session (exit 143, 144); two reported a dead process as alive. The bracket trick (`[p]ytest`)
+    fixes `grep` but not when the wrapper's argv quotes the real command elsewhere on the line. Use
+    `pkill -x <exact-name>` or a pidfile.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

@@ -214,6 +214,58 @@ dead-on-arrival deployment this section exists to prevent.
 Keeping the schema and the code in the same image digest is deliberate: a
 deploy where they come from different builds cannot be reasoned about.
 
+### The defect this section had, and how it was found
+
+For one commit this section was correct and **impossible**. `Dockerfile`
+installed the project with a bare `pip install .`, which installs
+`[project] dependencies` and nothing else — and alembic is deliberately not
+one of them, because nothing under `api/` imports it.
+
+So the image would have built, the service would have started, `/api/health`
+would have returned `ok`, and *this* command would have exited
+`executable file not found in $PATH`. The schema would never have been
+created, and every signal pointing at the image was green. The same shape as
+the forty-odd others on record: a check green while establishing something
+other than what it claims — here, the image was verified as an image, and
+nothing verified it against the commands something else had been told to run
+with it.
+
+MEASURED both ways, in a directory holding only `pyproject.toml` and `api/`,
+which is exactly what that layer of the image sees:
+
+| install | `bin/alembic` | `import alembic` |
+| --- | --- | --- |
+| `pip install .` | absent | `ModuleNotFoundError` |
+| `pip install ".[migrate]"` | present | 1.20.0 |
+
+The fix is the `[migrate]` extra, and `tests/test_image_commands.py` is what
+notices if it comes back: it resolves the argv[0] of every `command=[...]` in
+`infra/app.py` and of the image's own `CMD` to the distribution that provides
+it, and fails if the Dockerfile's install does not cover that distribution.
+Control-removed both ways — reverting the Dockerfile to a bare `.` fails three
+of its five tests by name.
+
+### UNVERIFIED: the image's library versions are not the tested versions
+
+`pyproject.toml` carries **floors only** — no lockfile, no upper bounds except
+`nflreadpy`. `pip install ".[migrate]"` on 2026-10-07 resolved:
+
+| declared | resolved |
+| --- | --- |
+| `pandas>=2.2` | **3.0.6** |
+| `sqlalchemy>=2.0` | **2.1.3** |
+| `anthropic>=0.40` | **1.11.0** |
+| `fastapi>=0.115` | 0.142.2 (starlette 1.7.0) |
+| `pydantic>=2.9` | 2.13.5 |
+
+Two of those cross a major boundary. The interpreter is pinned to CI's 3.12
+and the Dockerfile says so; the libraries are not pinned to anything, so the
+image built next week is a different image. The suite was run against this
+exact resolved set (see the status note for the result) — but that is one
+day's resolution, not a guarantee. **The honest fix is a lockfile** (`pip
+compile`/`uv lock` into a `requirements.lock` the image installs), and it is
+not done. Until it is, an image build is a dependency upgrade nobody reviewed.
+
 ---
 
 ## 7. Verify, in this order
