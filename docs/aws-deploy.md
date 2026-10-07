@@ -1,5 +1,11 @@
 # Deploying ESPN Edge to AWS — hosted, synthetic-only (synthesized, not deployed)
 
+> **Two roots exist.** This document and `infra/app.py` describe the CDK draft — the *unselected*
+> Fargate + ALB topology, kept as a synthesized artefact by the operator's decision. The selected
+> architecture is `infra/terraform/` (see its README); sections 2, 3, 4, 6, 7 and 9 of this document
+> apply to both, because they are about the database, the secrets, the application's environment,
+> migrating, verifying and what the application is not — not about the load balancer.
+
 **Status of this document.** Every claim marked MEASURED was verified against a
 real PostgreSQL 16 and a real running application. Everything marked
 UNVERIFIED has never been executed, because the environments this was written

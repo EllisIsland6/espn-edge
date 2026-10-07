@@ -310,3 +310,55 @@ def test_the_driver_check_is_actually_checking_something():
     assert all(driver in DRIVER_DISTRIBUTIONS for driver in drivers), (
         f"unknown driver in the deployment: {drivers - set(DRIVER_DISTRIBUTIONS)}"
     )
+
+
+# ------------------------------------------- the Terraform task definitions
+
+#: Executables the base image itself provides. Not console scripts of any
+#: distribution, so the resolver cannot find them; listed here deliberately.
+BASE_IMAGE_EXECUTABLES = {"python", "sh"}
+
+TERRAFORM_CONTAINERS = ROOT / "infra/terraform/stack/containers.tf"
+
+
+def _terraform_task_commands() -> list[list[str]]:
+    """Every `command = [...]` in the Terraform task definitions.
+
+    The file is HCL and the lists live inside `jsonencode([...])`; a regex over
+    the text is enough to pull `command = ["a", "b"]` literals, and the
+    instrument check requires it to find the migrate task's.
+    """
+    body = TERRAFORM_CONTAINERS.read_text(encoding="utf-8")
+    found = []
+    for match in re.finditer(r'command\s*=\s*\[([^\]]*)\]', body):
+        parts = re.findall(r'"([^"]+)"', match.group(1))
+        if parts:
+            found.append(parts)
+    return found
+
+
+def test_every_terraform_task_command_can_run_in_the_image():
+    """Lesson 39 for the Terraform root: the same image, told to run things
+    by a third file. `python -m <module>` is covered by
+    tests/test_terraform_policy.py's KNOWN_MISSING_ENTRYPOINTS; here the
+    question is only whether argv[0] exists in the image at all."""
+    problems = {}
+    for argv in _terraform_task_commands():
+        # ECS health checks are `["CMD-SHELL", "<shell string>"]`: the marker
+        # is ECS syntax, and the executable is the shell string's first word.
+        if argv[0] in {"CMD-SHELL", "CMD"}:
+            argv = argv[1].split()[:1] if len(argv) > 1 else argv
+        if argv[0] in BASE_IMAGE_EXECUTABLES:
+            continue
+        reason = _uncovered(argv)
+        if reason is not None:
+            problems[" ".join(argv)] = reason
+    assert problems == {}, (
+        f"infra/terraform/stack/containers.tf runs commands the image cannot: {problems}"
+    )
+
+
+def test_the_terraform_command_parse_is_actually_parsing_something():
+    commands = _terraform_task_commands()
+    assert ["alembic", "upgrade", "head"] in commands, commands
+    assert any(argv[:2] == ["python", "-m"] for argv in commands), commands

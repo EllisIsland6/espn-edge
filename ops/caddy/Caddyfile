@@ -1,0 +1,44 @@
+# The origin. CloudFront is the only legitimate client; it proves it with a
+# header the task reads from Secrets Manager. The security group already
+# limits who can connect; this limits who gets an answer.
+#
+# Environment (all set by the ECS task definition):
+#   ORIGIN_HOSTNAME     origin.<domain>
+#   ACME_EMAIL          the operator
+#   ORIGIN_VERIFY       the shared secret CloudFront sends as X-Origin-Verify
+#   AWS_REGION, AWS_HOSTED_ZONE_ID
+#
+# Credentials for DNS-01 come from the task role via the ECS metadata
+# endpoint; nothing is configured here.
+
+{
+	email {$ACME_EMAIL}
+	# Let's Encrypt, with ZeroSSL as the fallback issuer amendment C3 asks for.
+	cert_issuer acme
+	cert_issuer zerossl
+}
+
+{$ORIGIN_HOSTNAME} {
+	tls {
+		dns route53 {
+			region {$AWS_REGION}
+			hosted_zone_id {$AWS_HOSTED_ZONE_ID}
+		}
+	}
+
+	# Anything without the header is not CloudFront. 403, not 404: there
+	# is nothing to look for here.
+	@not_cloudfront not header X-Origin-Verify {$ORIGIN_VERIFY}
+	respond @not_cloudfront 403
+
+	# The application listens on the task's bridge network as `app`.
+	reverse_proxy app:8000 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host {$ORIGIN_HOSTNAME}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

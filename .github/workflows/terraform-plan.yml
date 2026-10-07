@@ -1,0 +1,132 @@
+# Phase 42: a plan on every pull request that touches the stack, through the
+# PLAN role -- read-only plus state access -- assumed by OIDC. There is no
+# AWS key in this repository's settings and nothing this job can change.
+# The plan is uploaded as an artifact and summarised on the PR.
+#
+# Repository variables (Settings -> Actions -> Variables), from the bootstrap
+# root's outputs:
+#   AWS_PLAN_ROLE_ARN, TF_STATE_BUCKET, TF_LOCK_TABLE
+# and the two tags the stack pins images to:
+#   APP_IMAGE_TAG, CADDY_IMAGE_TAG
+# plus OPERATOR_EMAIL. None of these is a secret.
+
+name: terraform plan
+
+on:
+  pull_request:
+    paths:
+      - "infra/terraform/stack/**"
+      - "ops/render_alarms.py"
+      - ".github/workflows/terraform-plan.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC
+  contents: read
+  pull-requests: write # the plan summary comment
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: us-east-1
+
+jobs:
+  policy:
+    name: policy tests (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" python-hcl2
+      - run: python ops/render_alarms.py --check
+      - run: python -m pytest tests/test_terraform_policy.py tests/test_image_commands.py tests/test_deployment_environment.py -q
+
+  plan:
+    name: terraform plan
+    needs: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Assume the plan role (OIDC; no key)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: terraform-plan-${{ github.run_id }}
+
+      - name: terraform fmt -check
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init
+        working-directory: infra/terraform/stack
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
+
+      - name: terraform validate
+        working-directory: infra/terraform/stack
+        run: terraform validate
+
+      - name: terraform plan
+        id: plan
+        working-directory: infra/terraform/stack
+        run: |
+          terraform plan -lock=false -out=tfplan \
+            -var "operator_email=${{ vars.OPERATOR_EMAIL }}" \
+            -var "app_image_tag=${{ vars.APP_IMAGE_TAG }}" \
+            -var "caddy_image_tag=${{ vars.CADDY_IMAGE_TAG }}"
+          terraform show -no-color tfplan > plan.txt
+          terraform show -json tfplan > plan.json
+
+      - name: Refuse a plan that creates what the architecture rejects
+        working-directory: infra/terraform/stack
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          plan = json.load(open("plan.json"))
+          forbidden = {"aws_nat_gateway", "aws_lb", "aws_alb", "aws_vpc_endpoint", "aws_wafv2_web_acl", "aws_kms_key", "aws_iam_user", "aws_iam_access_key"}
+          bad = []
+          for rc in plan.get("resource_changes", []):
+              t = rc["type"]
+              if t in forbidden and "create" in rc["change"]["actions"]:
+                  # the one permitted endpoint is the free S3 gateway
+                  if t == "aws_vpc_endpoint" and rc["change"]["after"].get("vpc_endpoint_type") == "Gateway":
+                      continue
+                  bad.append(f'{t}.{rc["name"]}')
+          if bad:
+              sys.exit(f"the plan would create resources the architecture rejects: {bad}")
+          print("plan creates nothing the architecture rejects")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.run_id }}
+          path: |
+            infra/terraform/stack/plan.txt
+            infra/terraform/stack/plan.json
+          retention-days: 30
+
+      - name: Summarise on the pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/terraform/stack/plan.txt', 'utf8');
+            const summary = plan.split('\n').filter(l => /^Plan:|No changes/.test(l)).join('\n') || '(no summary line)';
+            const body = `### terraform plan\n\n\`\`\`\n${summary}\n\`\`\`\n\nFull plan: artifact \`terraform-plan-${context.runId}\`. This workflow holds a read-only role and cannot apply.`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });

@@ -20,7 +20,8 @@ close-out was written; 42–45 need AWS access and spend, which was never author
 | 39 durable job queue | done (narrowed) — queue, leases, retry, poison, fairness, schedules, worker, outbox |
 | 40 application sessions | **done** — cookie sessions, CSRF, headers, and the OIDC front door (`api/oidc.py`, `/api/auth/login` → provider → `/api/auth/callback`, revision 0017). The earlier "PyJWT uninstallable" was the venv lacking `pip`, not the package. The callback is proven against a provider faked at the `httpx` seam; it has never met a real Cognito. |
 | 41 observability | done (narrowed) — ten series, ten alarms, worker heartbeat, fault harness; CloudWatch half needs AWS |
-| 42–45 | not started — **AWS** |
+| 42 public infrastructure + CI | **drafted, plan-only** — the selected topology in Terraform (`infra/terraform/`), bootstrap with OIDC plan/deploy roles and a budget, 22 offline policy tests holding the architecture's guarantees, plan/apply workflows. Never initialised, planned or applied: no registry, no AWS from here. |
+| 43–45 | not started — **AWS** |
 
 ---
 

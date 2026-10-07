@@ -51,6 +51,8 @@ dev = [
     "pytest-asyncio>=0.24",
     "respx>=0.21",
     "ruff>=0.7",
+    # tests/test_terraform_policy.py parses infra/terraform with it.
+    "python-hcl2>=4",
 ]
 
 [tool.setuptools.packages.find]

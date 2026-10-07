@@ -1,0 +1,5 @@
+# Local state for the bootstrap root. Back it up with the account; never commit it.
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
+.terraform.lock.hcl

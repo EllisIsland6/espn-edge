@@ -42,3 +42,11 @@ __pycache__/
 
 # Claude Code local overrides (settings.json is shared, .local.json is not)
 .claude/settings.local.json
+
+# Terraform: provider caches and any local state. The stack root uses the S3 backend; the bootstrap root's state stays with the account, never here.
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+infra/terraform/stack/plan.txt
+infra/terraform/stack/plan.json
