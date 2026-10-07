@@ -10,25 +10,42 @@ STATUS: this stack has been SYNTHESIZED and never DEPLOYED. The environments
 it was written in have no AWS credentials. Treat `cdk diff` output as the
 first real review, not this file.
 
-Two shapes, chosen by whether you pass a certificate:
+Three shapes:
+
+    npx cdk deploy -c zone_name=example.com -c domain=edge.example.com
+        The whole thing in one command. The certificate is CREATED here and
+        DNS-validated against the Route 53 hosted zone, the alias record is
+        created, HTTPS listener, Cognito in front. Use this when the domain
+        was registered in Route 53 -- registration creates the hosted zone,
+        which is the piece that makes validation automatic.
 
     npx cdk deploy -c certificate_arn=arn:aws:acm:... -c domain=edge.example.com
-        HTTPS listener + Cognito at the load balancer. AWS performs the
-        sign-in before traffic reaches the application.
+        Same, but with a certificate you already issued -- a domain hosted
+        somewhere else, where you add the validation record by hand and point
+        DNS at the load balancer afterwards.
 
     npx cdk deploy -c allow_cidr=203.0.113.4/32
         HTTP listener reachable only from that address. No certificate, no
         domain, no Cognito.
 
-The second exists because `authenticate-cognito` requires an HTTPS listener,
-which requires an ACM certificate, which requires a domain you control. If the
-domain is not ready, this ships today and the listener rule changes later; the
-application is identical either way.
+The third exists because `authenticate-cognito` requires an HTTPS listener,
+which requires an ACM certificate, which requires a domain you control. It is
+a way to ship before the domain is ready, and NOT a security equivalent: the
+application has no login of its own (see docs/aws-deploy.md hazard 5), so on
+that shape an IP range is the entire access control.
+
+The certificate created by the first shape is in THIS stack's region, which is
+what an ALB requires and is the usual way to get this wrong by hand -- a
+CloudFront certificate must be in us-east-1 and an ALB's must not be.
 """
 from __future__ import annotations
 
+import os
+import re
+
 import aws_cdk as cdk
 from aws_cdk import Duration, RemovalPolicy, Stack
+from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_cognito as cognito
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
@@ -53,6 +70,24 @@ class EspnEdgeStack(Stack):
 
         zone_name = self.node.try_get_context("zone_name")
         hosted_zone = None
+        if zone_name and not self.account.isdigit():
+            # `HostedZone.from_lookup` is a CONTEXT LOOKUP: it calls Route 53
+            # at synth time and needs a concrete account and region, not the
+            # `${Token[AWS.AccountId]}` an env-agnostic stack carries. Without
+            # them CDK raises StackAccountRegionNotSpecified from inside jsii,
+            # several frames deep, naming neither zone_name nor this file.
+            #
+            # MEASURED: this path had never been synthesized -- the two shapes
+            # verified earlier did not pass `zone_name` -- and the first synth
+            # of it failed exactly that way.
+            raise ValueError(
+                f"-c zone_name={zone_name} looks the hosted zone up in Route "
+                "53 at synth time, which needs a concrete account. Run with "
+                "AWS credentials (the CDK CLI fills CDK_DEFAULT_ACCOUNT from "
+                "them), or pass -c account=123456789012 -c region=us-east-1. "
+                "To synthesize with no credentials at all, use the "
+                "-c certificate_arn=... or -c allow_cidr=... shape."
+            )
         if zone_name:
             hosted_zone = route53.HostedZone.from_lookup(
                 self, "Zone", domain_name=zone_name
@@ -64,12 +99,42 @@ class EspnEdgeStack(Stack):
                 "the hostname cannot be inferred from the load balancer."
             )
 
-        if not certificate_arn and not allow_cidr:
+        if zone_name and not domain:
             raise ValueError(
-                "pass either -c certificate_arn=... (HTTPS + Cognito) or "
-                "-c allow_cidr=1.2.3.4/32 (private, no certificate). Deploying "
-                "with neither would put an unauthenticated application on the "
-                "public internet, which is not a default worth having."
+                f"-c zone_name={zone_name} also needs -c domain=... -- the "
+                f"hostname to serve on. Pass -c domain={zone_name} for the "
+                f"apex, or -c domain=edge.{zone_name} for a subdomain. It is "
+                "not defaulted because the certificate, the DNS record and "
+                "Cognito's callback URL are all built from it, and a guess "
+                "here is three things wrong at once."
+            )
+
+        # Created rather than referenced when the zone is in this account:
+        # Route 53 answers the validation record itself, so there is no manual
+        # ACM step and no way to attach a certificate from the wrong region.
+        certificate = None
+        if certificate_arn:
+            certificate = acm.Certificate.from_certificate_arn(
+                self, "Cert", certificate_arn
+            )
+        elif hosted_zone and domain:
+            certificate = acm.Certificate(
+                self,
+                "Cert",
+                domain_name=domain,
+                validation=acm.CertificateValidation.from_dns(hosted_zone),
+            )
+
+        https = certificate is not None
+
+        if not https and not allow_cidr:
+            raise ValueError(
+                "pass -c zone_name=... -c domain=... (certificate issued "
+                "here), -c certificate_arn=... -c domain=... (your own "
+                "certificate), or -c allow_cidr=1.2.3.4/32 (private, no "
+                "certificate). Deploying with none of them would put an "
+                "unauthenticated application on the public internet, which is "
+                "not a default worth having."
             )
 
         # Two AZs: RDS requires a subnet group spanning at least two, even for
@@ -154,19 +219,25 @@ class EspnEdgeStack(Stack):
             cpu=512,
             memory_limit_mib=1024,
             desired_count=1,
+            # Without the circuit breaker a deployment whose tasks cannot
+            # start keeps retrying for up to three hours before failing. With
+            # one task and a schema that may not be migrated yet, that is the
+            # likeliest first-deploy outcome, and three hours of it is not a
+            # feedback loop. Rollback restores the last task definition that
+            # actually ran.
+            circuit_breaker=ecs.DeploymentCircuitBreaker(rollback=True),
+            # Defaults are 50/200. At desired_count=1, 50% rounds to stopping
+            # the only task before the new one is healthy -- a deliberate
+            # outage on every deploy. 100/200 starts the replacement first.
+            min_healthy_percent=100,
+            max_healthy_percent=200,
             public_load_balancer=True,
             protocol=(
                 elbv2.ApplicationProtocol.HTTPS
-                if certificate_arn
+                if https
                 else elbv2.ApplicationProtocol.HTTP
             ),
-            certificate=(
-                None
-                if not certificate_arn
-                else __import__(
-                    "aws_cdk.aws_certificatemanager", fromlist=["Certificate"]
-                ).Certificate.from_certificate_arn(self, "Cert", certificate_arn)
-            ),
+            certificate=certificate,
             # `domain_name` without `domain_zone` is rejected at synth time:
             # the pattern wants to create the DNS record itself and needs the
             # hosted zone to do it. Caught by `cdk synth`, which is the only
@@ -178,7 +249,7 @@ class EspnEdgeStack(Stack):
             # is what a domain hosted somewhere else needs.
             domain_name=domain if hosted_zone else None,
             domain_zone=hosted_zone,
-            redirect_http=bool(certificate_arn),
+            redirect_http=https,
             task_image_options=ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
                 image=image,
                 container_port=8000,
@@ -233,7 +304,7 @@ class EspnEdgeStack(Stack):
         )
 
         # ------------------------------------------------------------ access
-        if certificate_arn:
+        if https:
             user_pool = cognito.UserPool(
                 self,
                 "UserPool",
@@ -250,11 +321,29 @@ class EspnEdgeStack(Stack):
                     callback_urls=[f"https://{domain}/oauth2/idpresponse"],
                 ),
             )
+            # The hosted-UI prefix is globally unique across all of AWS and
+            # must match [a-z0-9-]. Derived from the hostname being served:
+            # that is concrete at synth time and globally unique by
+            # definition, since two accounts cannot own the same domain.
+            #
+            # It used to be `self.account[:8]`, which is a DEFECT rather than
+            # a style point: in an env-agnostic stack `self.account` is the
+            # token `${Token[AWS.AccountId.N]}`, so the slice produced
+            # `espn-edge-${Token` and Cognito rejected it at synth with
+            # DomainPrefixCognitoDomainContain. MEASURED -- it is what the
+            # first synth of the certificate_arn shape without credentials
+            # did, and that shape is the one for a domain hosted elsewhere.
+            prefix = self.node.try_get_context("cognito_domain_prefix") or (
+                re.sub(r"[^a-z0-9-]+", "-", f"espn-edge-{domain}".lower()).strip("-")[:63]
+            )
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", prefix):
+                raise ValueError(
+                    f"cognito domain prefix {prefix!r} is not [a-z0-9-]. Pass "
+                    "-c cognito_domain_prefix=something-valid."
+                )
             cognito_domain = user_pool.add_domain(
                 "Domain",
-                cognito_domain=cognito.CognitoDomainOptions(
-                    domain_prefix=f"espn-edge-{self.account[:8]}"
-                ),
+                cognito_domain=cognito.CognitoDomainOptions(domain_prefix=prefix),
             )
             service.listener.add_action(
                 "Authenticate",
@@ -312,15 +401,48 @@ class EspnEdgeStack(Stack):
         cdk.CfnOutput(self, "DatabaseEndpoint", value=db.db_instance_endpoint_address)
         cdk.CfnOutput(self, "MigrateTaskDefinition", value=migrate.task_definition_arn)
         cdk.CfnOutput(self, "ClusterName", value=cluster.cluster_name)
+        # The address to actually open. On the allow_cidr shape this is the
+        # load balancer over plain HTTP and there is no sign-in in front of
+        # it -- printed rather than left to be inferred, because that is the
+        # shape it is easiest to forget you are on.
+        cdk.CfnOutput(
+            self,
+            "Url",
+            value=(
+                f"https://{domain}"
+                if https and domain
+                else f"http://{service.load_balancer.load_balancer_dns_name}"
+            ),
+        )
+        cdk.CfnOutput(
+            self,
+            "AccessControl",
+            value=(
+                "Cognito at the load balancer"
+                if https
+                else f"IP allowlist only ({allow_cidr}); the application has no login"
+            ),
+        )
 
 
 app = cdk.App()
 EspnEdgeStack(
     app,
     "EspnEdgeStack",
+    # CDK_DEFAULT_ACCOUNT and CDK_DEFAULT_REGION are set by the CDK CLI from
+    # whatever credentials are in scope, so a normal `cdk deploy` needs no
+    # context flags. The explicit -c account=/-c region= override exists for
+    # synthesizing a specific environment without those credentials.
     env=cdk.Environment(
-        account=app.node.try_get_context("account"),
-        region=app.node.try_get_context("region") or "us-east-1",
+        account=(
+            app.node.try_get_context("account")
+            or os.environ.get("CDK_DEFAULT_ACCOUNT")
+        ),
+        region=(
+            app.node.try_get_context("region")
+            or os.environ.get("CDK_DEFAULT_REGION")
+            or "us-east-1"
+        ),
     ),
 )
 app.synth()

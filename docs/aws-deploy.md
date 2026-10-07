@@ -20,19 +20,70 @@ certificate needs a **domain name you control**.
 
 So, before anything else, pick one:
 
-| Option | Cost / time | Consequence |
+| Option | Cost / time | What the stack then does |
 | --- | --- | --- |
-| **Register a domain in Route 53** | ~$12–15/yr, usable in minutes | Cleanest. ACM issues and validates automatically. |
-| **Use a domain you already own** | free | Add a CNAME/ALIAS to the ALB and a DNS validation record for ACM. |
-| **Skip ALB auth; use a security group allowlist** | free | No Cognito, no certificate. Reachable only from your IP. A changed home IP locks you out, and nobody else can see it. |
+| **Register a domain in Route 53** | ~$12–15/yr, minutes | Everything in one `cdk deploy`. Registration creates the hosted zone; the stack issues the certificate, Route 53 answers the validation record, and the alias record is created. No manual ACM step. |
+| **Use a domain you already own** | free | You issue the certificate (adding ACM's validation CNAME at your registrar) and pass `-c certificate_arn=...`; you point DNS at the load balancer afterwards. |
+| **Security-group allowlist** | free | No Cognito, no certificate. See the warning below — this is not "Cognito later, same protection now". |
 
 There is no fourth option that keeps Cognito. A self-signed certificate on an
 ALB is not accepted by `authenticate-cognito`.
 
-**If you do not have a domain by Thursday, deploy with the security-group
-allowlist and add Cognito after.** The application is identical either way;
-only the listener rule changes. That ordering costs nothing and removes the
-dependency from the critical path.
+**Route 53 registers domains directly** — it is a registrar, not just DNS, so
+one AWS account covers registration, DNS and validation. Registering also
+creates the public hosted zone, which is the piece that makes `cdk deploy`
+able to issue and validate the certificate by itself. `.com` is in the
+$13–15/yr band; `aws route53domains list-prices --region us-east-1` gives the
+current number per TLD, and `check-domain-availability` tests a name before
+you buy. Registration is usually minutes but AWS allows up to three days, so
+do it before Thursday rather than on it.
+
+> **The allowlist option is not a security equivalent.** The application has
+> no login of its own — see hazard 5 in section 9 — so on that shape an IP
+> range is the entire access control, over plain HTTP. It is a way to ship
+> before a domain is ready, for a `/32` you have verified, not a resting
+> state. With a domain, Cognito is a real gate.
+
+---
+
+### The one-command path, once the domain is registered
+
+```bash
+cd infra
+pip install -r requirements.txt
+npx cdk deploy -c zone_name=espnedge.example -c domain=espnedge.example
+```
+
+`zone_name` is the registered domain (the hosted zone); `domain` is the
+hostname to serve on — the apex, or `edge.espnedge.example` for a subdomain.
+It is not defaulted, because the certificate, the DNS record and Cognito's
+callback URL are all built from it.
+
+MEASURED (synthesis only; nothing here has been deployed): all three shapes
+synthesize — 55 resources with `zone_name`, 53 with `certificate_arn`, 49 with
+`allow_cidr` — and the first produces `AWS::CertificateManager::Certificate`
+with `ValidationMethod: DNS` bound to the hosted zone, an
+`AWS::Route53::RecordSet` alias, an HTTPS listener on 443 and an
+`authenticate-cognito` action.
+
+Two things that synthesis caught, both of which would have cost a deploy:
+
+- `HostedZone.from_lookup` is a context lookup — it calls Route 53 at synth
+  time and needs a concrete account, which an env-agnostic stack does not
+  have. It now fails with a message naming `zone_name` instead of a jsii
+  traceback, and `CDK_DEFAULT_ACCOUNT` (set by the CDK CLI from your
+  credentials) means a normal `cdk deploy` needs no account flag.
+- The Cognito hosted-UI prefix was `self.account[:8]`, which on an
+  env-agnostic stack slices the *token* and produces `espn-edge-${Token`.
+  Cognito rejects it. It is now derived from the hostname, which is concrete
+  at synth time and globally unique by definition.
+
+The stack also sets a deployment circuit breaker with rollback, and
+100/200 healthy percentages. Without the first, a deploy whose tasks cannot
+start — the likeliest first-deploy outcome, if the schema is not migrated yet
+— retries for **up to three hours** before failing. Without the second, 50%
+of one task rounds to stopping the only task before its replacement is
+healthy, which is a deliberate outage on every deploy.
 
 ---
 
