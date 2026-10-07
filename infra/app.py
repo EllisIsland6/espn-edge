@@ -1,14 +1,50 @@
 #!/usr/bin/env python3
-"""CDK app for the private, single-operator ESPN Edge deployment.
+"""CDK app for a hosted, synthetic-only ESPN Edge deployment.
 
     cd infra
     pip install -r requirements.txt
     npx cdk synth      # no AWS calls, proves the stack is well-formed
-    npx cdk deploy     # makes changes and costs money
+    npx cdk deploy     # makes changes and costs money -- see CUSTODY first
 
 STATUS: this stack has been SYNTHESIZED and never DEPLOYED. The environments
 it was written in have no AWS credentials. Treat `cdk diff` output as the
 first real review, not this file.
+
+CUSTODY -- the accepted boundary, and the line this file used to cross
+-----------------------------------------------------------------------
+docs/sprint-9/03-architecture.md selects "public synthetic AWS; private real
+data local; private AWS unselected", and answers "why not deploy private AWS
+when it fits the budget" with: it duplicates a control plane to run
+unsupported real-data automation, adds custody and ops risk, and withholding
+apply proves the risk decision is intentional.
+
+For one commit this stack set APP_MODE=private_operator, which would have put
+the ESPN provider, the credential decrypt path, the raw cache and the
+operator's real league data in AWS behind a single Cognito gate. That was a
+change in custody made by a default, not by a decision. It is now
+public_synthetic in both tasks, FERNET_KEY is not referenced at all (there
+are no credentials here to decrypt, and the operator's key must never leave
+the machine that holds the cookies), and the one setting that would reverse
+this is a deliberate edit to this file rather than a flag.
+
+The consequence, MEASURED by tests/test_hosted_default_deny.py: in
+public_synthetic mode every route except /api/health returns 401 without a
+session cookie, and no endpoint mints one until the identity-provider
+callback lands (Phase 40, blocked on a JWT library). So this stack deploys
+infrastructure that serves health checks and refuses everything else. That is
+the honest state of the accepted design, not a defect in this file.
+
+TOPOLOGY -- what this is and is not
+-----------------------------------
+This is NOT the selected architecture in 03-architecture.md, which is one
+public-egress t4g.small with an EIP, ECS-on-EC2, no NAT and no ALB, behind
+S3/CloudFront, at ~$34/month. This is Fargate in private subnets behind an
+ALB with a NAT gateway -- the shape that document lists under "at 100x
+scale", at roughly twice the accepted bill. It exists because the earlier
+session chose ALB+Cognito before the accepted document was re-read. Whether
+to keep it as a synthesized portfolio artefact, rewrite it to the selected
+shape, or deploy it at its cost is a decision for the operator, recorded in
+docs/aws-deploy.md section 0.
 
 Three shapes:
 
@@ -147,13 +183,12 @@ class EspnEdgeStack(Stack):
         # Generated here so they exist exactly once and never pass through a
         # terminal or a repository.
         #
-        # FERNET_KEY is NOT generated here, and that is deliberate: it
-        # decrypts stored ESPN cookies, so a stack replacement that minted a
-        # new one would make every stored credential undecryptable without
-        # failing loudly. Create it by hand, once, and reference it.
-        fernet = secretsmanager.Secret.from_secret_name_v2(
-            self, "FernetKey", "espn-edge/fernet-key"
-        )
+        # There is deliberately no FERNET_KEY. It decrypts stored ESPN cookies,
+        # and in public_synthetic mode there are none: the credential path
+        # cannot be reached (api/config.py). The operator's real key belongs
+        # on the machine that holds the real cookies and nowhere else; a copy
+        # in AWS would be a key with nothing to decrypt here and everything to
+        # decrypt there.
         session_secret = secretsmanager.Secret(
             self,
             "SessionSecret",
@@ -256,7 +291,11 @@ class EspnEdgeStack(Stack):
                 environment={
                     # All three are required with no default: the process
                     # refuses to start without them. Measured by booting it.
-                    "APP_MODE": "private_operator",
+                    #
+                    # public_synthetic is the accepted custody boundary (see
+                    # the module docstring). Not a flag: changing it is a
+                    # deliberate edit here, reviewed as a change in custody.
+                    "APP_MODE": "public_synthetic",
                     "TELEMETRY_ENABLED": "false",
                     "TELEMETRY_REPORT_PATH": "/tmp/telemetry-report.md",
                     # Required on PostgreSQL. Discovery cannot work: the app
@@ -271,7 +310,6 @@ class EspnEdgeStack(Stack):
                 },
                 secrets={
                     "DATABASE_URL": ecs.Secret.from_secrets_manager(app_db_url),
-                    "FERNET_KEY": ecs.Secret.from_secrets_manager(fernet),
                     "SESSION_SECRET": ecs.Secret.from_secrets_manager(session_secret),
                     "OPERATOR_PASSWORD_HASH": ecs.Secret.from_secrets_manager(
                         operator_hash
@@ -377,7 +415,10 @@ class EspnEdgeStack(Stack):
             image=image,
             command=["alembic", "upgrade", "head"],
             environment={
-                "APP_MODE": "private_operator",
+                # Same mode as the service: a migration run under a different
+                # mode than the application it migrates is a mode nobody
+                # tested together.
+                "APP_MODE": "public_synthetic",
                 "TELEMETRY_ENABLED": "false",
                 "TELEMETRY_REPORT_PATH": "/tmp/telemetry-report.md",
                 # Which role revision 0016 grants. If it does not exist the
@@ -387,7 +428,6 @@ class EspnEdgeStack(Stack):
             },
             secrets={
                 "DATABASE_URL": ecs.Secret.from_secrets_manager(owner_db_url),
-                "FERNET_KEY": ecs.Secret.from_secrets_manager(fernet),
                 "SESSION_SECRET": ecs.Secret.from_secrets_manager(session_secret),
                 "OPERATOR_PASSWORD_HASH": ecs.Secret.from_secrets_manager(operator_hash),
             },

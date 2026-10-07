@@ -8,7 +8,55 @@ runbook that does not distinguish the two is a runbook that will waste a day.
 
 ---
 
-## 0. Read this first: HTTPS is a hard prerequisite
+## 0. Read this first
+
+### 0a. Custody: this stack is synthetic-only, and is not the selected architecture
+
+**Do not deploy this with real ESPN data.** `docs/sprint-9/03-architecture.md`
+is the accepted architecture, and its custody row is explicit: *public
+synthetic AWS; private real data local; private AWS unselected*. It answers
+"why not deploy private AWS when it fits the budget" with: it duplicates a
+control plane to run unsupported real-data automation, adds custody and ops
+risk, and withholding apply proves the risk decision is intentional.
+
+For one commit `infra/app.py` set `APP_MODE=private_operator`, which would
+have put the ESPN provider, the credential decrypt path, the raw cache and
+the operator's real league data in AWS behind a single Cognito gate — a
+change in custody made by a default rather than a decision. It is now
+`public_synthetic` in both tasks, and `FERNET_KEY` is no longer referenced:
+there are no credentials in a synthetic deployment to decrypt, and the
+operator's key must never leave the machine that holds the cookies.
+
+**What that means for "working":** in `public_synthetic` mode every route
+except `/api/health` returns 401 without a session cookie, and no endpoint
+mints one until the identity-provider callback lands (Phase 40, blocked on a
+JWT library). MEASURED — `tests/test_hosted_default_deny.py` is the test.
+So, deployed as written, this stack proves the infrastructure (VPC, RDS, the
+migrate task, the role split, Cognito at the edge) and serves health checks.
+It cannot serve a page to a signed-in user yet. That is the honest state of
+the accepted design, not a defect in the stack.
+
+**And this is not the selected topology.** The accepted architecture is one
+public-egress `t4g.small` with an EIP, ECS-on-EC2, no NAT, no ALB, behind
+S3/CloudFront, priced at **$34.26/month AWS** (+$5 hard-capped Anthropic).
+This stack is Fargate in private subnets behind an ALB with a NAT gateway —
+the shape that document lists under *at 100× scale* — and the NAT alone is
+~$36.50/month in that document's own numbers, so this runs at roughly twice
+the accepted bill. It exists because the earlier session chose ALB+Cognito
+before the accepted document was re-read.
+
+The decision that is now the operator's, with nothing pre-empted:
+
+| Option | What it costs | What it proves |
+| --- | --- | --- |
+| **Keep this stack as a synthesized artefact; do not apply** | $0 | Three shapes synthesize; four defects found and pinned by synth and by reading. Matches the accepted document's "withholding apply proves the risk decision is intentional". |
+| **Rewrite to the selected shape** (EC2 + EIP + CloudFront, synthetic) | a bounded session or two; ~$34/month if applied | The accepted architecture, applied. Still 401s until Phase 40. |
+| **Apply this stack, synthetic** | ~$70/month while up | The same 401-until-auth result, on an unselected and dearer topology. Hard to justify against the row above. |
+
+None of the three includes a domain purchase, a deployment or a live ESPN
+call; each of those needs its own bounded approval.
+
+### 0b. HTTPS is a hard prerequisite for Cognito
 
 The chosen design puts **Cognito on the load balancer**, so AWS performs the
 sign-in before any traffic reaches the application. That is the fastest route
@@ -109,8 +157,9 @@ healthy, which is a deliberate outage on every deploy.
       │ RDS PostgreSQL 16, private       │
       └──────────────────────────────────┘
 
-  Secrets Manager: FERNET_KEY, SESSION_SECRET, OPERATOR_PASSWORD_HASH,
-                   the two database URLs, ANTHROPIC_API_KEY
+  Secrets Manager: SESSION_SECRET, OPERATOR_PASSWORD_HASH (both unread),
+                   the two database URLs, ANTHROPIC_API_KEY. No FERNET_KEY:
+                   synthetic mode has no credentials to decrypt.
 ```
 
 **One container, not two.** The frontend is static files and the process that
@@ -160,7 +209,7 @@ Create these in Secrets Manager before the first deploy.
 
 | Secret | How to generate | Notes |
 | --- | --- | --- |
-| `FERNET_KEY` | `python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"` | **Generate once and never change it.** It decrypts the stored ESPN `espn_s2` cookies. A new key does not fail loudly — it makes every stored credential undecryptable, and the symptom is re-auth prompts with no explanation. |
+| ~~`FERNET_KEY`~~ | — | **Not used by this stack.** It decrypts stored ESPN cookies, and a synthetic deployment has none. The operator's key stays on the operator's machine. (If a private-mode deployment is ever decided — section 0a — it must be generated once and never rotated: a new key makes every stored credential undecryptable without failing loudly.) |
 | `SESSION_SECRET` | 48+ random chars | **Read by nothing** today — there is no endpoint that mints a session. Wired ahead of the identity provider. |
 | `OPERATOR_PASSWORD_HASH` | any value | **Read by nothing.** Wired ahead of the identity provider. See the warning below before you treat it as a factor. |
 | `DATABASE_URL_OWNER` | `postgresql+psycopg2://edge_owner:…@<rds-endpoint>:5432/edge` | Only the migration task gets this. |
@@ -177,7 +226,7 @@ listed rather than assumed.
 
 | Variable | Value | Required |
 | --- | --- | --- |
-| `APP_MODE` | `private_operator` | **yes** (no default) |
+| `APP_MODE` | `public_synthetic` | **yes** (no default). The accepted custody boundary — section 0a. |
 | `TELEMETRY_ENABLED` | `false` | **yes** (no default) |
 | `TELEMETRY_REPORT_PATH` | `/tmp/telemetry-report.md` | **yes** (no default) |
 | `DATABASE_URL` | from `DATABASE_URL_APP` | yes, or it uses SQLite |
@@ -381,9 +430,11 @@ Stated so none of it is discovered in production:
    `api/routers/auth.py` has `/me` and `/logout` and **deliberately no endpoint
    that mints a session**: minting needs an OIDC ID token, verifying one needs
    a JWT library this environment cannot install, and hand-rolling it is where
-   `alg: none` and key-confusion bugs live. In `private_operator` mode
-   `_bound_session` binds the configured tenant with no cookie, which is why
-   the app serves at all.
+   `alg: none` and key-confusion bugs live. In `public_synthetic` mode --
+   this stack's mode -- every route except `/api/health` is therefore 401,
+   and that is measured (`tests/test_hosted_default_deny.py`). Only
+   `private_operator` serves without a cookie, and that mode does not belong
+   in AWS (section 0a).
 
    So `OPERATOR_PASSWORD_HASH` and `SESSION_SECRET` are read by nothing --
    grep the repository, they appear only in `infra/app.py` and this file.
