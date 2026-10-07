@@ -1,4 +1,4 @@
-# Deploying ESPN Edge to AWS — private, single-operator
+# Deploying ESPN Edge to AWS — hosted, synthetic-only (synthesized, not deployed)
 
 **Status of this document.** Every claim marked MEASURED was verified against a
 real PostgreSQL 16 and a real running application. Everything marked
@@ -84,7 +84,7 @@ able to issue and validate the certificate by itself. `.com` is in the
 $13–15/yr band; `aws route53domains list-prices --region us-east-1` gives the
 current number per TLD, and `check-domain-availability` tests a name before
 you buy. Registration is usually minutes but AWS allows up to three days, so
-do it before Thursday rather than on it.
+do it well before any deploy date rather than on it.
 
 > **The allowlist option is not a security equivalent.** The application has
 > no login of its own — see hazard 5 in section 9 — so on that shape an IP

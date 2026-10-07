@@ -2,7 +2,7 @@
 
 Status: **closed — no lease has been held since Phase 29.**
 
-Phases 36 through 41 were carried out without a production write lease, under the operator's standing
+Phases 36 through 41 and the AWS draft close-out (2026-10-07) were carried out without a production write lease, under the operator's standing
 direction that this is a practice project to be narrowed and time-boxed. The record below is the last
 lease that existed and is kept for its shape, not because it is active. Nothing in it is in force.
 

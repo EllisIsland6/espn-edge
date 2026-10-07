@@ -787,6 +787,30 @@ This was a practice project. These are the findings that are not about fantasy f
     failed instead, because it asserted the detector finds that one name specifically. **An
     instrument check earns its place by naming a thing the instrument must be able to see.**
 
+42. **A default is a decision nobody made, and custody is the worst thing to decide that way.** The
+    operator answered "private instance, just me" and the stack was written with
+    `APP_MODE=private_operator` -- which, read against the accepted architecture, moves the ESPN
+    provider, the credential decrypt path and real league data into AWS behind one Cognito gate.
+    The accepted document had already decided the opposite, in a row titled *Custody*, with a
+    reason. The operator caught it by reading the stack against that document; the agent had
+    translated a deployment-shape preference into a data-boundary change without checking the one
+    file that governs data boundaries.
+
+    The fix was mechanical. The lesson is the order of operations: **before writing a stack, read
+    the custody row, then the cost row, then everything else** -- because those two are the ones a
+    default can silently violate, and the ones whose violation is not a bug report but a breach.
+
+43. **The verification environment is part of the claim.** Every PostgreSQL result in this
+    repository -- the migration chain, 0→113 grants, 28/28 attacks denied, real routes served --
+    was measured in a venv where `psycopg2` had been installed by hand. The image installs from
+    `pyproject.toml`, which declared no driver. So every one of those results was true of the venv
+    and none of them was true of the artefact being shipped: both ECS tasks would have raised
+    `ModuleNotFoundError` at engine creation, after the alembic fix had made the migrate task
+    *start*. Lesson 39 said an artefact must be checked against the commands it was told to run;
+    this adds that it must be checked **from its own install**, as its own user, on its own
+    filesystem layout. Doing exactly that found the driver, and found that the Dockerfile's `chown`
+    was both wrong and load-bearing in the same afternoon.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
