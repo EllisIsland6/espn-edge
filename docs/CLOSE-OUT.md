@@ -9,7 +9,7 @@ need `<repo>/.venv/bin/python`, which points at a macOS framework interpreter an
 the operator's Mac. Each names that path in its reason, and the skip condition is guarded by a test
 that is never skipped itself — see the CI note below.
 
-This closes the project at **Phase 41 (narrowed)**. Phases 39, 40 and 41 were done after the first
+This closes the project at **Phase 41 (narrowed)**, with Phase 40 completed afterwards (2026-10-07). Phases 39, 40 and 41 were done after the first
 close-out was written; 42–45 need AWS access and spend, which was never authorized.
 
 | Phase | Status |
@@ -18,7 +18,7 @@ close-out was written; 42–45 need AWS access and spend, which was never author
 | 37 tenant API retrofit + RLS | done |
 | 38 opportunity memory | done — 396 → 245 MiB |
 | 39 durable job queue | done (narrowed) — queue, leases, retry, poison, fairness, schedules, worker, outbox |
-| 40 application sessions | done (narrowed) — cookie sessions, CSRF, headers; **no OIDC callback** (PyJWT uninstallable here, and hand-rolling JWT verification is not something to ship) |
+| 40 application sessions | **done** — cookie sessions, CSRF, headers, and the OIDC front door (`api/oidc.py`, `/api/auth/login` → provider → `/api/auth/callback`, revision 0017). The earlier "PyJWT uninstallable" was the venv lacking `pip`, not the package. The callback is proven against a provider faked at the `httpx` seam; it has never met a real Cognito. |
 | 41 observability | done (narrowed) — ten series, ten alarms, worker heartbeat, fault harness; CloudWatch half needs AWS |
 | 42–45 | not started — **AWS** |
 
@@ -810,6 +810,26 @@ This was a practice project. These are the findings that are not about fantasy f
     this adds that it must be checked **from its own install**, as its own user, on its own
     filesystem layout. Doing exactly that found the driver, and found that the Dockerfile's `chown`
     was both wrong and load-bearing in the same afternoon.
+
+44. **A premise test has to be able to fail when the premise changes, and a recipe in a docstring
+    is a claim like any other.** Two instances in one afternoon, both mine.
+
+    `test_there_is_still_no_endpoint_that_mints_a_session` asserted `"def mint_session" not in
+    source` of the router -- a definition that was never going to be there, since the function lives
+    in `api/auth.py`. The front door landed, called `mint_session` from the callback, and the test
+    stayed green. It now walks the AST for the *call*, which was the question. A test that cannot
+    fail when the thing it pins changes is the defect this project keeps finding, inside the file
+    written about that defect.
+
+    Revision 0017's docstring then gave a three-INSERT provisioning recipe "as the owner". It does not
+    work: `FORCE ROW LEVEL SECURITY` binds the table owner too (lesson 36 said so about the app role;
+    it is as true of the owner), and the `users` policy's `WITH CHECK (id = current_app_user())`
+    needs `app.user_id` to equal an id that does not exist yet. Measured: `new row violates row-level
+    security policy`. The recipe the policies actually allow -- reserve the id with `nextval`, bind it
+    with `set_config`, insert with it explicitly -- was found by running it, and is what the file says
+    now. The owner-control for the app-role REVOKE had also passed vacuously on its first run,
+    because the probe database had no users and `INSERT ... SELECT` inserted zero rows. **A control
+    that inserts nothing has controlled nothing**; it was rerun with the row it needed.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.

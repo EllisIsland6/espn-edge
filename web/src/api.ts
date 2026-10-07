@@ -976,6 +976,16 @@ export interface AiReportList<T = Record<string, unknown>> {
   error: string | null;
 }
 
+/**
+ * The one 401 that means "sign in", as the backend spells it. Other 401s exist
+ * (an expired ESPN cookie on a league route says "re-authenticate this
+ * account") and must NOT bounce the whole page to the identity provider --
+ * in private-operator mode there is no provider and /api/auth/login is 404.
+ * The literal is pinned against api/db.py by tests/test_spa_sign_in_redirect.py.
+ */
+const SIGN_IN_REQUIRED = "authentication required";
+const SIGN_IN_PATH = "/api/auth/login";
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(await errorText(res, path));
@@ -995,7 +1005,16 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
 async function errorText(res: Response, path: string): Promise<string> {
   try {
     const j = await res.json();
-    if (j?.detail) return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    if (j?.detail) {
+      const detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      if (res.status === 401 && detail === SIGN_IN_REQUIRED) {
+        // Hosted mode, no session: the only sensible next step is the front
+        // door. The thrown error below still rejects the caller's promise,
+        // so nothing renders a half-page while the navigation starts.
+        window.location.assign(SIGN_IN_PATH);
+      }
+      return detail;
+    }
   } catch {
     /* fall through */
   }

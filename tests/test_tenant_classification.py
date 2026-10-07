@@ -47,6 +47,12 @@ GLOBAL_TABLES = frozenset({
     # hash, not by a policy. "Global" here means "has no tenant_id column",
     # and emphatically not "readable by anyone".
     "app_sessions",
+    # The same shape one step earlier (revision 0017): read before even the
+    # USER is known, to turn a verified provider subject into a user id. It
+    # holds an issuer, an opaque subject and a user id -- no claim, no secret
+    # -- and the application role cannot write it. Global means "no
+    # tenant_id column"; the tenant comes from the membership afterwards.
+    "identities",
     # Worker liveness. Global by construction, like `jobs` has no RLS policy
     # by construction: one worker process serves every tenant, so there is no
     # tenant whose heartbeat this would be. `owner` is a host or task identity,

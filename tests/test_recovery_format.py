@@ -46,6 +46,7 @@ from api.services.recovery import (
     _FORMAT_V1_CATALOG_SHA256,
     _FORMAT_V2_CATALOG_SHA256,
     _FORMAT_V3_CATALOG_SHA256,
+    _FORMAT_V4_CATALOG_SHA256,
     EXCLUDED_COLUMNS,
     EXPECTED_TABLE_COLUMNS,
     NOT_BUNDLED,
@@ -177,7 +178,7 @@ def test_every_documented_shape_hashes_to_a_pinned_digest(shape_digests):
     unpinned = {
         name: digest
         for name, digest in shape_digests.items()
-        if digest not in _FORMAT_V3_CATALOG_SHA256
+        if digest not in _FORMAT_V4_CATALOG_SHA256
     }
     assert unpinned == {}, (
         "these schema shapes are buildable and not pinned, so a backup taken "
@@ -192,7 +193,7 @@ def test_no_pinned_digest_is_stale(shape_digests):
     A pin no shape produces is dead weight that reads as a working control. v1
     had two such entries for an entire sprint.
     """
-    orphans = set(_FORMAT_V3_CATALOG_SHA256) - set(shape_digests.values())
+    orphans = set(_FORMAT_V4_CATALOG_SHA256) - set(shape_digests.values())
     assert orphans == set(), (
         f"pinned digests that nothing buildable produces: {sorted(orphans)}"
     )
@@ -241,6 +242,7 @@ def test_every_retired_pin_is_dead_and_unused(shape_digests):
     retired = {
         "_FORMAT_V1_CATALOG_SHA256": _FORMAT_V1_CATALOG_SHA256,
         "_FORMAT_V2_CATALOG_SHA256": _FORMAT_V2_CATALOG_SHA256,
+        "_FORMAT_V3_CATALOG_SHA256": _FORMAT_V3_CATALOG_SHA256,
     }
     from api.services import recovery
 
@@ -251,11 +253,11 @@ def test_every_retired_pin_is_dead_and_unused(shape_digests):
     import re
 
     present = set(re.findall(r"_FORMAT_V\d+_CATALOG_SHA256", body))
-    assert present == set(retired) | {"_FORMAT_V3_CATALOG_SHA256"}, present
+    assert present == set(retired) | {"_FORMAT_V4_CATALOG_SHA256"}, present
 
     for name, pin in retired.items():
         assert not (set(pin) & set(shape_digests.values())), name
-        assert not (set(pin) & set(_FORMAT_V3_CATALOG_SHA256)), name
+        assert not (set(pin) & set(_FORMAT_V4_CATALOG_SHA256)), name
         reads = body.count(name)
         assert reads == 1, (
             f"{name} appears {reads} times in recovery.py; it "
@@ -274,9 +276,9 @@ def test_the_version_marker_says_two_everywhere_it_appears():
     """
     from api.services import recovery
 
-    assert recovery.FORMAT_VERSION == 3
-    assert recovery.BUNDLE_FILENAME.endswith("-v3.json")
-    assert recovery.RECOVERY_CANARY.endswith("-format-v3")
+    assert recovery.FORMAT_VERSION == 4
+    assert recovery.BUNDLE_FILENAME.endswith("-v4.json")
+    assert recovery.RECOVERY_CANARY.endswith("-format-v4")
 
 
 def test_only_the_three_format_markers_moved_with_the_version():
@@ -413,6 +415,9 @@ def test_not_bundled_is_exactly_the_intended_set():
             "raw_cache",
             "users",
             "memberships",
+            # 0017: provisioning, re-done with the users it names; would
+            # dangle exactly as memberships would.
+            "identities",
             "app_sessions",
             "jobs",
             "outbox",

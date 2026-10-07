@@ -26,6 +26,9 @@ dependencies = [
     # hand-installed. `-binary` because python:3.12-slim has no compiler or
     # pg_config; the source distribution cannot build there.
     "psycopg2-binary>=2.9",
+    # Phase 40's front door verifies ID tokens with this. `[crypto]` pulls the
+    # RSA backend; without it RS256 verification raises at the first login.
+    "pyjwt[crypto]>=2.9",
 ]
 
 [project.optional-dependencies]

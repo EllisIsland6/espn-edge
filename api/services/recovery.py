@@ -60,8 +60,8 @@ from ..config import Settings, get_settings
 # version marker is what makes the refusal say why. No v2 bundle exists
 # outside a test -- no restore has ever been authorized -- so nothing is
 # orphaned.
-FORMAT_VERSION = 3
-BUNDLE_FILENAME = "espn-edge-recovery-v3.json"
+FORMAT_VERSION = 4
+BUNDLE_FILENAME = "espn-edge-recovery-v4.json"
 RECOVERY_TAG = "espn-edge-private-v1"
 #: The swid a restored account carries instead of the real one.
 #:
@@ -100,7 +100,7 @@ def is_reauth_placeholder(swid: object) -> bool:
     """
     return isinstance(swid, str) and _REAUTH_SWID_PATTERN.match(swid) is not None
 REAUTH_S2_SENTINEL = "not-a-fernet-token"
-RECOVERY_CANARY = "espn-edge-recovery-format-v3"
+RECOVERY_CANARY = "espn-edge-recovery-format-v4"
 _SCRATCH_ROOT_MARKER = ".espn-edge-recovery-root-v1"
 _SCRATCH_RUN_MARKER = ".espn-edge-recovery-run-v1"
 _MAX_BUNDLE_BYTES = 128 * 1024 * 1024
@@ -225,6 +225,23 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: `tests/test_recovery_format.py` builds each shape and requires its digest to
 #: be here, and requires that nothing here is a digest no shape produces --
 #: which is what v1 silently became.
+#:
+#: Re-pinned as v4 at revision 0017, which added `identities` -- the OIDC
+#: front door's subject-to-user lookup. A new table is a catalog change, so
+#: all three shapes moved; the table itself is NOT_BUNDLED (see there).
+_FORMAT_V4_CATALOG_SHA256 = frozenset(
+    {
+        # alembic upgrade head
+        "ffa03df23395e6b4baf9da9916cb627516f90f92b48d8e7d044e54648eb1fc0e",
+        # create_all, opportunity full
+        "dafe9b0e06b50130fbca27d04cc1e6df55e5ad03658ce957feb4b7093d0a0d08",
+        # create_all, opportunity older
+        "a0df8d224d3fd3cb2e160d9a9a757fded3d880c1f6a342dff3f01ff4ba21bed4",
+    }
+)
+
+#: The v3 triple, retired when 0017 added `identities`. Kept so the drift test
+#: can assert nothing buildable hashes to it.
 _FORMAT_V3_CATALOG_SHA256 = frozenset(
     {
         # alembic upgrade head
@@ -508,6 +525,7 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
     "tenants": ("id", "slug", "created_at"),
     "users": ("id", "email", "created_at"),
     "memberships": ("id", "tenant_id", "user_id", "role"),
+    "identities": ("id", "issuer", "subject", "user_id", "created_at"),
     "app_sessions": (
         "id",
         "token_hash",
@@ -645,6 +663,11 @@ _CREATE_ALL_LEAGUES_ORDER = (
 #:   restoring it would write dangling references into a database whose
 #:   verification step checks `PRAGMA foreign_key_check`.
 #:
+#: `identities` -- the identity-provider subject behind each user. Every row
+#:   points at a `users` row that is not in the bundle, so it would dangle
+#:   exactly as `memberships` would; and it is provisioning, re-done by the
+#:   operator after a restore along with the users it names.
+#:
 #: `app_sessions` -- live session tokens. Restoring them would resurrect
 #:   sessions that were valid at backup time, so a restore would silently
 #:   re-admit whoever was signed in hours ago. A restore is a recovery event
@@ -679,6 +702,7 @@ NOT_BUNDLED = frozenset(
         "raw_cache",
         "users",
         "memberships",
+        "identities",
         "app_sessions",
         "jobs",
         "outbox",
@@ -1297,7 +1321,7 @@ def validate_catalog(catalog: dict[str, Any]) -> str:
             raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     encoded = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
-    if digest not in _FORMAT_V3_CATALOG_SHA256:
+    if digest not in _FORMAT_V4_CATALOG_SHA256:
         raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     return digest
 

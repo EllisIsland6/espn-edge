@@ -356,7 +356,15 @@ class EspnEdgeStack(Stack):
                 o_auth=cognito.OAuthSettings(
                     flows=cognito.OAuthFlows(authorization_code_grant=True),
                     scopes=[cognito.OAuthScope.OPENID],
-                    callback_urls=[f"https://{domain}/oauth2/idpresponse"],
+                    # Two callbacks: the load balancer's own, and the
+                    # application's front door (Phase 40). With the ALB
+                    # action in front, a user is already signed in at Cognito
+                    # by the time the app redirects there, so the second hop
+                    # is a redirect and not a second password prompt.
+                    callback_urls=[
+                        f"https://{domain}/oauth2/idpresponse",
+                        f"https://{domain}/api/auth/callback",
+                    ],
                 ),
             )
             # The hosted-UI prefix is globally unique across all of AWS and
@@ -383,6 +391,26 @@ class EspnEdgeStack(Stack):
                 "Domain",
                 cognito_domain=cognito.CognitoDomainOptions(domain_prefix=prefix),
             )
+            # The application's own OIDC settings (api/config.py `oidc_*`).
+            # The client secret is a SecretValue; it goes through Secrets
+            # Manager rather than into a plain environment variable, where it
+            # would be visible in the task definition to anyone who can
+            # describe it.
+            oidc_secret = secretsmanager.Secret(
+                self,
+                "OidcClientSecret",
+                secret_string_value=client.user_pool_client_secret,
+            )
+            web = service.task_definition.default_container
+            assert web is not None
+            web.add_environment(
+                "OIDC_ISSUER",
+                f"https://cognito-idp.{self.region}.amazonaws.com/{user_pool.user_pool_id}",
+            )
+            web.add_environment("OIDC_CLIENT_ID", client.user_pool_client_id)
+            web.add_environment("OIDC_REDIRECT_URI", f"https://{domain}/api/auth/callback")
+            web.add_secret("OIDC_CLIENT_SECRET", ecs.Secret.from_secrets_manager(oidc_secret))
+
             service.listener.add_action(
                 "Authenticate",
                 action=elb_actions.AuthenticateCognitoAction(

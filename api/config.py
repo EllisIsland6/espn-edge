@@ -79,6 +79,24 @@ class Settings(BaseSettings):
     # hosted deployment does -- it removes a second service, a second load
     # balancer target and the CORS configuration between them.
     static_dir: str = ""
+
+    # Phase 40, the front door. All four or none: a half-configured provider
+    # is refused at construction (below) rather than discovered as a 500 on
+    # the first login. In `private_operator` mode these are ignored -- there is
+    # no login because a login screen would protect nothing. In
+    # `public_synthetic` mode with none of them set the app still boots and
+    # serves health checks, and the login route answers 503 naming them.
+    #
+    # `oidc_issuer` is the provider's issuer URL, exactly as it will appear in
+    # the ID token's `iss` claim and in its discovery document -- for Cognito,
+    # `https://cognito-idp.<region>.amazonaws.com/<pool id>`.
+    # `oidc_redirect_uri` is this deployment's own
+    # `https://<host>/api/auth/callback`, which must be registered with the
+    # provider verbatim.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = ""
     fernet_key: str = ""
     anthropic_api_key: str = ""
     # Operator-supplied model prices in micro-USD per million tokens, keyed by
@@ -141,6 +159,33 @@ class Settings(BaseSettings):
     @property
     def is_public_synthetic(self) -> bool:
         return self.app_mode == "public_synthetic"
+
+    @property
+    def is_oidc_configured(self) -> bool:
+        return bool(
+            self.oidc_issuer
+            and self.oidc_client_id
+            and self.oidc_client_secret
+            and self.oidc_redirect_uri
+        )
+
+    @model_validator(mode="after")
+    def oidc_is_all_or_nothing(self) -> Settings:
+        given = {
+            name
+            for name in ("oidc_issuer", "oidc_client_id", "oidc_client_secret", "oidc_redirect_uri")
+            if getattr(self, name)
+        }
+        if given and len(given) != 4:
+            missing = sorted(
+                {"oidc_issuer", "oidc_client_id", "oidc_client_secret", "oidc_redirect_uri"} - given
+            )
+            raise ValueError(f"OIDC is partially configured; missing {missing}")
+        if self.oidc_issuer and not self.oidc_issuer.startswith("https://"):
+            raise ValueError("oidc_issuer must be an https:// URL")
+        if self.oidc_redirect_uri and not self.oidc_redirect_uri.startswith("https://"):
+            raise ValueError("oidc_redirect_uri must be an https:// URL")
+        return self
 
     @model_validator(mode="after")
     def private_recovery_requires_loopback_bind(self) -> Settings:

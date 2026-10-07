@@ -136,6 +136,33 @@ class AppSession(Base):
     user: Mapped[User] = relationship(back_populates="sessions")
 
 
+class Identity(Base):
+    """Which identity-provider subject is which user. The front door's lookup.
+
+    Deliberately unpolicied on PostgreSQL, for the reason `AppSession` is: it
+    is read before anything is bound, to discover the user whose binding every
+    other policy needs. A row holds an issuer, an opaque subject and a user id
+    -- no claim, no email, no secret. The application role can read this table
+    and cannot write it (revision 0017): who a subject IS is the operator's
+    decision, made when provisioning.
+    """
+
+    __tablename__ = "identities"
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_identities_issuer_subject"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    issuer: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    user: Mapped[User] = relationship()
+
+
 class Job(Base):
     """One unit of durable work. Replaces in-process scheduling.
 

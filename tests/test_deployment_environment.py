@@ -62,7 +62,13 @@ WIRED_BUT_UNREAD = {
 
 #: The sentence docs/aws-deploy.md must keep. If the section is rewritten, this
 #: fails rather than letting the warning quietly disappear.
-REQUIRED_WARNING = "THERE IS NO APPLICATION LOGIN"
+#:
+#: It used to be "THERE IS NO APPLICATION LOGIN". Phase 40's front door
+#: (api/routers/auth.py `/login` -> provider -> `/callback`) made that false,
+#: and the warning that replaced it is about the thing an operator now gets
+#: wrong instead: who may sign in is decided in two places, and both have to
+#: be provisioned.
+REQUIRED_WARNING = "WHO MAY SIGN IN IS DECIDED IN TWO PLACES"
 
 
 def _env_keys_the_stack_sets() -> set[str]:
@@ -75,12 +81,20 @@ def _env_keys_the_stack_sets() -> set[str]:
     tree = ast.parse(INFRA.read_text(encoding="utf-8"))
     keys: set[str] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
-            continue
-        for key in node.keys:
-            if isinstance(key, ast.Constant) and isinstance(key.value, str):
-                if re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", key.value):
-                    keys.add(key.value)
+        if isinstance(node, ast.Dict):
+            for key in node.keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", key.value):
+                        keys.add(key.value)
+        # `container.add_environment("NAME", ...)` / `.add_secret("NAME", ...)`
+        # set variables after the task definition exists; the OIDC settings
+        # are added that way because the Cognito client they come from is
+        # created after the service. Same variables, different spelling.
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in {"add_environment", "add_secret"} and node.args:
+                first = node.args[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    keys.add(first.value)
     return keys
 
 
@@ -184,27 +198,42 @@ def test_the_deploy_doc_still_says_there_is_no_login():
         )
 
 
-def test_there_is_still_no_endpoint_that_mints_a_session():
-    """The premise under all of the above.
+def _router_calls(name: str) -> bool:
+    """Does any route handler in api/routers/auth.py CALL `name`?
 
-    If a login lands, this fails -- and then the register, the warning and the
-    deploy document's threat model all need revisiting together, which is
-    exactly the moment to be interrupted.
+    The first version of the premise test below checked for `def mint_session`
+    in the router -- a definition that was never going to be there, since the
+    function lives in api/auth.py -- so it stayed green when the front door
+    landed and called it. A premise test that cannot fail when its premise
+    changes is the defect this file was written about, inside this file.
+    Looking for the call, by AST, is what the question actually was.
     """
-    source = (ROOT / "api/routers/auth.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    routes = [
-        decorator.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
-        for decorator in (d.func if isinstance(d, ast.Call) else d for d in node.decorator_list)
-        if isinstance(decorator, ast.Attribute)
-    ]
-    assert routes, "No routes found in api/routers/auth.py -- the parse broke."
-    assert "mint_session" not in source or "def mint_session" not in source, (
-        "api/routers/auth.py now defines a session-minting endpoint. The "
-        "deploy document says the application has no login; revisit it."
+    tree = ast.parse((ROOT / "api/routers/auth.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            target = node.func
+            if isinstance(target, ast.Name) and target.id == name:
+                return True
+            if isinstance(target, ast.Attribute) and target.attr == name:
+                return True
+    return False
+
+
+def test_the_front_door_exists_and_the_register_still_describes_reality():
+    """The premise under all of the above, inverted since Phase 40 landed.
+
+    The router now mints sessions from the callback. The two registered
+    variables are STILL unread -- the flow cookie is deliberately unsigned and
+    there is no password -- which is why they remain in the register rather
+    than being wired to something because they exist.
+    """
+    assert _router_calls("mint_session"), (
+        "api/routers/auth.py no longer mints a session anywhere. If the front "
+        "door was removed, docs/aws-deploy.md's warning and this file's "
+        "register both describe a system that has changed."
     )
+    assert "OPERATOR_PASSWORD_HASH" in WIRED_BUT_UNREAD
+    assert "SESSION_SECRET" in WIRED_BUT_UNREAD
 
 
 def test_the_parses_are_actually_parsing_something():
@@ -216,7 +245,7 @@ def test_the_parses_are_actually_parsing_something():
     """
     keys = _env_keys_the_stack_sets()
     assert len(keys) >= 10, sorted(keys)
-    for expected in ("APP_MODE", "DATABASE_URL", "TENANT_ID", "APP_DB_ROLE"):
+    for expected in ("APP_MODE", "DATABASE_URL", "TENANT_ID", "APP_DB_ROLE", "OIDC_CLIENT_SECRET"):
         assert expected in keys, sorted(keys)
 
     read = _read_somewhere()

@@ -235,6 +235,10 @@ listed rather than assumed.
 | `RECOVERY_REQUIRED` | `false` | the Restic/Keychain path is laptop-shaped; use RDS snapshots |
 | `STATIC_DIR` | `/app/web-dist` | set by the image |
 | `ESPN_API_HOST` | leave unset for the real host | |
+| `OIDC_ISSUER` | `https://cognito-idp.<region>.amazonaws.com/<pool id>` | set by the stack on the HTTPS shapes; all four or none |
+| `OIDC_CLIENT_ID` | the pool client's id | set by the stack |
+| `OIDC_CLIENT_SECRET` | from Secrets Manager | set by the stack, never a plain value |
+| `OIDC_REDIRECT_URI` | `https://<domain>/api/auth/callback` | set by the stack; registered on the client verbatim |
 
 ### Why `TENANT_ID` is required on PostgreSQL
 
@@ -401,6 +405,13 @@ not done. Until it is, an image build is a dependency upgrade nobody reviewed.
 
 ## 7. Verify, in this order
 
+Before step 1, **provision yourself** as the owner using the recipe in
+`alembic/versions/0017_identities.py` -- it is not three plain INSERTs,
+because `FORCE ROW LEVEL SECURITY` binds the owner too (measured). Until that
+row exists, signing in at Cognito ends in a 403 that says "this identity is
+not provisioned", which is correct and is the signal.
+
+
 ```bash
 curl -s https://<your-domain>/api/health
 ```
@@ -454,29 +465,40 @@ Stated so none of it is discovered in production:
    sync on AWS is the first time that code meets ESPN.
 4. **One task, no autoscaling.** A single Fargate task at this size; a restart
    is a brief outage.
-5. **THERE IS NO APPLICATION LOGIN.** This said the opposite for one commit --
-   "two gates rather than one" -- and that is the dangerous direction to be
-   wrong in, so it is spelled out here.
+5. **WHO MAY SIGN IN IS DECIDED IN TWO PLACES, and both have to be
+   provisioned.** Phase 40's front door exists now: `/api/auth/login`
+   redirects to the identity provider, `/api/auth/callback` verifies the ID
+   token (RS256 against the provider's JWKS, `iss`, `aud`, `exp`, `nonce`,
+   `token_use`) and mints the application's own session. In
+   `public_synthetic` mode every other route is 401 without that session
+   (`tests/test_hosted_default_deny.py`), and the callback mints **only** for a
+   subject the operator has provisioned.
 
-   `api/routers/auth.py` has `/me` and `/logout` and **deliberately no endpoint
-   that mints a session**: minting needs an OIDC ID token, verifying one needs
-   a JWT library this environment cannot install, and hand-rolling it is where
-   `alg: none` and key-confusion bugs live. In `public_synthetic` mode --
-   this stack's mode -- every route except `/api/health` is therefore 401,
-   and that is measured (`tests/test_hosted_default_deny.py`). Only
-   `private_operator` serves without a cookie, and that mode does not belong
-   in AWS (section 0a).
+   The two places:
 
-   So `OPERATOR_PASSWORD_HASH` and `SESSION_SECRET` are read by nothing --
-   grep the repository, they appear only in `infra/app.py` and this file.
-   **Whatever sits in front of the load balancer is the only gate there is.**
+   - **The identity provider** decides who may *authenticate*. Cognito's pool
+     has self-sign-up disabled; a person exists there because you invited
+     them.
+   - **The database** decides who that person *is* and *where they act*:
+     a `users` row, a `memberships` row naming the tenant, and an
+     `identities` row binding the provider's `sub` to the user (revision
+     0017, which shows the three INSERTs). The application role can read
+     `identities` and cannot write it -- measured -- so an authenticated
+     stranger with no row gets a 403 and no session. That 403 is the signal
+     to provision them, not a bug.
 
-   With `-c certificate_arn=...` that gate is Cognito, which is a real one.
-   With `-c allow_cidr=...` it is an IP allowlist and nothing else: a
-   completely unauthenticated application reachable from that range. Use a
-   `/32`, check it is the address you think it is, and remember a home address
-   changes. `tests/test_deployment_environment.py` pins both the unread
-   wiring and this warning's presence.
+   A deployment with the provider configured but nobody provisioned is a
+   deployment that signs nobody in. A deployment with **no provider
+   configured** (`OIDC_*` unset) is the same, safely: `/login` answers 503
+   and everything else stays 401. Nothing is open by default.
+
+   `OPERATOR_PASSWORD_HASH` and `SESSION_SECRET` are still read by nothing --
+   there is no password, and the login flow's cookie is deliberately
+   unsigned (HttpOnly, SameSite, compared in constant time) -- and
+   `tests/test_deployment_environment.py` keeps them in its register until
+   that changes. **With `-c allow_cidr=...` there is no Cognito at the edge**,
+   so the application's own login is the only gate there; it is a real one
+   now, and the IP range is a second.
 
 ---
 
