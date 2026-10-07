@@ -68,6 +68,15 @@ say "3. the service's own CMD exists"
 inimage uvicorn --version >/dev/null 2>&1 || die "no \`uvicorn\` in the image, which is the image's CMD."
 ok "uvicorn present"
 
+say "3b. the PostgreSQL driver the deploy document names is importable"
+# The alembic defect one layer down: `postgresql+psycopg2://` was written in
+# every deploy document and no driver was declared anywhere, so both tasks
+# would have raised ModuleNotFoundError at engine creation. A driver is
+# imported, not executed, so no command check sees it.
+inimage python -c 'import psycopg2' \
+    || die "psycopg2 does not import. DATABASE_URL is postgresql+psycopg2://, so the service and the migrate task both die at engine creation. pyproject.toml must declare psycopg2-binary."
+ok "psycopg2 imports"
+
 say "4. the frontend was actually built and copied"
 inimage test -f /app/web-dist/index.html \
     || die "/app/web-dist/index.html is missing. api/main.py raises RuntimeError at import when STATIC_DIR has no index.html, so this would be a crash loop, not a missing page."
@@ -81,9 +90,15 @@ UID_IN=$(inimage id -u | tr -d '[:space:]')
 [ "$UID_IN" = "10001" ] || die "running as uid $UID_IN, not 10001. The Dockerfile claims non-root."
 ok "runs as uid 10001"
 if inimage sh -c 'test -w /app/api/main.py'; then
-    die "the app can write its own source. chown -R edge:edge made /app writable by the runtime user; the Dockerfile's claim that it 'needs no write access to its own code' is false."
+    die "the app can write its own source. A chown -R on /app makes the runtime user the owner of its code; only /app/data should be writable."
 fi
 ok "cannot write its own source"
+# ...but api/db.py mkdirs under /app/data unconditionally, PostgreSQL included.
+# MEASURED: with /app/data absent or root-owned the process dies at import
+# with PermissionError, so this is the one directory that must be writable.
+inimage sh -c 'test -d /app/data && test -w /app/data' \
+    || die "/app/data is missing or not writable by the runtime user. api/db.py runs db_file.parent.mkdir() and raw_cache_dir.mkdir() at import on every backend; the process would exit with PermissionError before serving."
+ok "/app/data is writable (the one directory db.py needs)"
 
 say "6. it imports, and refuses to start without the required settings"
 # APP_MODE, TELEMETRY_ENABLED and TELEMETRY_REPORT_PATH are required with no

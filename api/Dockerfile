@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
       "fastapi>=0.115" "uvicorn[standard]>=0.32" "httpx>=0.27" \
       "sqlalchemy>=2.0" "pydantic>=2.9" "pydantic-settings>=2.6" \
       "cryptography>=43" "apscheduler>=3.10" "pandas>=2.2" "openpyxl>=3.1" \
-      "nflreadpy>=0.1.5,<0.2" \
+      "nflreadpy>=0.1.5,<0.2" "psycopg2-binary>=2.9" \
       "anthropic>=0.40" "espn-api>=0.44" "python-dotenv>=1.0"
 
 COPY api ./api

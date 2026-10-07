@@ -18,6 +18,14 @@ dependencies = [
     "espn-api>=0.44",
     "python-dotenv>=1.0",
     "nflreadpy>=0.1.5,<0.2",
+    # The PostgreSQL driver. `Settings.sqlalchemy_url` documents PostgreSQL as
+    # a backend and every deploy document writes `postgresql+psycopg2://`, yet
+    # no driver was declared: the image's install had none, and both ECS
+    # tasks would have raised ModuleNotFoundError at engine creation. Every
+    # PostgreSQL claim had been verified in a venv where the driver was
+    # hand-installed. `-binary` because python:3.12-slim has no compiler or
+    # pg_config; the source distribution cannot build there.
+    "psycopg2-binary>=2.9",
 ]
 
 [project.optional-dependencies]

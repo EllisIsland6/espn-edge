@@ -78,8 +78,17 @@ COPY alembic.ini ./
 COPY --from=web /web/dist ./web-dist
 ENV STATIC_DIR=/app/web-dist
 
-# Non-root, and the app needs no write access to its own code.
-RUN useradd --create-home --uid 10001 edge && chown -R edge:edge /app
+# Non-root, and the app cannot write its own code -- but `api/db.py` runs
+# `db_file.parent.mkdir()` and `raw_cache_dir.mkdir()` UNCONDITIONALLY, on
+# PostgreSQL too, so `/app/data` has to exist and be writable or the process
+# dies at import with PermissionError. The previous `chown -R edge:edge /app`
+# satisfied that by making the whole tree writable, which contradicted the
+# comment above it; ops/preflight-image.sh check 5 asserts the comment and
+# would have failed on that image. MEASURED as uid 10001 on a root-owned tree:
+# with only /app/data owned by the runtime user, the app boots on PostgreSQL,
+# answers /api/health, and `test -w api/main.py` is false.
+RUN useradd --create-home --uid 10001 edge \
+ && mkdir -p /app/data && chown edge:edge /app/data
 USER edge
 
 EXPOSE 8000

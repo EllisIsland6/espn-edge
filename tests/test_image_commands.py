@@ -257,3 +257,56 @@ def test_the_parses_are_actually_parsing_something():
     # bug would make every test above vacuous.
     assert _uncovered(["definitely-not-a-real-console-script"]) is not None
     assert _provider_of("definitely-not-a-real-console-script") is None
+
+
+# ----------------------------------------------- the driver behind the URL
+
+#: SQLAlchemy driver name (the part after `+` in `postgresql+psycopg2://`) to
+#: the distribution that provides it. psycopg2 is provided by EITHER of two
+#: distributions; both import as `psycopg2`.
+DRIVER_DISTRIBUTIONS = {
+    "psycopg2": {"psycopg2", "psycopg2-binary"},
+    "psycopg": {"psycopg"},
+    "asyncpg": {"asyncpg"},
+}
+
+
+def _drivers_the_deployment_names() -> set[str]:
+    """Every `postgresql+<driver>://` the stack and deploy document write."""
+    found: set[str] = set()
+    for path in (INFRA, ROOT / "docs/aws-deploy.md"):
+        found |= set(re.findall(r"postgresql\+([a-z0-9_]+)://", path.read_text(encoding="utf-8")))
+    return found
+
+
+def test_the_database_driver_the_deployment_names_is_installed():
+    """The alembic defect one layer down.
+
+    `Settings.sqlalchemy_url` documents PostgreSQL as a backend, the deploy
+    document writes `postgresql+psycopg2://` for both tasks, and no driver was
+    declared anywhere. The image's install had none; both ECS tasks would have
+    raised ModuleNotFoundError at engine creation. Every PostgreSQL claim in
+    the repository had been verified in a venv with a hand-installed driver.
+
+    No console-script check sees this: a driver is imported, not executed.
+    """
+    covered = _covered_distributions()
+    missing = {
+        driver: sorted(DRIVER_DISTRIBUTIONS.get(driver, set()))
+        for driver in _drivers_the_deployment_names()
+        if not (DRIVER_DISTRIBUTIONS.get(driver, set()) & covered)
+    }
+    assert missing == {}, (
+        f"The deployment names SQLAlchemy drivers the image does not install: "
+        f"{missing}. The service and the migrate task would both raise "
+        "ModuleNotFoundError at engine creation. Covered: "
+        f"{sorted(covered)}"
+    )
+
+
+def test_the_driver_check_is_actually_checking_something():
+    drivers = _drivers_the_deployment_names()
+    assert "psycopg2" in drivers, drivers
+    assert all(driver in DRIVER_DISTRIBUTIONS for driver in drivers), (
+        f"unknown driver in the deployment: {drivers - set(DRIVER_DISTRIBUTIONS)}"
+    )

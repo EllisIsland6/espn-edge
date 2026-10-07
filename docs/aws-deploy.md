@@ -345,6 +345,37 @@ it, and fails if the Dockerfile's install does not cover that distribution.
 Control-removed both ways — reverting the Dockerfile to a bare `.` fails three
 of its five tests by name.
 
+### The same defect, one layer down: no PostgreSQL driver was declared
+
+`Settings.sqlalchemy_url` documents PostgreSQL as a backend, this document
+writes `postgresql+psycopg2://` for both tasks, and `pyproject.toml` declared
+no driver. The image's install had none. The service and the migrate task
+would both have raised `ModuleNotFoundError: No module named 'psycopg2'` at
+engine creation — after the alembic fix above had made the migrate task
+*start*. Every PostgreSQL claim in this repository had been verified in a venv
+where the driver was hand-installed.
+
+MEASURED from the image's own install layer, as uid 10001, on a root-owned
+tree with only `/app/data` writable, against PostgreSQL 16 as the
+`NOBYPASSRLS` application role, in `public_synthetic` mode:
+
+| | result |
+| --- | --- |
+| install without the driver, `import api.db` | `ModuleNotFoundError: psycopg2` |
+| install with `psycopg2-binary`, boot | `/api/health` 200, `backend: postgresql://…/edge2` |
+| protected route, no session | 401 (synthetic mode, as designed) |
+| `/` | 200 `text/html` |
+| `test -w api/main.py` as the runtime user | false |
+| `/app/data` absent or root-owned, boot | `PermissionError` at import — `api/db.py` mkdirs there on every backend |
+
+That last row is why the Dockerfile's `chown` became `chown edge:edge /app/data`
+rather than being deleted: the old `chown -R edge:edge /app` was load-bearing
+for startup *and* contradicted the comment above it. `psycopg2-binary` rather
+than `psycopg2` because `python:3.12-slim` has no compiler or `pg_config`.
+`tests/test_image_commands.py` now resolves every `postgresql+<driver>://`
+this document and the stack write to a distribution the image installs, and
+`ops/preflight-image.sh` imports the driver inside the built image.
+
 ### UNVERIFIED: the image's library versions are not the tested versions
 
 `pyproject.toml` carries **floors only** — no lockfile, no upper bounds except
