@@ -193,13 +193,13 @@ resource "aws_ecs_task_definition" "web" {
 
   container_definitions = jsonencode([
     {
-      name      = "caddy"
-      image     = local.caddy_image
-      essential = true
-      memory    = 128
-      cpu       = 128
+      name         = "caddy"
+      image        = local.caddy_image
+      essential    = true
+      memory       = 128
+      cpu          = 128
       portMappings = [{ containerPort = 443, hostPort = 443, protocol = "tcp" }]
-      links     = ["app"]
+      links        = ["app"]
       environment = [
         { name = "ORIGIN_HOSTNAME", value = var.origin_hostname },
         { name = "ACME_EMAIL", value = var.operator_email },
