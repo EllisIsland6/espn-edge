@@ -10,7 +10,9 @@ the operator's Mac. Each names that path in its reason, and the skip condition i
 that is never skipped itself — see the CI note below.
 
 This closes the project at **Phase 41 (narrowed)**, with Phase 40 completed afterwards (2026-10-07). Phases 39, 40 and 41 were done after the first
-close-out was written; 42–45 need AWS access and spend, which was never authorized.
+close-out was written. 42 was then taken to a validated, reviewed plan, with the operator running Terraform in
+his own account (bootstrap applied; the stack itself not). That apply, and with it 43–45, is a separate
+approval that has not been given.
 
 | Phase | Status |
 | --- | --- |
@@ -20,7 +22,7 @@ close-out was written; 42–45 need AWS access and spend, which was never author
 | 39 durable job queue | done (narrowed) — queue, leases, retry, poison, fairness, schedules, worker, outbox |
 | 40 application sessions | **done** — cookie sessions, CSRF, headers, and the OIDC front door (`api/oidc.py`, `/api/auth/login` → provider → `/api/auth/callback`, revision 0017). The earlier "PyJWT uninstallable" was the venv lacking `pip`, not the package. The callback is proven against a provider faked at the `httpx` seam; it has never met a real Cognito. |
 | 41 observability | done (narrowed) — ten series, ten alarms, worker heartbeat, fault harness; CloudWatch half needs AWS |
-| 42 public infrastructure + CI | **drafted, plan-only** — the selected topology in Terraform (`infra/terraform/`), bootstrap with OIDC plan/deploy roles and a budget, 22 offline policy tests holding the architecture's guarantees, plan/apply workflows. Never initialised, planned or applied: no registry, no AWS from here. |
+| 42 public infrastructure + CI | **drafted, validated, planned — not applied** — the selected topology in Terraform (`infra/terraform/`), bootstrap with OIDC plan/deploy roles and a budget, 23 offline policy tests holding the architecture's guarantees, plan/apply workflows. The operator ran it in his own account: bootstrap applied (14 resources — state, lock, budget, OIDC roles), stack `validate` → `Success!`, plan **88 to add, 0 to change, 0 to destroy** (`docs/evidence/phase-42-first-plan.txt`). The first plan found one more defect — CloudFront's error-page rewrite would have turned API 403/404s into 200s with the SPA shell — fixed before the re-plan. The stack apply is a separate approval, not given. |
 | 43–45 | not started — **AWS** |
 
 ---
@@ -240,8 +242,9 @@ Phases 39–45 are roughly 39 sessions and 930 operator minutes in the plan.
 
 39, 40 and 41 turned out to be substantially doable offline and were done, narrowed. 41's offline
 half is larger than the plan suggested: four of its five acceptance clauses are provable on a
-laptop, and the CloudWatch half is one sink implementation away. 42–45 cannot be done at all
-without AWS access and spend, which was never authorized.
+laptop, and the CloudWatch half is one sink implementation away. 42 reached a validated, reviewed
+plan with the operator running Terraform in his own account (bootstrap applied, stack not); the stack
+apply, and with it 43–45, is a separate approval that has not been given.
 
 The operator's standing direction was that this is a practice project to be narrowed and
 time-boxed. The architecture lessons it exists to teach have been learned and recorded.

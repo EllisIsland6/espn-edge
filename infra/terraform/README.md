@@ -1,11 +1,14 @@
 # Terraform — the selected topology, plan-only
 
-**Status.** Written and policy-tested offline. **Never initialised, planned or applied.** The
-environments this was written in cannot reach the Terraform registry or any AWS endpoint, so
-`terraform init`, `validate` and `plan` have never run. python-hcl2 parses every file and
-`tests/test_terraform_policy.py` (22 tests) asserts the architecture's guarantees against the text;
-provider-schema errors are not something that parser can see. **Expect the first `terraform
-validate` to find some, and treat the first `plan` as the first real review.**
+**Status.** Written and policy-tested offline; **initialised, validated and planned by the operator
+in his own account on 2026-10-07 — bootstrap applied, stack not applied.** The environments this was
+written in cannot reach the Terraform registry or any AWS endpoint, so every Terraform command runs
+in the operator's terminal. python-hcl2 parses every file and `tests/test_terraform_policy.py`
+(23 tests) asserts the architecture's guarantees against the text; provider-schema errors are not
+something that parser can see. The first `validate` found none; the first `plan` was the first real
+review and found one defect (CloudFront's error-page rewrite masking API status codes), fixed before
+the re-plan: **88 to add, 0 to change, 0 to destroy**, kept at `docs/evidence/phase-42-first-plan.txt`.
+**The stack `apply` is a separate approval.**
 
 This is the architecture `docs/sprint-9/03-architecture.md` selects, at **$34.26/month** by its
 own bill: one public-egress `t4g.small` with an EIP running ECS-on-EC2, single-AZ RDS PostgreSQL 16
