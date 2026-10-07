@@ -50,3 +50,4 @@ __pycache__/
 *.tfplan
 infra/terraform/stack/plan.txt
 infra/terraform/stack/plan.json
+tfplan
