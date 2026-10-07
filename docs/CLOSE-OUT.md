@@ -835,6 +835,20 @@ This was a practice project. These are the findings that are not about fantasy f
     because the probe database had no users and `INSERT ... SELECT` inserted zero rows. **A control
     that inserts nothing has controlled nothing**; it was rerun with the row it needed.
 
+45. **A plan proves the configuration, not the permission to apply it.** The 88-resource plan ran
+    twice -- on the laptop as an administrator and in Actions under the read-only plan role -- and
+    neither evaluation ever touched the deploy role's permissions boundary, which only the apply
+    assumes. Read against each other, the plan and the boundary disagreed twice: the boundary's
+    unconditional `Deny ec2:CreateVpcEndpoint` would have refused the stack's free S3 *gateway*
+    endpoint (the architecture rejects *interface* endpoints, and the plan-time gates already
+    knew the difference), and `CreateInstanceProfile` with the provider's `default_tags` needs
+    `iam:TagInstanceProfile`, which the allow-list did not name. Both would have surfaced as
+    `AccessDenied` midway through the first apply. Now a scoped, conditional Deny and two more
+    IAM actions, each held by a test with a control removal, and -- because the condition's
+    behaviour is IAM's, not the parser's -- the operator probes the live boundary with the IAM
+    policy simulator before any apply. Lesson 43 again, from the other side: the environment
+    that verified the plan was not the one that will run it.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

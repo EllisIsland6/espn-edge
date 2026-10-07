@@ -191,6 +191,11 @@ data "aws_iam_policy_document" "deploy_boundary" {
       "iam:TagRole", "iam:UntagRole", "iam:CreateInstanceProfile",
       "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile",
       "iam:RemoveRoleFromInstanceProfile", "iam:GetInstanceProfile",
+      # default_tags land on the instance profile; CreateInstanceProfile
+      # with tags needs the Tag action as well. Found by reading the first
+      # plan against this boundary, not by running it.
+      "iam:TagInstanceProfile", "iam:UntagInstanceProfile",
+      "iam:ListInstanceProfilesForRole",
       "iam:CreateServiceLinkedRole", "sts:GetCallerIdentity",
     ]
     resources = ["*"]
@@ -200,7 +205,6 @@ data "aws_iam_policy_document" "deploy_boundary" {
     effect = "Deny"
     actions = [
       "ec2:CreateNatGateway",
-      "ec2:CreateVpcEndpoint",
       "elasticloadbalancing:*",
       "wafv2:*",
       "waf:*",
@@ -211,6 +215,25 @@ data "aws_iam_policy_document" "deploy_boundary" {
       "iam:CreateAccessKey",
     ]
     resources = ["*"]
+  }
+  # Interface endpoints are rejected ($7.30/month each, and the architecture
+  # has no private subnet that needs one); the free S3 *gateway* endpoint is
+  # in the stack. An unconditional Deny on CreateVpcEndpoint refused it --
+  # found by reading the first plan against this boundary. The statement is
+  # scoped to the vpc-endpoint ARN on purpose: the same call also touches the
+  # vpc and route-table resources, where ec2:VpceServiceName is absent from
+  # the request context, and StringNotEquals on an absent key is true -- an
+  # unscoped statement would deny the gateway endpoint as well.
+  statement {
+    sid       = "ArchitectureRejectedInterfaceEndpoints"
+    effect    = "Deny"
+    actions   = ["ec2:CreateVpcEndpoint"]
+    resources = ["arn:aws:ec2:*:*:vpc-endpoint/*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "ec2:VpceServiceName"
+      values   = ["com.amazonaws.${var.region}.s3"]
+    }
   }
 }
 

@@ -64,6 +64,27 @@ account; it is gitignored.
 
 If the account already has a GitHub OIDC provider, pass `-var create_github_oidc_provider=false`.
 
+**Re-apply this root whenever the deploy boundary changes** (it did on 2026-10-07: a scoped,
+conditional Deny so the free S3 gateway endpoint is allowed while interface endpoints stay
+denied, and the IAM tag action the instance profile needs). The plan only ever ran under the
+plan role, so the boundary is probed directly, read-only, before the first stack apply:
+
+```bash
+ROLE=$(terraform output -raw deploy_role_arn)
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint \
+  --resource-arns "arn:aws:ec2:us-east-1:$ACCT:vpc-endpoint/*" \
+  --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.s3,ContextKeyType=string \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint \
+  --resource-arns "arn:aws:ec2:us-east-1:$ACCT:vpc-endpoint/*" \
+  --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.ssm,ContextKeyType=string \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: explicitDeny
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
+  --action-names iam:TagInstanceProfile iam:CreateInstanceProfile ec2:CreateNatGateway \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed allowed explicitDeny
+```
+
 ### 2. Repository settings
 
 Actions → Variables (none are secrets):

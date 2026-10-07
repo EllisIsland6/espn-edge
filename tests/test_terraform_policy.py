@@ -357,9 +357,43 @@ def test_the_deploy_role_is_bounded_and_the_boundary_denies_the_rejected_actions
     role = _resources(bootstrap, "aws_iam_role")["deploy"]
     assert "permissions_boundary" in role
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
-    deny = next(s for s in boundary["statement"] if s.get("effect") == "Deny")
-    for action in ("ec2:CreateNatGateway", "ec2:CreateVpcEndpoint", "elasticloadbalancing:*", "wafv2:*", "kms:CreateKey", "iam:CreateUser", "iam:CreateAccessKey"):
+    denies = [s for s in boundary["statement"] if s.get("effect") == "Deny"]
+    (deny,) = [s for s in denies if "condition" not in s]
+    for action in ("ec2:CreateNatGateway", "elasticloadbalancing:*", "wafv2:*", "kms:CreateKey", "iam:CreateUser", "iam:CreateAccessKey", "rds:CreateDBCluster"):
         assert action in deny["actions"], action
+    # The stack creates the free S3 *gateway* endpoint; an unconditional Deny on
+    # CreateVpcEndpoint refused it. Found by reading the first plan against the
+    # boundary, before any apply. The conditional statement is tested below.
+    assert "ec2:CreateVpcEndpoint" not in deny["actions"]
+
+
+def test_interface_endpoints_stay_denied_while_the_s3_gateway_is_allowed(bootstrap, stack):
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    (deny,) = [s for s in boundary["statement"] if s.get("effect") == "Deny" and "condition" in s]
+    assert deny["actions"] == ["ec2:CreateVpcEndpoint"]
+    # Scoped to the endpoint ARN: on the vpc and route-table resources the same
+    # call touches, ec2:VpceServiceName is absent, and StringNotEquals on an
+    # absent key is true -- unscoped, the statement would deny the gateway too.
+    assert deny["resources"] == ["arn:aws:ec2:*:*:vpc-endpoint/*"]
+    (cond,) = deny["condition"]
+    assert cond["test"] == "StringNotEquals"
+    assert cond["variable"] == "ec2:VpceServiceName"
+    assert cond["values"] == ["com.amazonaws.${var.region}.s3"]
+    # The premise, held: the stack's one endpoint is exactly that service.
+    (endpoint,) = _resources(stack, "aws_vpc_endpoint").values()
+    assert endpoint["service_name"] == "com.amazonaws.${var.region}.s3"
+
+
+def test_the_boundary_can_tag_the_instance_profile_the_stack_creates(bootstrap, stack):
+    # The provider's default_tags land on aws_iam_instance_profile as well, and
+    # CreateInstanceProfile with tags needs iam:TagInstanceProfile on top of
+    # iam:CreateInstanceProfile. Found by reading the plan against the boundary.
+    assert _resources(stack, "aws_iam_instance_profile"), "premise: the stack has an instance profile"
+    assert "default_tags" in (STACK / "versions.tf").read_text(encoding="utf-8"), "premise: default_tags"
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    (allow,) = [s for s in boundary["statement"] if s.get("effect", "Allow") == "Allow"]
+    for action in ("iam:CreateInstanceProfile", "iam:TagInstanceProfile"):
+        assert action in allow["actions"], action
 
 
 def test_the_plan_role_cannot_write(bootstrap):
