@@ -214,6 +214,26 @@ def test_the_spa_bucket_is_private_and_fronted_by_oac(stack):
     assert "origin_access_control_id" in spa_origin
 
 
+def test_cloudfront_does_not_rewrite_api_status_codes(stack):
+    """Found in the first real plan: `custom_error_response` is
+    distribution-wide, so a 403/404 -> 200 index.html mapping would have
+    turned every API error into the SPA shell. Deep links are handled by a
+    viewer-request function on the SPA behaviour only."""
+    dist = _one(stack, "aws_cloudfront_distribution")
+    assert "custom_error_response" not in dist, (
+        "custom_error_response applies to every origin, the API included; "
+        "use the SPA-behaviour function instead"
+    )
+    default = dist["default_cache_behavior"][0]
+    assoc = default.get("function_association")
+    assert assoc and assoc[0]["event_type"] == "viewer-request", default
+    assert "spa_rewrite" in assoc[0]["function_arn"]
+    api = next(b for b in dist["ordered_cache_behavior"] if b["path_pattern"] == "/api/*")
+    assert "function_association" not in api, "the rewrite must never see API paths"
+    fn = _one(stack, "aws_cloudfront_function")
+    assert "/api/" not in fn["code"] or "indexOf('.')" in fn["code"]
+
+
 def test_cloudfront_reaches_the_origin_over_https_with_the_verify_header(stack):
     dist = _one(stack, "aws_cloudfront_distribution")
     api_origin = next(o for o in dist["origin"] if o["origin_id"] == "api")

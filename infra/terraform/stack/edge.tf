@@ -113,6 +113,42 @@ resource "random_password" "origin_verify" {
   special = false
 }
 
+# -------------------------------------------------------- SPA deep links
+# A single-page app needs `/leagues/12` to serve `/index.html`. The first
+# draft did that with distribution-wide `custom_error_response` blocks
+# mapping 403 and 404 to `200 /index.html` -- and those apply to EVERY
+# origin, so the API's "this identity is not provisioned" 403 and every API
+# 404 would have come back through CloudFront as HTTP 200 with the app
+# shell. The origin's own guard (ops/preflight-image.sh check 7: `/api/x`
+# must be a 404, not the SPA) would have been undone at the edge. Found in
+# the first real plan.
+#
+# This is the shape that does not have that problem: a viewer-request
+# function on the SPA behaviour ONLY, rewriting extension-less paths to
+# `/index.html` before S3 is asked. The `/api/*` behaviour is matched by
+# path precedence first and never sees it, so API status codes pass through
+# untouched. CloudFront Functions are not Lambda@Edge -- the free plan
+# excludes the latter and the architecture wants neither -- and the first
+# two million invocations a month are free.
+resource "aws_cloudfront_function" "spa_rewrite" {
+  name    = "espn-edge-spa-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "extension-less viewer paths -> /index.html, SPA behaviour only"
+  publish = true
+  code    = <<-JS
+    function handler(event) {
+      var request = event.request;
+      var uri = request.uri;
+      // A path with a file extension is an asset; leave it alone. Anything
+      // else is a client-side route and gets the shell.
+      if (uri.indexOf('.') === -1) {
+        request.uri = '/index.html';
+      }
+      return request;
+    }
+  JS
+}
+
 # ---------------------------------------------------------- distribution
 resource "aws_cloudfront_distribution" "site" {
   enabled             = true
@@ -153,6 +189,11 @@ resource "aws_cloudfront_distribution" "site" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
   }
 
   # The API: never cached, everything forwarded (cookies, headers, query).
@@ -165,21 +206,6 @@ resource "aws_cloudfront_distribution" "site" {
     compress                 = true
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
     origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # Managed-AllViewer
-  }
-
-  # SPA deep links: a missing object is the app shell, which routes client-side.
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   restrictions {

@@ -1,0 +1,2276 @@
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+ <= read (data resources)
+
+Terraform will perform the following actions:
+
+  # data.aws_iam_policy_document.spa_bucket will be read during apply
+  # (config refers to values not yet known)
+ <= data "aws_iam_policy_document" "spa_bucket" {
+      + id            = (known after apply)
+      + json          = (known after apply)
+      + minified_json = (known after apply)
+
+      + statement {
+          + actions   = [
+              + "s3:GetObject",
+            ]
+          + resources = [
+              + (known after apply),
+            ]
+
+          + condition {
+              + test     = "StringEquals"
+              + values   = [
+                  + (known after apply),
+                ]
+              + variable = "AWS:SourceArn"
+            }
+
+          + principals {
+              + identifiers = [
+                  + "cloudfront.amazonaws.com",
+                ]
+              + type        = "Service"
+            }
+        }
+    }
+
+  # data.aws_iam_policy_document.task_execution_secrets will be read during apply
+  # (config refers to values not yet known)
+ <= data "aws_iam_policy_document" "task_execution_secrets" {
+      + id            = (known after apply)
+      + json          = (known after apply)
+      + minified_json = (known after apply)
+
+      + statement {
+          + actions   = [
+              + "secretsmanager:GetSecretValue",
+            ]
+          + resources = [
+              + (known after apply),
+              + (known after apply),
+              + (known after apply),
+              + (known after apply),
+              + (known after apply),
+              + (known after apply),
+              + (known after apply),
+            ]
+        }
+    }
+
+  # aws_acm_certificate.site will be created
+  + resource "aws_acm_certificate" "site" {
+      + arn                       = (known after apply)
+      + domain_name               = "eaedgefinder.com"
+      + domain_validation_options = [
+          + {
+              + domain_name           = "eaedgefinder.com"
+              + resource_record_name  = (known after apply)
+              + resource_record_type  = (known after apply)
+              + resource_record_value = (known after apply)
+            },
+          + {
+              + domain_name           = "www.eaedgefinder.com"
+              + resource_record_name  = (known after apply)
+              + resource_record_type  = (known after apply)
+              + resource_record_value = (known after apply)
+            },
+        ]
+      + id                        = (known after apply)
+      + key_algorithm             = (known after apply)
+      + not_after                 = (known after apply)
+      + not_before                = (known after apply)
+      + pending_renewal           = (known after apply)
+      + private_key_wo            = (write-only attribute)
+      + region                    = "us-east-1"
+      + renewal_eligibility       = (known after apply)
+      + renewal_summary           = (known after apply)
+      + status                    = (known after apply)
+      + subject_alternative_names = [
+          + "eaedgefinder.com",
+          + "www.eaedgefinder.com",
+        ]
+      + tags_all                  = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + type                      = (known after apply)
+      + validation_emails         = (known after apply)
+      + validation_method         = "DNS"
+
+      + options (known after apply)
+    }
+
+  # aws_acm_certificate_validation.site will be created
+  + resource "aws_acm_certificate_validation" "site" {
+      + certificate_arn         = (known after apply)
+      + id                      = (known after apply)
+      + region                  = "us-east-1"
+      + validation_record_fqdns = (known after apply)
+    }
+
+  # aws_cloudfront_distribution.site will be created
+  + resource "aws_cloudfront_distribution" "site" {
+      + aliases                         = [
+          + "eaedgefinder.com",
+          + "www.eaedgefinder.com",
+        ]
+      + arn                             = (known after apply)
+      + caller_reference                = (known after apply)
+      + comment                         = "espn-edge public synthetic"
+      + continuous_deployment_policy_id = (known after apply)
+      + default_root_object             = "index.html"
+      + domain_name                     = (known after apply)
+      + enabled                         = true
+      + etag                            = (known after apply)
+      + hosted_zone_id                  = (known after apply)
+      + http_version                    = "http2"
+      + id                              = (known after apply)
+      + in_progress_validation_batches  = (known after apply)
+      + is_ipv6_enabled                 = true
+      + last_modified_time              = (known after apply)
+      + logging_v1_enabled              = (known after apply)
+      + price_class                     = "PriceClass_100"
+      + retain_on_delete                = false
+      + staging                         = false
+      + status                          = (known after apply)
+      + tags_all                        = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + trusted_key_groups              = (known after apply)
+      + trusted_signers                 = (known after apply)
+      + wait_for_deployment             = true
+
+      + custom_error_response {
+          + error_caching_min_ttl = 0
+          + error_code            = 403
+          + response_code         = 200
+          + response_page_path    = "/index.html"
+        }
+      + custom_error_response {
+          + error_caching_min_ttl = 0
+          + error_code            = 404
+          + response_code         = 200
+          + response_page_path    = "/index.html"
+        }
+
+      + default_cache_behavior {
+          + allowed_methods        = [
+              + "GET",
+              + "HEAD",
+              + "OPTIONS",
+            ]
+          + cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          + cached_methods         = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress               = true
+          + default_ttl            = (known after apply)
+          + max_ttl                = (known after apply)
+          + min_ttl                = 0
+          + target_origin_id       = "spa"
+          + trusted_key_groups     = (known after apply)
+          + trusted_signers        = (known after apply)
+          + viewer_protocol_policy = "redirect-to-https"
+
+          + grpc_config (known after apply)
+        }
+
+      + ordered_cache_behavior {
+          + allowed_methods          = [
+              + "DELETE",
+              + "GET",
+              + "HEAD",
+              + "OPTIONS",
+              + "PATCH",
+              + "POST",
+              + "PUT",
+            ]
+          + cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          + cached_methods           = [
+              + "GET",
+              + "HEAD",
+            ]
+          + compress                 = true
+          + default_ttl              = (known after apply)
+          + max_ttl                  = (known after apply)
+          + min_ttl                  = 0
+          + origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3"
+          + path_pattern             = "/api/*"
+          + target_origin_id         = "api"
+          + viewer_protocol_policy   = "https-only"
+
+          + grpc_config (known after apply)
+        }
+
+      + origin {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+      + origin {
+          # At least one attribute in this block is (or was) sensitive,
+          # so its contents will not be displayed.
+        }
+
+      + restrictions {
+          + geo_restriction {
+              + locations        = (known after apply)
+              + restriction_type = "none"
+            }
+        }
+
+      + viewer_certificate {
+          + acm_certificate_arn      = (known after apply)
+          + minimum_protocol_version = "TLSv1.2_2021"
+          + ssl_support_method       = "sni-only"
+        }
+    }
+
+  # aws_cloudfront_origin_access_control.spa will be created
+  + resource "aws_cloudfront_origin_access_control" "spa" {
+      + arn                               = (known after apply)
+      + description                       = "Managed by Terraform"
+      + etag                              = (known after apply)
+      + id                                = (known after apply)
+      + name                              = "espn-edge-spa"
+      + origin_access_control_origin_type = "s3"
+      + signing_behavior                  = "always"
+      + signing_protocol                  = "sigv4"
+    }
+
+  # aws_cloudwatch_log_group.migrate will be created
+  + resource "aws_cloudwatch_log_group" "migrate" {
+      + arn                         = (known after apply)
+      + deletion_protection_enabled = (known after apply)
+      + id                          = (known after apply)
+      + log_group_class             = (known after apply)
+      + name                        = "/espn-edge/migrate"
+      + name_prefix                 = (known after apply)
+      + region                      = "us-east-1"
+      + retention_in_days           = 90
+      + skip_destroy                = false
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_cloudwatch_log_group.web will be created
+  + resource "aws_cloudwatch_log_group" "web" {
+      + arn                         = (known after apply)
+      + deletion_protection_enabled = (known after apply)
+      + id                          = (known after apply)
+      + log_group_class             = (known after apply)
+      + name                        = "/espn-edge/web"
+      + name_prefix                 = (known after apply)
+      + region                      = "us-east-1"
+      + retention_in_days           = 30
+      + skip_destroy                = false
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_cloudwatch_log_group.worker will be created
+  + resource "aws_cloudwatch_log_group" "worker" {
+      + arn                         = (known after apply)
+      + deletion_protection_enabled = (known after apply)
+      + id                          = (known after apply)
+      + log_group_class             = (known after apply)
+      + name                        = "/espn-edge/worker"
+      + name_prefix                 = (known after apply)
+      + region                      = "us-east-1"
+      + retention_in_days           = 30
+      + skip_destroy                = false
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["database-unreachable"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Something ran and could not reach the database. A zero here is a different incident from a gap: the gap means nothing ran."
+      + alarm_name                            = "espn-edge-database-unreachable"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "db_reachable"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "breaching"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["job-failures-elevated"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Retries are burning attempt budget. Read the scrubbed last_error on the affected rows; do not read payloads."
+      + alarm_name                            = "espn-edge-job-failures-elevated"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "jobs_failed"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Sum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 10
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Count"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["job-poisoned"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Work has been abandoned. Nothing will retry it. Decide whether to fix and requeue or to drop it, and record which."
+      + alarm_name                            = "espn-edge-job-poisoned"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 1
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 1
+      + id                                    = (known after apply)
+      + metric_name                           = "jobs_poisoned"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 0
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Count"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["outbox-undelivered"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Somebody was promised a message half an hour ago. The relay is at-least-once, so re-running cannot lose one."
+      + alarm_name                            = "espn-edge-outbox-undelivered"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "outbox_undelivered_age_seconds"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 1800
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Seconds"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["queue-backlog"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Depth alone is not an incident. Check queue-oldest-age first; a deep queue that is draining needs nothing."
+      + alarm_name                            = "espn-edge-queue-backlog"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 3
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "queue_depth"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 200
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Count"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["queue-oldest-age"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "A job has waited half an hour. This is the backlog signal that matters; depth is context for it."
+      + alarm_name                            = "espn-edge-queue-oldest-age"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "queue_oldest_age_seconds"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 1800
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Seconds"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["schedule-overdue"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Materialization has stopped while the worker kept looping. The slot key is deterministic, so re-running is safe."
+      + alarm_name                            = "espn-edge-schedule-overdue"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "schedule_overdue_age_seconds"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 3600
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Seconds"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["worker-heartbeat-stale"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "No worker has checked in for fifteen minutes. Unlike worker-stopped this survives the publisher dying, because any surviving process reports the newest heartbeat it can see."
+      + alarm_name                            = "espn-edge-worker-heartbeat-stale"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "worker_staleness_seconds"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 900
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Seconds"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["worker-live-but-not-claiming"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Ticks are arriving and nothing is being claimed. Compare against queue_depth: zero depth means genuinely idle, non-zero depth means claiming is broken (lease contention, a provider permit held open, or a tenant filter)."
+      + alarm_name                            = "espn-edge-worker-live-but-not-claiming"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + datapoints_to_alarm                   = 6
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 6
+      + id                                    = (known after apply)
+      + metric_name                           = "jobs_claimed"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Sum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Count"
+    }
+
+  # aws_cloudwatch_metric_alarm.catalog["worker-stopped"] will be created
+  + resource "aws_cloudwatch_metric_alarm" "catalog" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "The loop is not running. Check the host and the container state before anything else -- every other alarm below is downstream of this one."
+      + alarm_name                            = "espn-edge-worker-stopped"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + datapoints_to_alarm                   = 3
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "worker_ticks"
+      + namespace                             = "EspnEdge"
+      + ok_actions                            = (known after apply)
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Sum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 1
+      + treat_missing_data                    = "breaching"
+      + unit                                  = "Count"
+    }
+
+  # aws_cloudwatch_metric_alarm.db_cpu_credits will be created
+  + resource "aws_cloudwatch_metric_alarm" "db_cpu_credits" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "db.t4g.micro burst credits are nearly spent; the database is about to be throttled. Amendment C2."
+      + alarm_name                            = "espn-edge-db-cpu-credit-balance"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + datapoints_to_alarm                   = 3
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "espn-edge"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 3
+      + id                                    = (known after apply)
+      + metric_name                           = "CPUCreditBalance"
+      + namespace                             = "AWS/RDS"
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Minimum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 20
+      + treat_missing_data                    = "breaching"
+    }
+
+  # aws_cloudwatch_metric_alarm.db_free_storage will be created
+  + resource "aws_cloudwatch_metric_alarm" "db_free_storage" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "Under 2 GiB free. Autoscaling storage is on up to 50 GiB; past that is a decision, not a knob."
+      + alarm_name                            = "espn-edge-db-free-storage"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "LessThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + dimensions                            = {
+          + "DBInstanceIdentifier" = "espn-edge"
+        }
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "FreeStorageSpace"
+      + namespace                             = "AWS/RDS"
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Minimum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 2147483648
+      + treat_missing_data                    = "breaching"
+    }
+
+  # aws_cloudwatch_metric_alarm.host_status will be created
+  + resource "aws_cloudwatch_metric_alarm" "host_status" {
+      + actions_enabled                       = true
+      + alarm_actions                         = (known after apply)
+      + alarm_description                     = "The EC2 host is failing status checks. SSM Session Manager in; if the host is gone, amendment C4's cutover is the recovery."
+      + alarm_name                            = "espn-edge-host-status-check"
+      + arn                                   = (known after apply)
+      + comparison_operator                   = "GreaterThanThreshold"
+      + datapoints_to_alarm                   = 2
+      + dimensions                            = (known after apply)
+      + evaluate_low_sample_count_percentiles = (known after apply)
+      + evaluation_periods                    = 2
+      + id                                    = (known after apply)
+      + metric_name                           = "StatusCheckFailed"
+      + namespace                             = "AWS/EC2"
+      + period                                = 300
+      + region                                = "us-east-1"
+      + statistic                             = "Maximum"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + threshold                             = 0
+      + treat_missing_data                    = "breaching"
+    }
+
+  # aws_cognito_user_pool.main will be created
+  + resource "aws_cognito_user_pool" "main" {
+      + arn                        = (known after apply)
+      + auto_verified_attributes   = [
+          + "email",
+        ]
+      + creation_date              = (known after apply)
+      + custom_domain              = (known after apply)
+      + deletion_protection        = "ACTIVE"
+      + domain                     = (known after apply)
+      + email_verification_message = (known after apply)
+      + email_verification_subject = (known after apply)
+      + endpoint                   = (known after apply)
+      + estimated_number_of_users  = (known after apply)
+      + id                         = (known after apply)
+      + last_modified_date         = (known after apply)
+      + mfa_configuration          = "OPTIONAL"
+      + name                       = "espn-edge"
+      + region                     = "us-east-1"
+      + sms_verification_message   = (known after apply)
+      + tags_all                   = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + user_pool_tier             = (known after apply)
+      + username_attributes        = [
+          + "email",
+        ]
+
+      + account_recovery_setting {
+          + recovery_mechanism {
+              + name     = "verified_email"
+              + priority = 1
+            }
+        }
+
+      + admin_create_user_config {
+          + allow_admin_create_user_only = true
+        }
+
+      + email_configuration {
+          + email_sending_account = "COGNITO_DEFAULT"
+        }
+
+      + password_policy {
+          + minimum_length                   = 14
+          + require_lowercase                = true
+          + require_numbers                  = true
+          + require_symbols                  = false
+          + require_uppercase                = true
+          + temporary_password_validity_days = 3
+        }
+
+      + sign_in_policy (known after apply)
+
+      + sms_configuration (known after apply)
+
+      + software_token_mfa_configuration {
+          + enabled = true
+        }
+
+      + username_configuration (known after apply)
+
+      + verification_message_template (known after apply)
+    }
+
+  # aws_cognito_user_pool_client.app will be created
+  + resource "aws_cognito_user_pool_client" "app" {
+      + access_token_validity                         = 15
+      + allowed_oauth_flows                           = [
+          + "code",
+        ]
+      + allowed_oauth_flows_user_pool_client          = true
+      + allowed_oauth_scopes                          = [
+          + "email",
+          + "openid",
+        ]
+      + auth_session_validity                         = (known after apply)
+      + callback_urls                                 = [
+          + "https://eaedgefinder.com/api/auth/callback",
+        ]
+      + client_secret                                 = (sensitive value)
+      + default_redirect_uri                          = (known after apply)
+      + enable_propagate_additional_user_context_data = (known after apply)
+      + enable_token_revocation                       = (known after apply)
+      + explicit_auth_flows                           = (known after apply)
+      + generate_secret                               = true
+      + id                                            = (known after apply)
+      + id_token_validity                             = 15
+      + logout_urls                                   = [
+          + "https://eaedgefinder.com/",
+        ]
+      + name                                          = "espn-edge-app"
+      + prevent_user_existence_errors                 = "ENABLED"
+      + read_attributes                               = (known after apply)
+      + refresh_token_validity                        = 1
+      + region                                        = "us-east-1"
+      + supported_identity_providers                  = [
+          + "COGNITO",
+        ]
+      + user_pool_id                                  = (known after apply)
+      + write_attributes                              = (known after apply)
+
+      + token_validity_units {
+          + access_token  = "minutes"
+          + id_token      = "minutes"
+          + refresh_token = "days"
+        }
+    }
+
+  # aws_cognito_user_pool_domain.main will be created
+  + resource "aws_cognito_user_pool_domain" "main" {
+      + aws_account_id                  = (known after apply)
+      + cloudfront_distribution         = (known after apply)
+      + cloudfront_distribution_arn     = (known after apply)
+      + cloudfront_distribution_zone_id = (known after apply)
+      + domain                          = "espn-edge-387865673700"
+      + id                              = (known after apply)
+      + managed_login_version           = (known after apply)
+      + region                          = "us-east-1"
+      + s3_bucket                       = (known after apply)
+      + user_pool_id                    = (known after apply)
+      + version                         = (known after apply)
+    }
+
+  # aws_db_instance.main will be created
+  + resource "aws_db_instance" "main" {
+      + address                               = (known after apply)
+      + allocated_storage                     = 20
+      + apply_immediately                     = false
+      + arn                                   = (known after apply)
+      + auto_minor_version_upgrade            = true
+      + availability_zone                     = "us-east-1a"
+      + backup_retention_period               = 14
+      + backup_target                         = (known after apply)
+      + backup_window                         = "08:00-09:00"
+      + ca_cert_identifier                    = (known after apply)
+      + character_set_name                    = (known after apply)
+      + copy_tags_to_snapshot                 = true
+      + database_insights_mode                = (known after apply)
+      + db_name                               = "edge"
+      + db_subnet_group_name                  = "espn-edge"
+      + dedicated_log_volume                  = false
+      + delete_automated_backups              = true
+      + deletion_protection                   = true
+      + domain_fqdn                           = (known after apply)
+      + endpoint                              = (known after apply)
+      + engine                                = "postgres"
+      + engine_lifecycle_support              = (known after apply)
+      + engine_version                        = "16"
+      + engine_version_actual                 = (known after apply)
+      + final_snapshot_identifier             = "espn-edge-final"
+      + hosted_zone_id                        = (known after apply)
+      + id                                    = (known after apply)
+      + identifier                            = "espn-edge"
+      + identifier_prefix                     = (known after apply)
+      + instance_class                        = "db.t4g.micro"
+      + iops                                  = (known after apply)
+      + kms_key_id                            = (known after apply)
+      + latest_restorable_time                = (known after apply)
+      + license_model                         = (known after apply)
+      + listener_endpoint                     = (known after apply)
+      + maintenance_window                    = "sun:09:00-sun:10:00"
+      + manage_master_user_password           = true
+      + master_user_secret                    = (known after apply)
+      + master_user_secret_kms_key_id         = (known after apply)
+      + max_allocated_storage                 = 50
+      + monitoring_interval                   = 0
+      + monitoring_role_arn                   = (known after apply)
+      + multi_az                              = false
+      + nchar_character_set_name              = (known after apply)
+      + network_type                          = (known after apply)
+      + option_group_name                     = (known after apply)
+      + parameter_group_name                  = "espn-edge-pg16"
+      + password_wo                           = (write-only attribute)
+      + performance_insights_enabled          = false
+      + performance_insights_kms_key_id       = (known after apply)
+      + performance_insights_retention_period = (known after apply)
+      + port                                  = (known after apply)
+      + publicly_accessible                   = false
+      + region                                = "us-east-1"
+      + replica_mode                          = (known after apply)
+      + replicas                              = (known after apply)
+      + resource_id                           = (known after apply)
+      + skip_final_snapshot                   = false
+      + snapshot_identifier                   = (known after apply)
+      + status                                = (known after apply)
+      + storage_encrypted                     = true
+      + storage_throughput                    = (known after apply)
+      + storage_type                          = "gp3"
+      + tags_all                              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + timezone                              = (known after apply)
+      + upgrade_rollout_order                 = (known after apply)
+      + username                              = "edge_owner"
+      + vpc_security_group_ids                = (known after apply)
+    }
+
+  # aws_db_parameter_group.pg16 will be created
+  + resource "aws_db_parameter_group" "pg16" {
+      + arn          = (known after apply)
+      + description  = "Managed by Terraform"
+      + family       = "postgres16"
+      + id           = (known after apply)
+      + name         = "espn-edge-pg16"
+      + name_prefix  = (known after apply)
+      + region       = "us-east-1"
+      + skip_destroy = false
+      + tags_all     = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+
+      + parameter {
+          + apply_method = "immediate"
+          + name         = "log_min_duration_statement"
+          + value        = "1000"
+        }
+    }
+
+  # aws_db_subnet_group.main will be created
+  + resource "aws_db_subnet_group" "main" {
+      + arn                     = (known after apply)
+      + description             = "Managed by Terraform"
+      + id                      = (known after apply)
+      + name                    = "espn-edge"
+      + name_prefix             = (known after apply)
+      + region                  = "us-east-1"
+      + subnet_ids              = (known after apply)
+      + supported_network_types = (known after apply)
+      + tags_all                = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                  = (known after apply)
+    }
+
+  # aws_ecr_lifecycle_policy.app will be created
+  + resource "aws_ecr_lifecycle_policy" "app" {
+      + id          = (known after apply)
+      + policy      = jsonencode(
+            {
+              + rules = [
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "current + 2 prior digests"
+                      + rulePriority = 1
+                      + selection    = {
+                          + countNumber = 3
+                          + countType   = "imageCountMoreThan"
+                          + tagStatus   = "any"
+                        }
+                    },
+                ]
+            }
+        )
+      + region      = "us-east-1"
+      + registry_id = (known after apply)
+      + repository  = "espn-edge/app"
+    }
+
+  # aws_ecr_lifecycle_policy.caddy will be created
+  + resource "aws_ecr_lifecycle_policy" "caddy" {
+      + id          = (known after apply)
+      + policy      = jsonencode(
+            {
+              + rules = [
+                  + {
+                      + action       = {
+                          + type = "expire"
+                        }
+                      + description  = "current + 2 prior digests"
+                      + rulePriority = 1
+                      + selection    = {
+                          + countNumber = 3
+                          + countType   = "imageCountMoreThan"
+                          + tagStatus   = "any"
+                        }
+                    },
+                ]
+            }
+        )
+      + region      = "us-east-1"
+      + registry_id = (known after apply)
+      + repository  = "espn-edge/caddy"
+    }
+
+  # aws_ecr_repository.app will be created
+  + resource "aws_ecr_repository" "app" {
+      + arn                  = (known after apply)
+      + id                   = (known after apply)
+      + image_tag_mutability = "IMMUTABLE"
+      + name                 = "espn-edge/app"
+      + region               = "us-east-1"
+      + registry_id          = (known after apply)
+      + repository_url       = (known after apply)
+      + tags_all             = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+
+      + image_scanning_configuration {
+          + scan_on_push = true
+        }
+    }
+
+  # aws_ecr_repository.caddy will be created
+  + resource "aws_ecr_repository" "caddy" {
+      + arn                  = (known after apply)
+      + id                   = (known after apply)
+      + image_tag_mutability = "IMMUTABLE"
+      + name                 = "espn-edge/caddy"
+      + region               = "us-east-1"
+      + registry_id          = (known after apply)
+      + repository_url       = (known after apply)
+      + tags_all             = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+
+      + image_scanning_configuration {
+          + scan_on_push = true
+        }
+    }
+
+  # aws_ecs_cluster.main will be created
+  + resource "aws_ecs_cluster" "main" {
+      + arn      = (known after apply)
+      + id       = (known after apply)
+      + name     = "espn-edge"
+      + region   = "us-east-1"
+      + tags_all = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+
+      + setting {
+          + name  = "containerInsights"
+          + value = "disabled"
+        }
+    }
+
+  # aws_ecs_service.web will be created
+  + resource "aws_ecs_service" "web" {
+      + arn                                = (known after apply)
+      + availability_zone_rebalancing      = (known after apply)
+      + cluster                            = (known after apply)
+      + deployment_maximum_percent         = 100
+      + deployment_minimum_healthy_percent = 0
+      + desired_count                      = 1
+      + enable_ecs_managed_tags            = false
+      + enable_execute_command             = false
+      + iam_role                           = (known after apply)
+      + id                                 = (known after apply)
+      + launch_type                        = "EC2"
+      + name                               = "web"
+      + platform_version                   = (known after apply)
+      + region                             = "us-east-1"
+      + scheduling_strategy                = "REPLICA"
+      + tags_all                           = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + task_definition                    = (known after apply)
+      + triggers                           = (known after apply)
+      + wait_for_steady_state              = false
+
+      + deployment_circuit_breaker {
+          + enable   = true
+          + rollback = true
+        }
+
+      + deployment_configuration (known after apply)
+    }
+
+  # aws_ecs_service.worker will be created
+  + resource "aws_ecs_service" "worker" {
+      + arn                                = (known after apply)
+      + availability_zone_rebalancing      = (known after apply)
+      + cluster                            = (known after apply)
+      + deployment_maximum_percent         = 100
+      + deployment_minimum_healthy_percent = 0
+      + desired_count                      = 0
+      + enable_ecs_managed_tags            = false
+      + enable_execute_command             = false
+      + iam_role                           = (known after apply)
+      + id                                 = (known after apply)
+      + launch_type                        = "EC2"
+      + name                               = "worker"
+      + platform_version                   = (known after apply)
+      + region                             = "us-east-1"
+      + scheduling_strategy                = "REPLICA"
+      + tags_all                           = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + task_definition                    = (known after apply)
+      + triggers                           = (known after apply)
+      + wait_for_steady_state              = false
+
+      + deployment_circuit_breaker {
+          + enable   = true
+          + rollback = true
+        }
+
+      + deployment_configuration (known after apply)
+    }
+
+  # aws_ecs_task_definition.migrate will be created
+  + resource "aws_ecs_task_definition" "migrate" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "espn-edge-migrate"
+      + id                       = (known after apply)
+      + network_mode             = "bridge"
+      + region                   = "us-east-1"
+      + requires_compatibilities = [
+          + "EC2",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags_all                 = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + track_latest             = false
+    }
+
+  # aws_ecs_task_definition.web will be created
+  + resource "aws_ecs_task_definition" "web" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "espn-edge-web"
+      + id                       = (known after apply)
+      + network_mode             = "bridge"
+      + region                   = "us-east-1"
+      + requires_compatibilities = [
+          + "EC2",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags_all                 = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+
+      + volume {
+          + configure_at_launch = (known after apply)
+          + host_path           = "/var/lib/espn-edge/caddy"
+          + name                = "caddy-data"
+        }
+    }
+
+  # aws_ecs_task_definition.worker will be created
+  + resource "aws_ecs_task_definition" "worker" {
+      + arn                      = (known after apply)
+      + arn_without_revision     = (known after apply)
+      + container_definitions    = (known after apply)
+      + enable_fault_injection   = (known after apply)
+      + execution_role_arn       = (known after apply)
+      + family                   = "espn-edge-worker"
+      + id                       = (known after apply)
+      + network_mode             = "bridge"
+      + region                   = "us-east-1"
+      + requires_compatibilities = [
+          + "EC2",
+        ]
+      + revision                 = (known after apply)
+      + skip_destroy             = false
+      + tags_all                 = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + task_role_arn            = (known after apply)
+      + track_latest             = false
+    }
+
+  # aws_eip.host will be created
+  + resource "aws_eip" "host" {
+      + allocation_id        = (known after apply)
+      + arn                  = (known after apply)
+      + association_id       = (known after apply)
+      + carrier_ip           = (known after apply)
+      + customer_owned_ip    = (known after apply)
+      + domain               = "vpc"
+      + id                   = (known after apply)
+      + instance             = (known after apply)
+      + ipam_pool_id         = (known after apply)
+      + network_border_group = (known after apply)
+      + network_interface    = (known after apply)
+      + private_dns          = (known after apply)
+      + private_ip           = (known after apply)
+      + ptr_record           = (known after apply)
+      + public_dns           = (known after apply)
+      + public_ip            = (known after apply)
+      + public_ipv4_pool     = (known after apply)
+      + region               = "us-east-1"
+      + tags                 = {
+          + "Name" = "espn-edge-host"
+        }
+      + tags_all             = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge-host"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_eip_association.host will be created
+  + resource "aws_eip_association" "host" {
+      + allocation_id        = (known after apply)
+      + id                   = (known after apply)
+      + instance_id          = (known after apply)
+      + network_interface_id = (known after apply)
+      + private_ip_address   = (known after apply)
+      + public_ip            = (known after apply)
+      + region               = "us-east-1"
+    }
+
+  # aws_iam_instance_profile.host will be created
+  + resource "aws_iam_instance_profile" "host" {
+      + arn         = (known after apply)
+      + create_date = (known after apply)
+      + id          = (known after apply)
+      + name        = "espn-edge-host"
+      + name_prefix = (known after apply)
+      + path        = "/"
+      + role        = "espn-edge-host"
+      + tags_all    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + unique_id   = (known after apply)
+    }
+
+  # aws_iam_role.host will be created
+  + resource "aws_iam_role" "host" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ec2.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "espn-edge-host"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags_all              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # aws_iam_role.task_execution will be created
+  + resource "aws_iam_role" "task_execution" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "espn-edge-task-execution"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags_all              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # aws_iam_role.task_web will be created
+  + resource "aws_iam_role" "task_web" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "espn-edge-task-web"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags_all              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # aws_iam_role.task_worker will be created
+  + resource "aws_iam_role" "task_worker" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "ecs-tasks.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "espn-edge-task-worker"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags_all              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # aws_iam_role_policy.task_execution_secrets will be created
+  + resource "aws_iam_role_policy" "task_execution_secrets" {
+      + id          = (known after apply)
+      + name        = "secrets"
+      + name_prefix = (known after apply)
+      + policy      = (known after apply)
+      + role        = (known after apply)
+    }
+
+  # aws_iam_role_policy.task_web_dns01 will be created
+  + resource "aws_iam_role_policy" "task_web_dns01" {
+      + id          = (known after apply)
+      + name        = "caddy-dns01"
+      + name_prefix = (known after apply)
+      + policy      = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action   = [
+                          + "route53:ListHostedZonesByName",
+                          + "route53:GetChange",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "*"
+                    },
+                  + {
+                      + Action    = "route53:ChangeResourceRecordSets"
+                      + Condition = {
+                          + "ForAllValues:StringEquals" = {
+                              + "route53:ChangeResourceRecordSetsActions"     = [
+                                  + "UPSERT",
+                                  + "DELETE",
+                                ]
+                              + "route53:ChangeResourceRecordSetsRecordTypes" = "TXT"
+                            }
+                          + "ForAllValues:StringLike"   = {
+                              + "route53:ChangeResourceRecordSetsNormalizedRecordNames" = "_acme-challenge.origin.eaedgefinder.com"
+                            }
+                        }
+                      + Effect    = "Allow"
+                      + Resource  = "arn:aws:route53:::hostedzone/Z0644778255ZORRRRZRFT"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + role        = (known after apply)
+    }
+
+  # aws_iam_role_policy_attachment.host_ecs will be created
+  + resource "aws_iam_role_policy_attachment" "host_ecs" {
+      + id         = (known after apply)
+      + policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+      + role       = "espn-edge-host"
+    }
+
+  # aws_iam_role_policy_attachment.host_ssm will be created
+  + resource "aws_iam_role_policy_attachment" "host_ssm" {
+      + id         = (known after apply)
+      + policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      + role       = "espn-edge-host"
+    }
+
+  # aws_iam_role_policy_attachment.task_execution_managed will be created
+  + resource "aws_iam_role_policy_attachment" "task_execution_managed" {
+      + id         = (known after apply)
+      + policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      + role       = "espn-edge-task-execution"
+    }
+
+  # aws_instance.host will be created
+  + resource "aws_instance" "host" {
+      + ami                                  = (sensitive value)
+      + arn                                  = (known after apply)
+      + associate_public_ip_address          = false
+      + availability_zone                    = (known after apply)
+      + disable_api_stop                     = (known after apply)
+      + disable_api_termination              = (known after apply)
+      + ebs_optimized                        = (known after apply)
+      + enable_primary_ipv6                  = (known after apply)
+      + force_destroy                        = false
+      + get_password_data                    = false
+      + host_id                              = (known after apply)
+      + host_resource_group_arn              = (known after apply)
+      + iam_instance_profile                 = "espn-edge-host"
+      + id                                   = (known after apply)
+      + instance_initiated_shutdown_behavior = (known after apply)
+      + instance_lifecycle                   = (known after apply)
+      + instance_state                       = (known after apply)
+      + instance_type                        = "t4g.small"
+      + ipv6_address_count                   = (known after apply)
+      + ipv6_addresses                       = (known after apply)
+      + key_name                             = (known after apply)
+      + monitoring                           = (known after apply)
+      + outpost_arn                          = (known after apply)
+      + password_data                        = (known after apply)
+      + placement_group                      = (known after apply)
+      + placement_group_id                   = (known after apply)
+      + placement_partition_number           = (known after apply)
+      + primary_network_interface_id         = (known after apply)
+      + private_dns                          = (known after apply)
+      + private_ip                           = (known after apply)
+      + public_dns                           = (known after apply)
+      + public_ip                            = (known after apply)
+      + region                               = "us-east-1"
+      + secondary_private_ips                = (known after apply)
+      + security_groups                      = (known after apply)
+      + source_dest_check                    = true
+      + spot_instance_request_id             = (known after apply)
+      + subnet_id                            = (known after apply)
+      + tags                                 = {
+          + "Name" = "espn-edge-host"
+        }
+      + tags_all                             = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge-host"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + tenancy                              = (known after apply)
+      + user_data                            = <<-EOT
+            #!/bin/bash
+            set -euo pipefail
+            cat >> /etc/ecs/ecs.config <<'CFG'
+            ECS_CLUSTER=espn-edge
+            ECS_ENABLE_CONTAINER_METADATA=true
+            ECS_RESERVED_MEMORY=128
+            CFG
+        EOT
+      + user_data_base64                     = (known after apply)
+      + user_data_replace_on_change          = false
+      + vpc_security_group_ids               = (known after apply)
+
+      + capacity_reservation_specification (known after apply)
+
+      + cpu_options (known after apply)
+
+      + credit_specification {
+          + cpu_credits = "standard"
+        }
+
+      + ebs_block_device (known after apply)
+
+      + enclave_options (known after apply)
+
+      + ephemeral_block_device (known after apply)
+
+      + instance_market_options (known after apply)
+
+      + maintenance_options (known after apply)
+
+      + metadata_options {
+          + http_endpoint               = "enabled"
+          + http_protocol_ipv6          = "disabled"
+          + http_put_response_hop_limit = (known after apply)
+          + http_tokens                 = "required"
+          + instance_metadata_tags      = (known after apply)
+        }
+
+      + network_interface (known after apply)
+
+      + primary_network_interface (known after apply)
+
+      + private_dns_name_options (known after apply)
+
+      + root_block_device {
+          + delete_on_termination = true
+          + device_name           = (known after apply)
+          + encrypted             = true
+          + iops                  = (known after apply)
+          + kms_key_id            = (known after apply)
+          + tags_all              = (known after apply)
+          + throughput            = (known after apply)
+          + volume_id             = (known after apply)
+          + volume_size           = 30
+          + volume_type           = "gp3"
+        }
+
+      + secondary_network_interface (known after apply)
+    }
+
+  # aws_internet_gateway.main will be created
+  + resource "aws_internet_gateway" "main" {
+      + arn      = (known after apply)
+      + id       = (known after apply)
+      + owner_id = (known after apply)
+      + region   = "us-east-1"
+      + tags_all = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id   = (known after apply)
+    }
+
+  # aws_route53_record.origin will be created
+  + resource "aws_route53_record" "origin" {
+      + allow_overwrite = (known after apply)
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = "origin.eaedgefinder.com"
+      + records         = (known after apply)
+      + ttl             = 60
+      + type            = "A"
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+    }
+
+  # aws_route53_record.site_a will be created
+  + resource "aws_route53_record" "site_a" {
+      + allow_overwrite = (known after apply)
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = "eaedgefinder.com"
+      + type            = "A"
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+
+      + alias {
+          + evaluate_target_health = false
+          + name                   = (known after apply)
+          + zone_id                = (known after apply)
+        }
+    }
+
+  # aws_route53_record.site_aaaa will be created
+  + resource "aws_route53_record" "site_aaaa" {
+      + allow_overwrite = (known after apply)
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = "eaedgefinder.com"
+      + type            = "AAAA"
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+
+      + alias {
+          + evaluate_target_health = false
+          + name                   = (known after apply)
+          + zone_id                = (known after apply)
+        }
+    }
+
+  # aws_route53_record.site_validation["eaedgefinder.com"] will be created
+  + resource "aws_route53_record" "site_validation" {
+      + allow_overwrite = true
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = (known after apply)
+      + records         = (known after apply)
+      + ttl             = 60
+      + type            = (known after apply)
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+    }
+
+  # aws_route53_record.site_validation["www.eaedgefinder.com"] will be created
+  + resource "aws_route53_record" "site_validation" {
+      + allow_overwrite = true
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = (known after apply)
+      + records         = (known after apply)
+      + ttl             = 60
+      + type            = (known after apply)
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+    }
+
+  # aws_route53_record.www will be created
+  + resource "aws_route53_record" "www" {
+      + allow_overwrite = (known after apply)
+      + fqdn            = (known after apply)
+      + id              = (known after apply)
+      + name            = "www.eaedgefinder.com"
+      + type            = "A"
+      + zone_id         = "Z0644778255ZORRRRZRFT"
+
+      + alias {
+          + evaluate_target_health = false
+          + name                   = (known after apply)
+          + zone_id                = (known after apply)
+        }
+    }
+
+  # aws_route_table.private will be created
+  + resource "aws_route_table" "private" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + region           = "us-east-1"
+      + route            = (known after apply)
+      + tags_all         = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # aws_route_table.public will be created
+  + resource "aws_route_table" "public" {
+      + arn              = (known after apply)
+      + id               = (known after apply)
+      + owner_id         = (known after apply)
+      + propagating_vgws = (known after apply)
+      + region           = "us-east-1"
+      + route            = [
+          + {
+              + cidr_block                 = "0.0.0.0/0"
+              + gateway_id                 = (known after apply)
+                # (12 unchanged attributes hidden)
+            },
+        ]
+      + tags_all         = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id           = (known after apply)
+    }
+
+  # aws_route_table_association.app_public will be created
+  + resource "aws_route_table_association" "app_public" {
+      + id             = (known after apply)
+      + region         = "us-east-1"
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # aws_route_table_association.db_private_a will be created
+  + resource "aws_route_table_association" "db_private_a" {
+      + id             = (known after apply)
+      + region         = "us-east-1"
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # aws_route_table_association.db_private_b will be created
+  + resource "aws_route_table_association" "db_private_b" {
+      + id             = (known after apply)
+      + region         = "us-east-1"
+      + route_table_id = (known after apply)
+      + subnet_id      = (known after apply)
+    }
+
+  # aws_s3_bucket.spa will be created
+  + resource "aws_s3_bucket" "spa" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "espn-edge-spa-387865673700"
+      + bucket_domain_name          = (known after apply)
+      + bucket_namespace            = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_region               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = "us-east-1"
+      + request_payer               = (known after apply)
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # aws_s3_bucket_policy.spa will be created
+  + resource "aws_s3_bucket_policy" "spa" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + policy = (known after apply)
+      + region = "us-east-1"
+    }
+
+  # aws_s3_bucket_public_access_block.spa will be created
+  + resource "aws_s3_bucket_public_access_block" "spa" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + region                  = "us-east-1"
+      + restrict_public_buckets = true
+    }
+
+  # aws_s3_bucket_server_side_encryption_configuration.spa will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "us-east-1"
+
+      + rule {
+          + blocked_encryption_types = (known after apply)
+          + bucket_key_enabled       = (known after apply)
+
+          + apply_server_side_encryption_by_default {
+              + kms_master_key_id = (known after apply)
+              + sse_algorithm     = "AES256"
+            }
+        }
+    }
+
+  # aws_s3_bucket_versioning.spa will be created
+  + resource "aws_s3_bucket_versioning" "spa" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "us-east-1"
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+  # aws_secretsmanager_secret.anthropic_api_key will be created
+  + resource "aws_secretsmanager_secret" "anthropic_api_key" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/anthropic-api-key"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret.database_url_app will be created
+  + resource "aws_secretsmanager_secret" "database_url_app" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/database-url-app"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret.database_url_owner will be created
+  + resource "aws_secretsmanager_secret" "database_url_owner" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/database-url-owner"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret.oidc_client_secret will be created
+  + resource "aws_secretsmanager_secret" "oidc_client_secret" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/oidc-client-secret"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret.origin_verify will be created
+  + resource "aws_secretsmanager_secret" "origin_verify" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/origin-verify"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret.session_secret will be created
+  + resource "aws_secretsmanager_secret" "session_secret" {
+      + arn                            = (known after apply)
+      + force_overwrite_replica_secret = false
+      + id                             = (known after apply)
+      + name                           = "espn-edge/session-secret"
+      + name_prefix                    = (known after apply)
+      + policy                         = (known after apply)
+      + recovery_window_in_days        = 7
+      + region                         = "us-east-1"
+      + tags_all                       = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_secretsmanager_secret_version.oidc_client_secret will be created
+  + resource "aws_secretsmanager_secret_version" "oidc_client_secret" {
+      + arn                  = (known after apply)
+      + has_secret_string_wo = (known after apply)
+      + id                   = (known after apply)
+      + region               = "us-east-1"
+      + secret_arn           = (known after apply)
+      + secret_id            = (known after apply)
+      + secret_string        = (sensitive value)
+      + secret_string_wo     = (write-only attribute)
+      + version_id           = (known after apply)
+      + version_stages       = (known after apply)
+    }
+
+  # aws_secretsmanager_secret_version.origin_verify will be created
+  + resource "aws_secretsmanager_secret_version" "origin_verify" {
+      + arn                  = (known after apply)
+      + has_secret_string_wo = (known after apply)
+      + id                   = (known after apply)
+      + region               = "us-east-1"
+      + secret_arn           = (known after apply)
+      + secret_id            = (known after apply)
+      + secret_string        = (sensitive value)
+      + secret_string_wo     = (write-only attribute)
+      + version_id           = (known after apply)
+      + version_stages       = (known after apply)
+    }
+
+  # aws_secretsmanager_secret_version.session_secret will be created
+  + resource "aws_secretsmanager_secret_version" "session_secret" {
+      + arn                  = (known after apply)
+      + has_secret_string_wo = (known after apply)
+      + id                   = (known after apply)
+      + region               = "us-east-1"
+      + secret_arn           = (known after apply)
+      + secret_id            = (known after apply)
+      + secret_string        = (sensitive value)
+      + secret_string_wo     = (write-only attribute)
+      + version_id           = (known after apply)
+      + version_stages       = (known after apply)
+    }
+
+  # aws_security_group.db will be created
+  + resource "aws_security_group" "db" {
+      + arn                    = (known after apply)
+      + description            = "PostgreSQL from the host only"
+      + egress                 = (known after apply)
+      + id                     = (known after apply)
+      + ingress                = [
+          + {
+              + cidr_blocks      = []
+              + description      = "PostgreSQL from the ECS host"
+              + from_port        = 5432
+              + ipv6_cidr_blocks = []
+              + prefix_list_ids  = []
+              + protocol         = "tcp"
+              + security_groups  = (known after apply)
+              + self             = false
+              + to_port          = 5432
+            },
+        ]
+      + name                   = "espn-edge-db"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + region                 = "us-east-1"
+      + revoke_rules_on_delete = false
+      + tags_all               = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # aws_security_group.host will be created
+  + resource "aws_security_group" "host" {
+      + arn                    = (known after apply)
+      + description            = "ECS host: 443 from CloudFront origin-facing only; all egress"
+      + egress                 = [
+          + {
+              + cidr_blocks      = [
+                  + "0.0.0.0/0",
+                ]
+              + description      = "ESPN, Anthropic, ECR, Secrets Manager, CloudWatch, ACME"
+              + from_port        = 0
+              + ipv6_cidr_blocks = []
+              + prefix_list_ids  = []
+              + protocol         = "-1"
+              + security_groups  = []
+              + self             = false
+              + to_port          = 0
+            },
+        ]
+      + id                     = (known after apply)
+      + ingress                = [
+          + {
+              + cidr_blocks      = []
+              + description      = "HTTPS from CloudFront origin-facing ranges"
+              + from_port        = 443
+              + ipv6_cidr_blocks = []
+              + prefix_list_ids  = [
+                  + "pl-3b927c52",
+                ]
+              + protocol         = "tcp"
+              + security_groups  = []
+              + self             = false
+              + to_port          = 443
+            },
+        ]
+      + name                   = "espn-edge-host"
+      + name_prefix            = (known after apply)
+      + owner_id               = (known after apply)
+      + region                 = "us-east-1"
+      + revoke_rules_on_delete = false
+      + tags_all               = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                 = (known after apply)
+    }
+
+  # aws_ses_email_identity.operator will be created
+  + resource "aws_ses_email_identity" "operator" {
+      + arn    = (known after apply)
+      + email  = "ellisadedoyin@gmail.com"
+      + id     = (known after apply)
+      + region = "us-east-1"
+    }
+
+  # aws_sns_topic.alarms will be created
+  + resource "aws_sns_topic" "alarms" {
+      + arn                         = (known after apply)
+      + beginning_archive_time      = (known after apply)
+      + content_based_deduplication = false
+      + fifo_throughput_scope       = (known after apply)
+      + fifo_topic                  = false
+      + id                          = (known after apply)
+      + maximum_message_size        = (known after apply)
+      + name                        = "espn-edge-alarms"
+      + name_prefix                 = (known after apply)
+      + owner                       = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = "us-east-1"
+      + signature_version           = (known after apply)
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + tracing_config              = (known after apply)
+    }
+
+  # aws_sns_topic_subscription.operator will be created
+  + resource "aws_sns_topic_subscription" "operator" {
+      + arn                             = (known after apply)
+      + confirmation_timeout_in_minutes = 1
+      + confirmation_was_authenticated  = (known after apply)
+      + endpoint                        = "ellisadedoyin@gmail.com"
+      + endpoint_auto_confirms          = false
+      + filter_policy_scope             = (known after apply)
+      + id                              = (known after apply)
+      + owner_id                        = (known after apply)
+      + pending_confirmation            = (known after apply)
+      + protocol                        = "email"
+      + raw_message_delivery            = false
+      + region                          = "us-east-1"
+      + topic_arn                       = (known after apply)
+    }
+
+  # aws_subnet.app_public will be created
+  + resource "aws_subnet" "app_public" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.42.0.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block                                = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + region                                         = "us-east-1"
+      + tags                                           = {
+          + "Name" = "espn-edge-app-public"
+        }
+      + tags_all                                       = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge-app-public"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # aws_subnet.db_private_a will be created
+  + resource "aws_subnet" "db_private_a" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1a"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.42.10.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block                                = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + region                                         = "us-east-1"
+      + tags                                           = {
+          + "Name" = "espn-edge-db-private-a"
+        }
+      + tags_all                                       = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge-db-private-a"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # aws_subnet.db_private_b will be created
+  + resource "aws_subnet" "db_private_b" {
+      + arn                                            = (known after apply)
+      + assign_ipv6_address_on_creation                = false
+      + availability_zone                              = "us-east-1b"
+      + availability_zone_id                           = (known after apply)
+      + cidr_block                                     = "10.42.11.0/24"
+      + enable_dns64                                   = false
+      + enable_resource_name_dns_a_record_on_launch    = false
+      + enable_resource_name_dns_aaaa_record_on_launch = false
+      + id                                             = (known after apply)
+      + ipv6_cidr_block                                = (known after apply)
+      + ipv6_cidr_block_association_id                 = (known after apply)
+      + ipv6_native                                    = false
+      + map_public_ip_on_launch                        = false
+      + owner_id                                       = (known after apply)
+      + private_dns_hostname_type_on_launch            = (known after apply)
+      + region                                         = "us-east-1"
+      + tags                                           = {
+          + "Name" = "espn-edge-db-private-b"
+        }
+      + tags_all                                       = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge-db-private-b"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_id                                         = (known after apply)
+    }
+
+  # aws_vpc.main will be created
+  + resource "aws_vpc" "main" {
+      + arn                                  = (known after apply)
+      + cidr_block                           = "10.42.0.0/16"
+      + default_network_acl_id               = (known after apply)
+      + default_route_table_id               = (known after apply)
+      + default_security_group_id            = (known after apply)
+      + dhcp_options_id                      = (known after apply)
+      + enable_dns_hostnames                 = true
+      + enable_dns_support                   = true
+      + enable_network_address_usage_metrics = (known after apply)
+      + id                                   = (known after apply)
+      + instance_tenancy                     = "default"
+      + ipv6_association_id                  = (known after apply)
+      + ipv6_cidr_block                      = (known after apply)
+      + ipv6_cidr_block_network_border_group = (known after apply)
+      + main_route_table_id                  = (known after apply)
+      + owner_id                             = (known after apply)
+      + region                               = "us-east-1"
+      + tags                                 = {
+          + "Name" = "espn-edge"
+        }
+      + tags_all                             = {
+          + "ManagedBy" = "terraform"
+          + "Name"      = "espn-edge"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+    }
+
+  # aws_vpc_endpoint.s3 will be created
+  + resource "aws_vpc_endpoint" "s3" {
+      + arn                   = (known after apply)
+      + cidr_blocks           = (known after apply)
+      + dns_entry             = (known after apply)
+      + id                    = (known after apply)
+      + ip_address_type       = (known after apply)
+      + network_interface_ids = (known after apply)
+      + owner_id              = (known after apply)
+      + policy                = (known after apply)
+      + prefix_list_id        = (known after apply)
+      + private_dns_enabled   = (known after apply)
+      + region                = "us-east-1"
+      + requester_managed     = (known after apply)
+      + route_table_ids       = (known after apply)
+      + security_group_ids    = (known after apply)
+      + service_name          = "com.amazonaws.us-east-1.s3"
+      + service_region        = (known after apply)
+      + state                 = (known after apply)
+      + subnet_ids            = (known after apply)
+      + tags_all              = {
+          + "ManagedBy" = "terraform"
+          + "Project"   = "espn-edge"
+          + "Stack"     = "public-synthetic"
+        }
+      + vpc_endpoint_type     = "Gateway"
+      + vpc_id                = (known after apply)
+
+      + dns_options (known after apply)
+
+      + subnet_configuration (known after apply)
+    }
+
+  # random_password.origin_verify will be created
+  + resource "random_password" "origin_verify" {
+      + bcrypt_hash = (sensitive value)
+      + id          = (known after apply)
+      + length      = 48
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (sensitive value)
+      + special     = false
+      + upper       = true
+    }
+
+  # random_password.session_secret will be created
+  + resource "random_password" "session_secret" {
+      + bcrypt_hash = (sensitive value)
+      + id          = (known after apply)
+      + length      = 64
+      + lower       = true
+      + min_lower   = 0
+      + min_numeric = 0
+      + min_special = 0
+      + min_upper   = 0
+      + number      = true
+      + numeric     = true
+      + result      = (sensitive value)
+      + special     = false
+      + upper       = true
+    }
+
+Plan: 87 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + cloudfront_distribution_id = (known after apply)
+  + cognito_hosted_ui          = "https://espn-edge-387865673700.auth.us-east-1.amazoncognito.com"
+  + cognito_user_pool_id       = (known after apply)
+  + custody                    = "public_synthetic; no FERNET_KEY, no ESPN credential, no raw cache, no private stack. docs/aws-deploy.md s0a."
+  + database_endpoint          = (known after apply)
+  + database_master_secret_arn = (known after apply)
+  + ecr_app                    = (known after apply)
+  + ecr_caddy                  = (known after apply)
+  + ecs_cluster                = "espn-edge"
+  + host_eip                   = (known after apply)
+  + migrate_task_definition    = (known after apply)
+  + oidc_issuer                = (known after apply)
+  + origin_hostname            = "origin.eaedgefinder.com"
+  + site_url                   = "https://eaedgefinder.com"
+  + spa_bucket                 = "espn-edge-spa-387865673700"
