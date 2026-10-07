@@ -110,8 +110,8 @@ Create these in Secrets Manager before the first deploy.
 | Secret | How to generate | Notes |
 | --- | --- | --- |
 | `FERNET_KEY` | `python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"` | **Generate once and never change it.** It decrypts the stored ESPN `espn_s2` cookies. A new key does not fail loudly — it makes every stored credential undecryptable, and the symptom is re-auth prompts with no explanation. |
-| `SESSION_SECRET` | 48+ random chars | Rotating it logs you out. Harmless. |
-| `OPERATOR_PASSWORD_HASH` | the app's own hashing helper | Still used by the app's own login; Cognito at the ALB sits in front of it, so this is a second factor rather than the only one. |
+| `SESSION_SECRET` | 48+ random chars | **Read by nothing** today — there is no endpoint that mints a session. Wired ahead of the identity provider. |
+| `OPERATOR_PASSWORD_HASH` | any value | **Read by nothing.** Wired ahead of the identity provider. See the warning below before you treat it as a factor. |
 | `DATABASE_URL_OWNER` | `postgresql+psycopg2://edge_owner:…@<rds-endpoint>:5432/edge` | Only the migration task gets this. |
 | `DATABASE_URL_APP` | `postgresql+psycopg2://edge_app:…@<rds-endpoint>:5432/edge` | The service gets this. |
 | `ANTHROPIC_API_KEY` | from the Anthropic console | Optional. Empty string disables the AI features cleanly. |
@@ -323,8 +323,27 @@ Stated so none of it is discovered in production:
    sync on AWS is the first time that code meets ESPN.
 4. **One task, no autoscaling.** A single Fargate task at this size; a restart
    is a brief outage.
-5. **The app's own login still exists** behind Cognito. Two gates rather than
-   one, which is fine, but do not treat `OPERATOR_PASSWORD_HASH` as unused.
+5. **THERE IS NO APPLICATION LOGIN.** This said the opposite for one commit --
+   "two gates rather than one" -- and that is the dangerous direction to be
+   wrong in, so it is spelled out here.
+
+   `api/routers/auth.py` has `/me` and `/logout` and **deliberately no endpoint
+   that mints a session**: minting needs an OIDC ID token, verifying one needs
+   a JWT library this environment cannot install, and hand-rolling it is where
+   `alg: none` and key-confusion bugs live. In `private_operator` mode
+   `_bound_session` binds the configured tenant with no cookie, which is why
+   the app serves at all.
+
+   So `OPERATOR_PASSWORD_HASH` and `SESSION_SECRET` are read by nothing --
+   grep the repository, they appear only in `infra/app.py` and this file.
+   **Whatever sits in front of the load balancer is the only gate there is.**
+
+   With `-c certificate_arn=...` that gate is Cognito, which is a real one.
+   With `-c allow_cidr=...` it is an IP allowlist and nothing else: a
+   completely unauthenticated application reachable from that range. Use a
+   `/32`, check it is the address you think it is, and remember a home address
+   changes. `tests/test_deployment_environment.py` pins both the unread
+   wiring and this warning's presence.
 
 ---
 

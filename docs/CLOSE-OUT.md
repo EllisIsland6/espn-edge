@@ -750,6 +750,43 @@ This was a practice project. These are the findings that are not about fantasy f
     fixes `grep` but not when the wrapper's argv quotes the real command elsewhere on the line. Use
     `pkill -x <exact-name>` or a pidfile.
 
+41. **A sentence is an artefact too, and the dangerous direction to be wrong in is "you are better
+    protected than you are."** `infra/app.py` wired `OPERATOR_PASSWORD_HASH` and `SESSION_SECRET`
+    from Secrets Manager into both tasks. `docs/aws-deploy.md` told the operator to create them, and
+    described the first as "still used by the app's own login" and the deployment as having "two
+    gates rather than one".
+
+    Nothing reads either. `api/routers/auth.py` has `/me` and `/logout` and **deliberately no
+    endpoint that mints a session** -- it says so in its own docstring -- so there is no login for a
+    password hash to belong to, and in `private_operator` mode `_bound_session` binds the configured
+    tenant with no cookie, which is why the app serves at all. `pydantic_settings` is
+    `extra="ignore"`, so the unread variables cost nothing at run time. **That is precisely why
+    nothing noticed.** A variable that silently does nothing produces no failure anywhere; the only
+    casualty was the sentence describing it, and sentences have no test suite.
+
+    The cost was not hypothetical. An operator reading that file would have believed two
+    authentication gates stood in front of an application that has none of its own -- and would have
+    been most wrong exactly when choosing the `allow_cidr` shape, where the only gate is an IP range
+    and a mistyped prefix is an open application.
+
+    Found by taking the lesson above literally and asking it of the next artefact: for every file
+    that *configures* something, enumerate what it sets and check each one against what reads it.
+    The same walk that caught `alembic` caught this, three env vars later.
+
+    `tests/test_deployment_environment.py` pins both halves, and the second half is the unusual one:
+    a register of known-unread variables (which fails if an entry turns out to BE read, so it cannot
+    outlive its own truth) **and** an assertion that the warning is still present in the prose. The
+    register alone would have been satisfied by the original document. **When the defect lives in a
+    claim rather than in behaviour, the claim is what has to be pinned.**
+
+    One more thing this stretch proved about instrument checks: the detector behind these tests was
+    wrong on its first run -- it matched every upper-case string literal in any call, and still
+    missed `APP_DB_ROLE`, which revision 0016 reads indirectly as
+    `os.environ.get(ROLE_ENV_VAR, ...)`. Nothing in the five tests would have failed; they would all
+    have passed while the detector was blind to every migration's variables. The instrument check
+    failed instead, because it asserted the detector finds that one name specifically. **An
+    instrument check earns its place by naming a thing the instrument must be able to see.**
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
