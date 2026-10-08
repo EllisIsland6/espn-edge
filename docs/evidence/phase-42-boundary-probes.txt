@@ -1,0 +1,34 @@
+Phase 42 -- deploy-role boundary probed with the IAM policy simulator
+Run by the operator, read-only, 2026-10-08, after re-applying bootstrap
+(aws_iam_policy.deploy_boundary: 0 added, 1 changed, 0 destroyed).
+
+Why: neither plan ever evaluated the deploy role's permissions boundary
+(laptop plan as administrator; Actions plan under the read-only plan role).
+Two disagreements were found by reading the plan against the boundary and
+fixed in effbf60; what IAM does with the resulting condition is not
+something a parser can hold, so it was measured here before any apply.
+
+$ ROLE=$(terraform output -raw deploy_role_arn)
+$ ACCT=$(aws sts get-caller-identity --query Account --output text)
+
+$ aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
+    --action-names ec2:CreateVpcEndpoint \
+    --resource-arns "arn:aws:ec2:us-east-1:$ACCT:vpc-endpoint/*" \
+    --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.s3,ContextKeyType=string \
+    --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+ec2:CreateVpcEndpoint   allowed
+
+$ aws iam simulate-principal-policy ... ContextKeyValues=com.amazonaws.us-east-1.ssm ...
+ec2:CreateVpcEndpoint   explicitDeny
+
+$ aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
+    --action-names iam:TagInstanceProfile iam:CreateInstanceProfile ec2:CreateNatGateway \
+    --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+iam:TagInstanceProfile  allowed
+iam:CreateInstanceProfile       allowed
+ec2:CreateNatGateway    explicitDeny
+
+Read: the S3 gateway endpoint the stack creates is allowed; an interface
+endpoint (ssm, standing in for any non-S3 service) is explicitly denied by
+the scoped, conditional statement; the instance profile can be created and
+tagged; the NAT gateway Deny -- the control -- still fires.
