@@ -25,6 +25,12 @@
 set -euo pipefail
 
 TAG="${1:-espn-edge:preflight}"
+# The selected stack runs on a Graviton host (t4g.small, arm64), so the image
+# that is checked must be the image that ships. The CDK draft targeted amd64
+# Fargate; set PREFLIGHT_PLATFORM=linux/amd64 to check an image for it. On
+# Apple silicon, arm64 is the native build and the checks run without
+# emulation; amd64 is the slow one.
+PLATFORM="${PREFLIGHT_PLATFORM:-linux/arm64}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PASS=0
 
@@ -52,7 +58,7 @@ fi
 ok "a nonexistent binary is reported absent"
 
 say "1. the image builds"
-docker build --platform linux/amd64 -t "$TAG" "$HERE" || die "docker build failed; everything below is moot"
+docker build --platform "$PLATFORM" -t "$TAG" "$HERE" || die "docker build failed; everything below is moot"
 ok "built $TAG"
 
 say "2. the migrate task's command exists (the defect this file was written for)"
