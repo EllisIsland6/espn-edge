@@ -47,3 +47,17 @@ dynamodb:PutItem        allowed           # after bootstrap apply (0 added, 1 ch
 
 Note for zsh users: `$ACCT:table` is a parameter with the `:t` modifier;
 write `${ACCT}:table`.
+
+--- Addendum 2, 2026-10-08, after apply run #2 (71 of 88; host and certificate lost to the Deny on kms:CreateGrant)
+
+Measured after the AwsManagedKeysViaService statement (00e1baa) was applied
+to the boundary. Before it, all three said explicitDeny -- the failure run #2
+hit on the host (InvalidKMSKey.InvalidState) and on ACM (AccessDenied).
+
+$ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant \
+    --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string ...
+kms:CreateGrant allowed           # through a service the stack uses
+$ ... ContextKeyValues=lambda.us-east-1.amazonaws.com ...
+kms:CreateGrant implicitDeny      # not through one
+$ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey ...
+kms:CreateKey   explicitDeny      # the custody line, still held
