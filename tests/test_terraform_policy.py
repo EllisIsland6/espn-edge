@@ -202,6 +202,9 @@ def test_the_database_is_private_single_az_encrypted(stack):
     assert db["availability_zone"] == "${var.db_availability_zone}"
     var = _load(STACK)["variable"]["db_availability_zone"]
     assert "default" in var and var["default"] is None, var
+    # Amendment C7: a burstable micro, so the CPU-credit alarm stays meaningful.
+    klass = _load(STACK)["variable"]["db_instance_class"]["default"]
+    assert klass.startswith("db.t") and klass.endswith(".micro"), klass
 
 
 def test_the_database_subnet_group_uses_only_private_subnets(stack):

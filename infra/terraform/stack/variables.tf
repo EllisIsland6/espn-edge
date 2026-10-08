@@ -27,8 +27,12 @@ variable "instance_type" {
 }
 
 variable "db_instance_class" {
+  # Amendment C7: db.t4g.micro was the priced choice; apply runs #2 and #3
+  # both met InsufficientDBInstanceCapacity for it (gp3, both AZs of the
+  # subnet group once unpinned). db.t3.micro is the same burstable tier on
+  # x86, $0.017/h against $0.016/h -- about $0.73/month more.
   type    = string
-  default = "db.t4g.micro"
+  default = "db.t3.micro"
 }
 
 variable "db_backup_retention_days" {

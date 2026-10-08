@@ -1,4 +1,4 @@
-# Single-AZ PostgreSQL 16 on db.t4g.micro, in the private subnets, reachable
+# Single-AZ PostgreSQL 16 on a burstable micro (var.db_instance_class), in the private subnets, reachable
 # only from the host's security group. Encrypted with the RDS-managed key:
 # the architecture's "no KMS custody key" guarantee is about the application
 # custody key that would decrypt ESPN cookies -- there are none here -- and

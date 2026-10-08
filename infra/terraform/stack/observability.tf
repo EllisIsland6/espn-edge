@@ -59,7 +59,7 @@ resource "aws_cloudwatch_metric_alarm" "host_status" {
 
 resource "aws_cloudwatch_metric_alarm" "db_cpu_credits" {
   alarm_name          = "espn-edge-db-cpu-credit-balance"
-  alarm_description   = "db.t4g.micro burst credits are nearly spent; the database is about to be throttled. Amendment C2."
+  alarm_description   = "${var.db_instance_class} burst credits are nearly spent; the database is about to be throttled. Amendment C2."
   namespace           = "AWS/RDS"
   metric_name         = "CPUCreditBalance"
   statistic           = "Minimum"
