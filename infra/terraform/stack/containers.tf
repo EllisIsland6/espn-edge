@@ -176,7 +176,11 @@ locals {
   app_secrets = [
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url_app.arn },
     { name = "SESSION_SECRET", valueFrom = aws_secretsmanager_secret.session_secret.arn },
-    { name = "ANTHROPIC_API_KEY", valueFrom = aws_secretsmanager_secret.anthropic_api_key.arn },
+    # No host Anthropic key in the public synthetic stack. ECS refuses to start a
+    # task whose secret has no version, and Secrets Manager refuses an empty
+    # one, so an unset key cannot be expressed through `secrets` at all; the
+    # app treats an absent ANTHROPIC_API_KEY as "AI disabled" (api/services/ai.py).
+    # Phase 46's direction is a key per user, held client-side, never here.
     { name = "OIDC_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.oidc_client_secret.arn },
   ]
 }
