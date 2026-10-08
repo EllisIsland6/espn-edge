@@ -32,3 +32,18 @@ Read: the S3 gateway endpoint the stack creates is allowed; an interface
 endpoint (ssm, standing in for any non-S3 service) is explicitly denied by
 the scoped, conditional statement; the instance profile can be created and
 tagged; the NAT gateway Deny -- the control -- still fires.
+
+--- Addendum, 2026-10-08, after apply run #1 failed in 16s acquiring the state lock
+
+The five probes above covered the stack's actions and not the deploy
+role's own `state` policy, which the boundary also caps. Measured before
+and after the StateLock statement (ebb9d08) was applied to the boundary:
+
+$ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem \
+    --resource-arns "arn:aws:dynamodb:us-east-1:${ACCT}:table/espn-edge-terraform-lock" \
+    --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+dynamodb:PutItem        implicitDeny      # before: the failure run #1 hit
+dynamodb:PutItem        allowed           # after bootstrap apply (0 added, 1 changed)
+
+Note for zsh users: `$ACCT:table` is a parameter with the `:t` modifier;
+write `${ACCT}:table`.
