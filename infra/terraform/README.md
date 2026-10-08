@@ -125,7 +125,7 @@ start tasks. Build images first.
 ### 4. Images
 
 ```bash
-./ops/preflight-image.sh                  # 18 checks, must pass
+./ops/preflight-image.sh <ecr_app>:<sha>  # 19 checks, must pass; builds the tag it will push
 aws ecr get-login-password | docker login --username AWS --password-stdin <ecr>
 docker build --platform linux/arm64 -t <ecr_app>:<sha> .          # arm64: the host is Graviton
 docker build --platform linux/arm64 -t <ecr_caddy>:<sha> ops/caddy

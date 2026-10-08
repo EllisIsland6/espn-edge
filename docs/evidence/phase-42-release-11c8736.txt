@@ -1,0 +1,20 @@
+Phase 42 -- first release manifest, 2026-10-08
+Built on the operator's Mac (Apple silicon, Docker Desktop 29.8.2), linux/arm64
+for the t4g.small host, from commit 11c8736 of main.
+
+app    387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/app:11c8736
+       digest sha256:78f44bd73d2819972434bf43cb5f986d8198b0db4ae2bfaa2a93063a360d102d
+       ops/preflight-image.sh: 19 checks passed (the 18 the README counted, plus one)
+       /api/health inside the image, no DATABASE_URL:
+       {"status":"ok","season":2026,"db_path":"/app/data/edge.db","backend":"sqlite"}
+
+caddy  387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/caddy:11c8736
+       digest sha256:3a24d895e41f09e544ec8376c2aec66b136f479bc83b8d89fc8f8cd83021e9ce
+       caddy:2-builder + xcaddy --with github.com/caddy-dns/route53, on caddy:2
+       (base tags floating at build time: 2-builder@sha256:1ab914bd6..., 2@sha256:f2a1290d0...)
+
+The first build of the app image, from 7dba6d9, failed preflight check 6:
+the runtime user could not read /app/api/main.py because COPY had preserved
+the checkout's 0600 modes. Fixed in 11c8736 (chmod in the final layer);
+that image is the one above. Both repositories are IMMUTABLE; these tags
+cannot be moved.
