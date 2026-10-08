@@ -391,9 +391,25 @@ def test_the_boundary_can_tag_the_instance_profile_the_stack_creates(bootstrap, 
     assert _resources(stack, "aws_iam_instance_profile"), "premise: the stack has an instance profile"
     assert "default_tags" in (STACK / "versions.tf").read_text(encoding="utf-8"), "premise: default_tags"
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
-    (allow,) = [s for s in boundary["statement"] if s.get("effect", "Allow") == "Allow"]
+    allow = next(s for s in boundary["statement"] if s.get("sid") == "StackServices")
     for action in ("iam:CreateInstanceProfile", "iam:TagInstanceProfile"):
         assert action in allow["actions"], action
+
+
+def test_the_boundary_lets_the_deploy_role_take_the_state_lock(bootstrap):
+    # A permissions boundary caps every policy on the role, the inline `state`
+    # policy included. The first apply (run #1, 2026-10-08) died in 16 seconds
+    # acquiring the DynamoDB lock because the boundary named no DynamoDB
+    # action; the plan workflow had never noticed because it plans with
+    # -lock=false. The apply workflow must lock, so the boundary must allow it,
+    # on the lock table and nowhere else.
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    lock = next(s for s in boundary["statement"] if s.get("sid") == "StateLock")
+    assert sorted(lock["actions"]) == ["dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:PutItem"]
+    assert lock["resources"] == ["${aws_dynamodb_table.lock.arn}"], lock["resources"]
+    # The premise: the apply workflow does not disable locking.
+    apply_yml = (ROOT / ".github/workflows/terraform-apply.yml").read_text(encoding="utf-8")
+    assert "-lock=false" not in apply_yml
 
 
 def test_the_plan_role_cannot_write(bootstrap):

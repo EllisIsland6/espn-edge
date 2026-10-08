@@ -83,6 +83,9 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
   --action-names iam:TagInstanceProfile iam:CreateInstanceProfile ec2:CreateNatGateway \
   --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed allowed explicitDeny
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem \
+  --resource-arns "$(terraform output -raw lock_table | sed "s#^#arn:aws:dynamodb:us-east-1:$ACCT:table/#")" \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed -- the boundary caps the role's own state policy too
 ```
 
 ### 2. Repository settings

@@ -200,6 +200,16 @@ data "aws_iam_policy_document" "deploy_boundary" {
     ]
     resources = ["*"]
   }
+  # The role's inline `state` policy grants the lock-table actions, but a
+  # permissions boundary caps EVERY policy on the role, its own state policy
+  # included -- and this document named no DynamoDB action, so the first
+  # apply died acquiring the state lock before planning anything. Found by
+  # running it: the simulator probes had only covered the stack's actions.
+  statement {
+    sid       = "StateLock"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    resources = [aws_dynamodb_table.lock.arn]
+  }
   statement {
     sid    = "ArchitectureRejected"
     effect = "Deny"
