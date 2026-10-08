@@ -210,6 +210,30 @@ data "aws_iam_policy_document" "deploy_boundary" {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.lock.arn]
   }
+  # AWS-managed keys only, and only through the services that use them: EBS
+  # for the host's root volume, RDS for storage and the managed master
+  # password, ACM for the certificate's private key, Secrets Manager. The
+  # first apply that got past the lock lost the host AND the certificate to
+  # the Deny on kms:CreateGrant -- written to keep a custody key out, it also
+  # stopped those services creating grants on the account's aws/* keys
+  # ("InvalidKMSKey.InvalidState" on the instance; AccessDenied on ACM).
+  # kms:CreateKey stays denied: that is the custody line, and ViaService
+  # means the role cannot use KMS on its own account at all.
+  statement {
+    sid       = "AwsManagedKeysViaService"
+    actions   = ["kms:CreateGrant", "kms:DescribeKey", "kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values = [
+        "ec2.${var.region}.amazonaws.com",
+        "rds.${var.region}.amazonaws.com",
+        "acm.${var.region}.amazonaws.com",
+        "secretsmanager.${var.region}.amazonaws.com",
+      ]
+    }
+  }
   statement {
     sid    = "ArchitectureRejected"
     effect = "Deny"
@@ -219,7 +243,6 @@ data "aws_iam_policy_document" "deploy_boundary" {
       "wafv2:*",
       "waf:*",
       "kms:CreateKey",
-      "kms:CreateGrant",
       "rds:CreateDBCluster",
       "iam:CreateUser",
       "iam:CreateAccessKey",

@@ -52,6 +52,12 @@ variable "caddy_image_tag" {
   type = string
 }
 
+variable "db_availability_zone" {
+  description = "Pin the RDS instance to one AZ of the subnet group, or null to let RDS choose one with capacity (amendment C6)."
+  type        = string
+  default     = null
+}
+
 variable "tenant_id" {
   description = "The single synthetic tenant the service binds. A fresh migrated database has exactly one, id 1 (docs/aws-deploy.md s4)."
   type        = number

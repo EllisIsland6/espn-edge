@@ -41,7 +41,11 @@ resource "aws_db_instance" "main" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
   parameter_group_name   = aws_db_parameter_group.pg16.name
-  availability_zone      = local.az_primary
+  # Unpinned by default (amendment C6): pinned to the host's AZ, the first
+  # apply met InsufficientDBInstanceCapacity for db.t4g.micro/gp3 there and
+  # RDS could not consider the subnet group's other AZ. Cross-AZ traffic
+  # between host and database is $0.01/GB each way -- nothing at this scale.
+  availability_zone      = var.db_availability_zone
 
   multi_az            = false
   publicly_accessible = false

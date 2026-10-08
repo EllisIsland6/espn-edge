@@ -198,6 +198,10 @@ def test_the_database_is_private_single_az_encrypted(stack):
     assert db["deletion_protection"] is True
     assert db["backup_retention_period"] == "${var.db_backup_retention_days}"
     assert "kms_key_id" not in db, "storage uses the RDS-managed key; no custody KMS key"
+    # Amendment C6: placement is RDS's choice unless the variable pins it.
+    assert db["availability_zone"] == "${var.db_availability_zone}"
+    var = _load(STACK)["variable"]["db_availability_zone"]
+    assert "default" in var and var["default"] is None, var
 
 
 def test_the_database_subnet_group_uses_only_private_subnets(stack):
@@ -365,6 +369,25 @@ def test_the_deploy_role_is_bounded_and_the_boundary_denies_the_rejected_actions
     # CreateVpcEndpoint refused it. Found by reading the first plan against the
     # boundary, before any apply. The conditional statement is tested below.
     assert "ec2:CreateVpcEndpoint" not in deny["actions"]
+    # And the Deny on kms:CreateGrant, meant to keep a custody key out, stopped
+    # EBS and ACM creating grants on the account's AWS-managed keys: the first
+    # apply past the lock lost the host and the certificate to it. CreateKey is
+    # the custody line; CreateGrant is how every AWS service uses aws/* keys.
+    assert "kms:CreateGrant" not in deny["actions"]
+
+
+def test_aws_managed_keys_are_usable_only_through_the_stacks_services(bootstrap):
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    kms = next(s for s in boundary["statement"] if s.get("sid") == "AwsManagedKeysViaService")
+    assert "kms:CreateGrant" in kms["actions"]
+    assert "kms:CreateKey" not in kms["actions"], "creating a key is the custody line"
+    assert not any(a == "kms:*" for a in kms["actions"])
+    (cond,) = kms["condition"]
+    assert cond["test"] == "StringEquals"
+    assert cond["variable"] == "kms:ViaService"
+    assert sorted(cond["values"]) == sorted(
+        f"{svc}.${{var.region}}.amazonaws.com" for svc in ("ec2", "rds", "acm", "secretsmanager")
+    ), cond["values"]
 
 
 def test_interface_endpoints_stay_denied_while_the_s3_gateway_is_allowed(bootstrap, stack):

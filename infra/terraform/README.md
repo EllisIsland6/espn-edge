@@ -86,6 +86,14 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem \
   --resource-arns "$(terraform output -raw lock_table | sed "s#^#arn:aws:dynamodb:us-east-1:$ACCT:table/#")" \
   --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed -- the boundary caps the role's own state policy too
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant \
+  --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed -- ACM, EBS and RDS create grants on aws/* keys
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant \
+  --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=lambda.us-east-1.amazonaws.com,ContextKeyType=string \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: implicitDeny -- not through a service the stack uses
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: explicitDeny -- the custody line
 ```
 
 ### 2. Repository settings
