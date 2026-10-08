@@ -87,7 +87,15 @@ ENV STATIC_DIR=/app/web-dist
 # would have failed on that image. MEASURED as uid 10001 on a root-owned tree:
 # with only /app/data owned by the runtime user, the app boots on PostgreSQL,
 # answers /api/health, and `test -w api/main.py` is false.
-RUN useradd --create-home --uid 10001 edge \
+# COPY preserves the build context's file modes, and a checkout whose files
+# are 0600 (an umask of 077 does it) yields a root-owned tree the runtime user
+# cannot READ: MEASURED by ops/preflight-image.sh check 6 on 2026-10-08 --
+# every check before it passed, including "cannot write its own source", and
+# `import api.main` died with PermissionError on /app/api/main.py. The image
+# must not depend on the modes of whichever machine built it: readable by
+# all, writable by root only, and then the one directory the app needs.
+RUN chmod -R u=rwX,go=rX /app \
+ && useradd --create-home --uid 10001 edge \
  && mkdir -p /app/data && chown edge:edge /app/data
 USER edge
 
