@@ -849,6 +849,16 @@ This was a practice project. These are the findings that are not about fantasy f
     policy simulator before any apply. Lesson 43 again, from the other side: the environment
     that verified the plan was not the one that will run it.
 
+46. **An exception message is a log line, and a log line is a disclosure.** The first migrate task
+    against RDS failed in alembic's ConfigParser on a `%` in a URL-encoded password, and the
+    `ValueError` helpfully quoted the value it could not parse -- the whole connection URL, master
+    password included -- into CloudWatch, from where the operator pasted it into chat. The password
+    was rotated within minutes and the stream deleted, but the shape is the lesson: any code path
+    that lets a library format a secret into an error has already decided where that secret will
+    end up. Escape the value (`%%`), and wrap the store so the library's message never propagates.
+    Two tests pin both, and the full migration chain was run against a database whose password
+    encodes to seven percent signs before the fix was called a fix.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

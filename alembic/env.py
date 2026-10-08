@@ -25,8 +25,18 @@ if config.config_file_name is not None:
 # and silently retargeted the migration at whatever database the environment
 # happened to be configured for -- which, run outside the test harness, is the
 # operator's real one. A caller that has named a database means it.
+#
+# The value goes through ConfigParser, which reads `%` as interpolation
+# syntax -- and a URL-encoded password is full of them. MEASURED on the first
+# migrate task against RDS (2026-10-08): `ValueError: invalid interpolation
+# syntax`, with the whole URL, password included, in the traceback and so in
+# CloudWatch. `%%` is the escape; get_main_option() hands back the original.
+# And the value never goes into an exception message from here again.
 if not config.get_main_option("sqlalchemy.url", None):
-    config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_url)
+    try:
+        config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_url.replace("%", "%%"))
+    except ValueError:
+        raise RuntimeError("the database URL could not be stored in alembic's config") from None
 target_metadata = Base.metadata
 
 
