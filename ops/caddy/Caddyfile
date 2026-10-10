@@ -13,9 +13,13 @@
 
 {
 	email {$ACME_EMAIL}
-	# Let's Encrypt, with ZeroSSL as the fallback issuer amendment C3 asks for.
-	cert_issuer acme
-	cert_issuer zerossl
+	# No cert_issuer lines on purpose. With an email set, Caddy's defaults are
+	# Let's Encrypt with ZeroSSL (ACME) as the fallback -- what amendment C3
+	# asks for. Spelling it out as `cert_issuer zerossl` is what killed the
+	# first web task: in current Caddy that form is the ZeroSSL *API* issuer
+	# and demands an API key -- "wrong argument count or unexpected line
+	# ending after 'zerossl'" -- and the process exited 1 before it had a
+	# logger, so CloudWatch showed nothing. MEASURED with `caddy adapt`.
 }
 
 {$ORIGIN_HOSTNAME} {
