@@ -35,4 +35,5 @@ def health() -> HealthOut:
         season=settings.season,
         db_path=str(settings.db_file),
         backend=describe_backend(settings.sqlalchemy_url),
+        mode=settings.app_mode,
     )

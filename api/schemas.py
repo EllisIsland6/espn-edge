@@ -23,6 +23,11 @@ class HealthOut(BaseModel):
     #: never the password, because this endpoint is the one thing a load
     #: balancer polls unauthenticated and anything in it is public.
     backend: str
+    #: `private_operator` or `public_synthetic`: the structural mode from
+    #: `Settings.app_mode`. Public by design -- the hosted stack's own output
+    #: already says it -- and it is what lets the page stop offering a
+    #: credential form on an instance that refuses credentials.
+    mode: str
 
 
 class RecoveryStatusOut(BaseModel):

@@ -6,6 +6,7 @@ import {
   deleteAccount,
   discoverLeagues,
   getAccounts,
+  getHealth,
   getLeagues,
   reauthAccount,
   syncLeague,
@@ -65,14 +66,24 @@ const SYNC_STATUS_TONE: Record<SyncOutcome, string> = {
 export default function Manage() {
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
   const [leagues, setLeagues] = useState<LeagueOut[] | null>(null);
+  // Hosted synthetic mode refuses credential custody at a chokepoint in the
+  // backend (api/crypto.py); offering the form there only invites a real
+  // ESPN session to be pasted into a site that will not keep it. The mode
+  // comes from /api/health, which is public by design.
+  const [synthetic, setSynthetic] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncOperation, setSyncOperation] = useState<SyncOperation | null>(null);
   const syncOperationRef = useRef<SyncOperation | null>(null);
 
   const loadData = useCallback(async () => {
-    const [nextAccounts, nextLeagues] = await Promise.all([getAccounts(), getLeagues()]);
+    const [nextAccounts, nextLeagues, health] = await Promise.all([
+      getAccounts(),
+      getLeagues(),
+      getHealth(),
+    ]);
     setAccounts(nextAccounts);
     setLeagues(nextLeagues);
+    setSynthetic(health.mode === "public_synthetic");
   }, []);
 
   const reload = useCallback(async () => {
@@ -113,13 +124,20 @@ export default function Manage() {
   return (
     <div className="max-w-4xl">
       <h1 className="text-xl font-semibold">Manage accounts & leagues</h1>
-      <p className="mt-1 text-sm text-secondary">
-        Cookies are stored encrypted and never leave your machine. All ESPN traffic goes
-        through the backend.
-      </p>
+      {synthetic ? (
+        <p className="mt-1 text-sm text-secondary">
+          This hosted instance runs on synthetic data. It does not hold ESPN accounts and
+          does not talk to ESPN, so there is nothing to add here and nothing to sync.
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-secondary">
+          Cookies are stored encrypted and never leave your machine. All ESPN traffic goes
+          through the backend.
+        </p>
+      )}
       {error && <div className="mt-4"><ErrorNote message={error} /></div>}
 
-      <AddAccountForm onDone={reload} onError={setError} />
+      {synthetic === false && <AddAccountForm onDone={reload} onError={setError} />}
       {!accounts ? (
         <Spinner />
       ) : (

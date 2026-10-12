@@ -23,7 +23,7 @@ from api.auth import COOKIE_NAME, mint_session
 from api.config import Settings
 from api.db import SessionLocal, get_session
 from api.main import app
-from api.models import Membership, Tenant, User
+from api.models import Account, Membership, Tenant, User
 from api.security import CSRF_COOKIE, CSRF_HEADER
 
 
@@ -175,3 +175,33 @@ def test_logout_revokes_the_session_it_was_called_with(monkeypatch):
         assert client.get("/api/auth/me").status_code == 401, (
             "the session still worked after logout"
         )
+
+
+def test_hosted_mode_refuses_a_credential_with_an_answer_not_a_traceback(monkeypatch):
+    """Phase 31's chokepoint (`api/crypto.py::_fernet`) refuses credential
+    custody in hosted mode; this is the HTTP shape of that refusal. The first
+    real POST on the live site -- an ESPN session pasted into the Manage page --
+    was refused exactly as designed and came back as a 500 with a traceback in
+    CloudWatch, because `HostedModeForbidden` had no handler. The answer is a
+    403 carrying the chokepoint's fixed, value-free message, and no row.
+
+    `raise_server_exceptions=False` is what makes the control real: without the
+    handler the client would return the 500 instead of raising through it.
+    """
+    _user_id, token = _make_user_with_membership()
+    _hosted(monkeypatch)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.cookies.set(COOKIE_NAME, token)
+        client.cookies.set(CSRF_COOKIE, "matching-token")
+        response = client.post(
+            "/api/accounts",
+            json={"label": "synthetic", "swid": "{SYNTHETIC-0000}", "espn_s2": "synthetic-value"},
+            headers={CSRF_HEADER: "matching-token"},
+        )
+    assert response.status_code == 403, response.text
+    assert response.json() == {"detail": "hosted synthetic mode forbids credential custody"}
+    session = SessionLocal()
+    try:
+        assert session.query(Account).filter(Account.swid == "{SYNTHETIC-0000}").count() == 0
+    finally:
+        session.close()

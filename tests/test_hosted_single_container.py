@@ -207,3 +207,21 @@ def test_binding_the_tenant_that_does_exist_is_accepted(db_session, monkeypatch)
     monkeypatch.setattr(tenancy, "get_settings", lambda: settings)
     tenancy.bind_session(db_session, real)  # must not raise
     assert db_session.info["tenant_id"] == real
+
+
+def test_health_reports_the_mode(monkeypatch):
+    """The page decides whether to offer a credential form from this field,
+    so it must say what `Settings.app_mode` says, in both modes. Public by
+    design: the mode is structural, and the hosted stack's own Terraform
+    output already names it."""
+    from fastapi.testclient import TestClient
+
+    from api.config import Settings
+    from api.main import app
+
+    for mode in ("private_operator", "public_synthetic"):
+        monkeypatch.setattr("api.config.get_settings", lambda mode=mode: Settings(app_mode=mode))
+        monkeypatch.setattr("api.routers.health.get_settings", lambda mode=mode: Settings(app_mode=mode))
+        with TestClient(app) as client:
+            body = client.get("/api/health").json()
+        assert body["mode"] == mode, body

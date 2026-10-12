@@ -26,6 +26,7 @@ from .routers import (
     views,
 )
 from .security import csrf_middleware, security_headers_middleware
+from .services.espn import HostedModeForbidden
 from .services.recovery import RecoveryAdmissionError, secret_free_error
 
 
@@ -111,6 +112,20 @@ async def _redact_account_validation_errors(
 @app.exception_handler(RecoveryAdmissionError)
 async def _recovery_admission_error(_request: Request, exc: RecoveryAdmissionError) -> JSONResponse:
     return JSONResponse(status_code=503, content={"detail": secret_free_error(exc)})
+
+
+@app.exception_handler(HostedModeForbidden)
+async def _hosted_mode_forbidden(_request: Request, exc: HostedModeForbidden) -> JSONResponse:
+    """Phase 31's chokepoint, as an answer rather than a traceback.
+
+    The first real POST on the live site -- an ESPN session pasted into the
+    Manage page -- was refused exactly as designed and surfaced as a 500 with a
+    forty-line traceback in CloudWatch, because nothing mapped the refusal to a
+    response. The message is fixed by construction and names no value and no
+    configuration, so returning it is safe; logging it would add nothing the
+    status does not say.
+    """
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 # Order matters, and it is the reverse of what it looks like. Starlette

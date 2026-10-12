@@ -53,3 +53,19 @@ def test_every_unsafe_fetch_in_the_client_carries_the_csrf_header():
     assert len(calls) >= 2, "expected the generic send() and the backup POST"
     for call in calls:
         assert "csrfHeaders()" in call, call
+
+
+MANAGE_TSX = ROOT / "web/src/pages/Manage.tsx"
+HEALTH_ROUTER = ROOT / "api/routers/health.py"
+
+
+def test_the_manage_page_offers_no_credential_form_on_a_synthetic_instance():
+    """The operator pasted a real ESPN session into the live site's form: the
+    chokepoint refused it, as designed, and the form should never have been
+    there. The page gates the form on the mode the health route reports."""
+    manage = MANAGE_TSX.read_text(encoding="utf-8")
+    assert 'health.mode === "public_synthetic"' in manage
+    assert "{synthetic === false && <AddAccountForm" in manage, (
+        "the form must be gated on a KNOWN non-synthetic mode, not on the absence of a flag"
+    )
+    assert "mode=settings.app_mode" in HEALTH_ROUTER.read_text(encoding="utf-8")
