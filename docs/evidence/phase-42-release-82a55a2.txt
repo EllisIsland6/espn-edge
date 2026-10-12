@@ -35,3 +35,22 @@ every one of them destroyed and recreated aws_instance.host --
 each on `associate_public_ip_address = true -> false # forces replacement`.
 Five rebuilds, none intended, none noticed until #8's plan was read
 against a prediction. Fixed in df19dae; the test is the next plan.
+
+Addendum, 2026-10-12 (evening):
+
+app    387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/app:cfe57bc
+       digest sha256:3bd8fb3721971bdc85c394eaa28151b02afe19156eb5977554b40ad9a3bfc43e
+       built on the operator's Mac from cfe57bc; ops/preflight-image.sh 19 checks
+       passed, check 7 already showing {"mode":"public_synthetic"} in /api/health.
+       HostedModeForbidden -> 403; /api/health reports `mode`.
+
+  #9   38303990376  649fd47   CloudFront /api/* origin request policy AllViewer -> AllViewerExceptHostHeader
+  #10  38316821321  cfe57bc   app -> cfe57bc (three task definitions replaced, two services updated)
+
+Both #9 and #10 were preceded by the read-only plan workflow on the same commit
+(runs #7 and #8), whose Plan lines matched the prediction and the apply's own
+plan: 0/2/0 (one no-op) and 3/2/3. The host appeared in neither.
+
+Running on 2026-10-12 22:35Z: web task definition = app cfe57bc + caddy 82a55a2 on
+host i-0f394561be17356b8; SPA bundle index-BpDf6_LL.js (Manage page mode-aware,
+CSRF header on every mutation).
