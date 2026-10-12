@@ -89,7 +89,7 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms
 echo 'expect: explicitDeny (the custody line)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: allowed for session-secret, implicitDeny for database-url-app'
-aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" --query 'EvaluationResults[].[EvalResourceName,EvalDecision]' --output text
+aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" --query 'EvaluationResults[].ResourceSpecificResults[].[EvalResourceName,EvalResourceDecision]' --output text
 ```
 
 The block is written to be pasted whole into an interactive zsh: no comments (zsh passes `# ...`
