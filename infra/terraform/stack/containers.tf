@@ -110,6 +110,15 @@ data "aws_iam_policy_document" "caddy_dns01" {
     actions   = ["route53:ListHostedZonesByName", "route53:GetChange"]
     resources = ["*"]
   }
+  # The provider READS the zone before it writes -- libdns merges the TXT
+  # values it finds -- and the first web task with a working Caddy sat in a
+  # 60-second retry loop on `AccessDenied: route53:ListResourceRecordSets`.
+  # Read-only, on this zone only; the records are public DNS anyway. The
+  # write below stays what amendment C3 says: one TXT name, UPSERT/DELETE.
+  statement {
+    actions   = ["route53:ListResourceRecordSets"]
+    resources = [data.aws_route53_zone.main.arn]
+  }
   statement {
     actions   = ["route53:ChangeResourceRecordSets"]
     resources = [data.aws_route53_zone.main.arn]

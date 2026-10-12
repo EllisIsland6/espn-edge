@@ -464,6 +464,27 @@ def test_the_budget_exists_before_anything_else_can(bootstrap):
     assert kinds == {"ACTUAL", "FORECASTED"}
 
 
+def test_caddy_may_read_the_zone_and_write_exactly_one_txt_name(stack):
+    # Amendment C3, plus the read the provider needs before it writes: the first
+    # task with a working Caddy sat in a retry loop on AccessDenied for
+    # route53:ListResourceRecordSets. Reads on this zone only; writes TXT only,
+    # UPSERT/DELETE only, the one ACME name only.
+    doc = stack["data"]["aws_iam_policy_document"]["caddy_dns01"]
+    by_actions = {tuple(sorted(s["actions"])): s for s in doc["statement"]}
+    assert set(by_actions) == {
+        ("route53:GetChange", "route53:ListHostedZonesByName"),
+        ("route53:ListResourceRecordSets",),
+        ("route53:ChangeResourceRecordSets",),
+    }, sorted(by_actions)
+    assert by_actions[("route53:ListResourceRecordSets",)]["resources"] == ["${data.aws_route53_zone.main.arn}"]
+    write = by_actions[("route53:ChangeResourceRecordSets",)]
+    assert write["resources"] == ["${data.aws_route53_zone.main.arn}"]
+    conditions = {c["variable"]: c for c in write["condition"]}
+    assert conditions["route53:ChangeResourceRecordSetsRecordTypes"]["values"] == ["TXT"]
+    assert sorted(conditions["route53:ChangeResourceRecordSetsActions"]["values"]) == ["DELETE", "UPSERT"]
+    assert conditions["route53:ChangeResourceRecordSetsNormalizedRecordNames"]["values"] == ["_acme-challenge.${var.origin_hostname}"]
+
+
 # ------------------------------------------------------------ instruments
 
 def test_the_parses_are_actually_parsing_something(stack, bootstrap):
