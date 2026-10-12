@@ -505,6 +505,26 @@ headroom. If that cutover shape does not fit 2 GiB, choose one honestly:
 Two simultaneous full exports across both slots are not admitted during the swap. Steady-state
 memory alone is no longer sufficient evidence for the selected compute.
 
+### C5–C7, recorded elsewhere
+
+Three amendments were made during the Phase 42 apply and live in the code and the orchestration
+record rather than here: C5 (the origin certificate's DNS-01 role may read the zone it writes), C6
+(the database's placement is unpinned so RDS may use either private subnet's AZ) and C7
+(`db.t3.micro`, because Graviton micro capacity was absent in both AZs).
+
+### C8. Custody: real ESPN data for an invited group (proposed, ADR-012)
+
+The custody row above -- "public synthetic AWS; private real data local; private AWS unselected" --
+is amended by [ADR-012](adr/012-hosted-real-data-for-an-invited-group.md) when the operator accepts
+it: **one hosted deployment, in a third mode `private_invited`, holding the ESPN sessions of a
+closed, invited group of known people, each session entered by its owner, each erasable by its
+owner and revocable by the operator, encrypted at rest under a customer-managed key whose policy
+names one reader.** The 100× column's conditions for real strangers (written provider
+authorization, dedicated ownership, per-environment cells) are not met and are not claimed; the
+amendment accepts that risk knowingly for roughly a dozen people, on the operator's decision, with
+the gates in the ADR deciding when each piece is live. The public-synthetic outcome paragraph at the
+top of this document describes the deployment only until ADR-012's gate G4 is applied.
+
 ## What a staff engineer would ask about the amendments
 
 1. **“Won't missing-is-breaching alert on every deploy?”** Fast gauges require 3 of 4 five-minute
