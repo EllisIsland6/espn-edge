@@ -96,9 +96,10 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms
   --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: explicitDeny -- the custody line
 PLAN_ROLE=$(terraform output -raw plan_role_arn)
 aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue \
-  --resource-arns "arn:aws:secretsmanager:us-east-1:$ACCT:secret:espn-edge/session-secret-AAAAAA" \
-                  "arn:aws:secretsmanager:us-east-1:$ACCT:secret:espn-edge/database-url-app-AAAAAA" \
+  --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" \
+                  "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" \
   --query 'EvaluationResults[].[EvalResourceName,EvalDecision]' --output text    # expect: allowed for session-secret, implicitDeny for database-url-app
+# `${ACCT}` with braces on purpose: in zsh, `$ACCT:secret` is the `:s` substitution modifier and mangles the ARN.
 ```
 
 ### 2. Repository settings
