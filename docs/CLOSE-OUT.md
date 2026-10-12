@@ -859,6 +859,29 @@ This was a practice project. These are the findings that are not about fantasy f
     Two tests pin both, and the full migration chain was run against a database whose password
     encodes to seven percent signs before the fix was called a fix.
 
+47. **A saved plan applied in the job that made it is a plan nobody read.** The apply workflow plans
+    and applies in one job, behind a reviewer gate that fires before the plan exists, so the
+    operator approves a *dispatch*, not a diff. Apply #8 was dispatched to change one IAM inline
+    policy -- "0 to add, 1 to change" was Agent 1's prediction -- and the plan said `2 to add, 2 to
+    change, 2 to destroy`: the host was destroyed and recreated. Cause: `associate_public_ip_address
+    = false` on an instance that carries an EIP. Once the association exists the provider reads the
+    attribute back as `true`, the literal disagrees, and the attribute forces replacement -- so
+    every apply since the EIP was attached has rebuilt the host, each time taking Caddy's host-path
+    certificate store with it. The attribute is gone (the subnet decides; the EIP is explicit), a
+    test pins its absence with the control, and the procedure changed: the read-only plan workflow
+    runs first on the exact commit and its `Plan:` line is read against the prediction before the
+    apply workflow is dispatched. A prediction that is never compared with the plan is not a check.
+
+48. **When both ends are green and nothing passes between them, the failure is in a layer neither
+    end logs.** CloudFront returned its own 502 page; Caddy had its certificate, served the app,
+    and wrote no access line and no error. The failure sat in the TLS handshake between them, which
+    neither side logs by default. The managed `AllViewer` origin request policy forwards the
+    viewer's `Host` header, and CloudFront then requires the origin certificate to carry *that*
+    name -- `eaedgefinder.com` -- while Caddy's certificate is for `origin.eaedgefinder.com` only.
+    `AllViewerExceptHostHeader` exists for exactly this shape (AWS's own note: these origins
+    "expect the Host header to contain the origin domain name"), and a test now pins it. The move:
+    list the layers between the two logs you have, and go to the one that neither of them writes.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

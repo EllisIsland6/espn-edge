@@ -58,12 +58,17 @@ resource "aws_eip" "host" {
 }
 
 resource "aws_instance" "host" {
-  ami                         = data.aws_ssm_parameter.ecs_ami_arm64.value
-  instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.app_public.id
-  vpc_security_group_ids      = [aws_security_group.host.id]
-  iam_instance_profile        = aws_iam_instance_profile.host.name
-  associate_public_ip_address = false
+  ami                    = data.aws_ssm_parameter.ecs_ami_arm64.value
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.app_public.id
+  vpc_security_group_ids = [aws_security_group.host.id]
+  iam_instance_profile   = aws_iam_instance_profile.host.name
+  # No `associate_public_ip_address` on purpose. The subnet does not map a
+  # public address at launch and the EIP below is explicit. A literal `false`
+  # here replaced the host on every apply: once the EIP is attached the
+  # provider reads the attribute back as true (the primary interface has an
+  # association), the literal disagrees, and the attribute forces
+  # replacement -- apply #8 destroyed the host to change an IAM policy.
 
   # T4g burst credits: "standard" so a sustained spike throttles rather than
   # bills. Amendment C2 in the architecture document treats the two credit

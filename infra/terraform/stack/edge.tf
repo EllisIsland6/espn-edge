@@ -198,14 +198,20 @@ resource "aws_cloudfront_distribution" "site" {
 
   # The API: never cached, everything forwarded (cookies, headers, query).
   ordered_cache_behavior {
-    path_pattern             = "/api/*"
-    target_origin_id         = "api"
-    viewer_protocol_policy   = "https-only"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD"]
-    compress                 = true
-    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
-    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # Managed-AllViewer
+    path_pattern           = "/api/*"
+    target_origin_id       = "api"
+    viewer_protocol_policy = "https-only"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+    cache_policy_id        = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
+    # AllViewerExceptHostHeader, not AllViewer. AllViewer forwards the viewer's
+    # Host header, and CloudFront then requires the origin certificate to carry
+    # *that* name -- eaedgefinder.com. Caddy's certificate is for the origin
+    # name only, so every API request died in the TLS handshake: a CloudFront
+    # 502 with nothing in Caddy's log. This policy sends the origin its own
+    # domain name as Host, which is also the name Caddy's site block matches.
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # Managed-AllViewerExceptHostHeader
   }
 
   restrictions {

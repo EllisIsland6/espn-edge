@@ -251,6 +251,35 @@ def test_cloudfront_reaches_the_origin_over_https_with_the_verify_header(stack):
     assert api_behavior["cache_policy_id"] == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad", "the API must use Managed-CachingDisabled"
 
 
+def test_cloudfront_sends_the_origin_its_own_name_not_the_viewers(stack):
+    # Managed-AllViewer forwards the viewer's Host header, and CloudFront then
+    # checks the origin certificate against *that* name -- eaedgefinder.com.
+    # Caddy's certificate is for origin.eaedgefinder.com only, so every request
+    # died at the TLS layer: a CloudFront 502 and nothing in Caddy's log.
+    # AllViewerExceptHostHeader sends the origin its own domain name instead.
+    dist = _one(stack, "aws_cloudfront_distribution")
+    api = next(b for b in dist["ordered_cache_behavior"] if b["path_pattern"] == "/api/*")
+    assert api["origin_request_policy_id"] == "b689b0a8-53d0-40ab-baf2-68738e2966ac", (
+        "the API behaviour must use Managed-AllViewerExceptHostHeader"
+    )
+
+
+def test_the_host_is_replaced_only_on_purpose(stack):
+    # Apply #8 destroyed and recreated the host to change an IAM policy.
+    # `associate_public_ip_address = false` was the cause: once the EIP is
+    # attached the provider reads the attribute back as true (the primary
+    # interface has an association), the literal disagrees, and the attribute
+    # forces replacement -- on every apply, forever, taking Caddy's host-path
+    # certificate store with it. The subnet decides whether a launch gets a
+    # public address; the EIP is explicit; amendment C4 pins the AMI.
+    host = _one(stack, "aws_instance")
+    assert "associate_public_ip_address" not in host, sorted(host)
+    subnet = _resources(stack, "aws_subnet")["app_public"]
+    assert subnet["map_public_ip_on_launch"] is False, subnet
+    assert _one(stack, "aws_eip_association")["instance_id"] == "${aws_instance.host.id}"
+    assert host["lifecycle"][0]["ignore_changes"] == ["ami"], host["lifecycle"]
+
+
 # ------------------------------------------------------- custody and mode
 
 def test_every_task_runs_public_synthetic_and_no_fernet_key(stack):
