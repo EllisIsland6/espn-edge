@@ -471,8 +471,35 @@ def test_the_plan_role_cannot_write(bootstrap):
     attachments = _resources(bootstrap, "aws_iam_role_policy_attachment")
     plan_policies = [a["policy_arn"] for a in attachments.values() if "plan" in str(a["role"])]
     assert plan_policies == ["arn:aws:iam::aws:policy/ReadOnlyAccess"], plan_policies
-    inline = _resources(bootstrap, "aws_iam_role_policy")["plan_state"]
-    assert "state_access" in inline["policy"]
+    inline = _resources(bootstrap, "aws_iam_role_policy")
+    on_plan = {k for k, v in inline.items() if "aws_iam_role.plan." in str(v["role"])}
+    assert on_plan == {"plan_state", "plan_managed_secret_values"}, on_plan
+    assert "state_access" in inline["plan_state"]["policy"]
+
+
+def test_the_plan_role_reads_exactly_the_secret_values_terraform_manages(bootstrap, stack):
+    # Refresh reads every aws_secretsmanager_secret_version with GetSecretValue,
+    # which ReadOnlyAccess does not include: the first plan after the stack
+    # existed failed on all three (run 38285733572). Not a widening -- those
+    # values are already in the state this role reads -- but a line: the
+    # database URLs' versions are written by hand, hold the database passwords
+    # and are not in state, so they stay out, with everything else.
+    secrets = _resources(stack, "aws_secretsmanager_secret")
+    versions = _resources(stack, "aws_secretsmanager_secret_version")
+    managed = set()
+    for v in versions.values():
+        m = re.fullmatch(r"\$\{aws_secretsmanager_secret\.(\w+)\.id\}", v["secret_id"])
+        assert m, v["secret_id"]
+        managed.add(secrets[m.group(1)]["name"])
+    assert managed == {"espn-edge/session-secret", "espn-edge/oidc-client-secret", "espn-edge/origin-verify"}
+    allowed = bootstrap["locals"]["stack_managed_secret_names"]
+    assert set(allowed) == managed and len(allowed) == len(managed), allowed
+    assert not any("database-url" in n or "anthropic" in n for n in allowed)
+    doc = bootstrap["data"]["aws_iam_policy_document"]["plan_managed_secret_values"]
+    (stmt,) = doc["statement"]
+    assert stmt["actions"] == ["secretsmanager:GetSecretValue"]
+    assert "local.stack_managed_secret_names" in str(stmt["resources"])
+    assert "secret:${name}-*" in str(stmt["resources"]), stmt["resources"]
 
 
 def test_roles_trust_only_this_repository_via_oidc(bootstrap):

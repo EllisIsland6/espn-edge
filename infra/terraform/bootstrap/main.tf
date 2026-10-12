@@ -149,6 +149,42 @@ resource "aws_iam_role_policy_attachment" "plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# The plan role may read the VALUES of exactly the secrets whose versions the
+# stack manages. Refresh reads an aws_secretsmanager_secret_version with
+# GetSecretValue, which ReadOnlyAccess deliberately lacks, so the first plan
+# after the stack existed failed on all three (run 38285733572; the earlier
+# plans had nothing in state to refresh). This is not a widening: those three
+# values are also in the Terraform state, which this role already reads. The
+# database URLs are not -- their versions were written by hand, outside
+# Terraform, and hold the database passwords -- and they stay out, as does
+# everything else. tests/test_terraform_policy.py pins the list to the
+# stack's aws_secretsmanager_secret_version resources.
+data "aws_caller_identity" "current" {}
+
+locals {
+  stack_managed_secret_names = [
+    "espn-edge/session-secret",
+    "espn-edge/oidc-client-secret",
+    "espn-edge/origin-verify",
+  ]
+}
+
+data "aws_iam_policy_document" "plan_managed_secret_values" {
+  statement {
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      for name in local.stack_managed_secret_names :
+      "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:${name}-*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "plan_managed_secret_values" {
+  name   = "managed-secret-values"
+  role   = aws_iam_role.plan.id
+  policy = data.aws_iam_policy_document.plan_managed_secret_values.json
+}
+
 # The DEPLOY role: assumable only from the `production` environment of the
 # main branch, which GitHub gates behind a required reviewer. Its permissions
 # are bounded by an explicit boundary that can never grant the things Phase
