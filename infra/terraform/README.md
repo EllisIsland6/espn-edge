@@ -71,36 +71,31 @@ plan role, so the boundary is probed directly, read-only, before the first stack
 
 ```bash
 ROLE=$(terraform output -raw deploy_role_arn)
-ACCT=$(aws sts get-caller-identity --query Account --output text)
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint \
-  --resource-arns "arn:aws:ec2:us-east-1:$ACCT:vpc-endpoint/*" \
-  --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.s3,ContextKeyType=string \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint \
-  --resource-arns "arn:aws:ec2:us-east-1:$ACCT:vpc-endpoint/*" \
-  --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.ssm,ContextKeyType=string \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: explicitDeny
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
-  --action-names iam:TagInstanceProfile iam:CreateInstanceProfile ec2:CreateNatGateway \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed allowed explicitDeny
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem \
-  --resource-arns "$(terraform output -raw lock_table | sed "s#^#arn:aws:dynamodb:us-east-1:$ACCT:table/#")" \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed -- the boundary caps the role's own state policy too
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant \
-  --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: allowed -- ACM, EBS and RDS create grants on aws/* keys
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant \
-  --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=lambda.us-east-1.amazonaws.com,ContextKeyType=string \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: implicitDeny -- not through a service the stack uses
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text      # expect: explicitDeny -- the custody line
 PLAN_ROLE=$(terraform output -raw plan_role_arn)
-aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue \
-  --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" \
-                  "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" \
-  --query 'EvaluationResults[].[EvalResourceName,EvalDecision]' --output text    # expect: allowed for session-secret, implicitDeny for database-url-app
-# `${ACCT}` with braces on purpose: in zsh, `$ACCT:secret` is the `:s` substitution modifier and mangles the ARN.
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+LOCK_ARN="arn:aws:dynamodb:us-east-1:${ACCT}:table/$(terraform output -raw lock_table)"
+echo 'expect: allowed'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint --resource-arns "arn:aws:ec2:us-east-1:${ACCT}:vpc-endpoint/*" --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.s3,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: explicitDeny'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names ec2:CreateVpcEndpoint --resource-arns "arn:aws:ec2:us-east-1:${ACCT}:vpc-endpoint/*" --context-entries ContextKeyName=ec2:VpceServiceName,ContextKeyValues=com.amazonaws.us-east-1.ssm,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed allowed explicitDeny'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names iam:TagInstanceProfile iam:CreateInstanceProfile ec2:CreateNatGateway --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed (the boundary caps the role'"'"'s own state policy too)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem --resource-arns "$LOCK_ARN" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed (ACM, EBS and RDS create grants on aws/* keys)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: implicitDeny (not through a service the stack uses)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=lambda.us-east-1.amazonaws.com,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: explicitDeny (the custody line)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed for session-secret, implicitDeny for database-url-app'
+aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" --query 'EvaluationResults[].[EvalResourceName,EvalDecision]' --output text
 ```
+
+The block is written to be pasted whole into an interactive zsh: no comments (zsh passes `# ...`
+to the command unless `interactivecomments` is set), no line continuations, the expectation as an
+`echo` before each probe, and `${ACCT}` braced because `$ACCT:secret` and `$ACCT:table` are zsh
+modifiers.
 
 ### 2. Repository settings
 
