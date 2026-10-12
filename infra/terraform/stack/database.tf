@@ -45,7 +45,7 @@ resource "aws_db_instance" "main" {
   # apply met InsufficientDBInstanceCapacity for db.t4g.micro/gp3 there and
   # RDS could not consider the subnet group's other AZ. Cross-AZ traffic
   # between host and database is $0.01/GB each way -- nothing at this scale.
-  availability_zone      = var.db_availability_zone
+  availability_zone = var.db_availability_zone
 
   multi_az            = false
   publicly_accessible = false
