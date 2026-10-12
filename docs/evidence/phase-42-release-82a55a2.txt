@@ -1,0 +1,37 @@
+Phase 42 -- release manifest addendum, 2026-10-08 → 2026-10-12
+Both images built on the operator's Mac (Apple silicon, Docker Desktop),
+linux/arm64 for the t4g.small host. Digests read from the ECR console on
+2026-10-12 (Agent 1, read-only, through the operator's browser).
+
+app    387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/app:21c6fa7
+       digest sha256:cdb44f1c8b64d5800f37449978e4a2bdb6860afe1628a3139dbdd301c4c69b59
+       built 2026-10-08 from 21c6fa7 (alembic/env.py: %% + wrapped store);
+       ops/preflight-image.sh: 19 checks passed; migrate task ran 0001 → 0017
+       against RDS with the rotated owner password.
+
+caddy  387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/caddy:82a55a2
+       digest sha256:292cbeadeaa156208fcbd8529015510c5aa6ff4b71ba438c20dce1a21fe2e7f9
+       built 2026-10-11 from 82a55a2 (Caddyfile without the cert_issuer lines).
+       The caddy tag 21c6fa7 is the same manifest as 11c8736 (sha256:3a24d895...):
+       the Caddyfile did not change between those commits, so ECR accepted a
+       second tag on an identical index.
+
+Deployed by apply runs:
+  #5  37815666693  11c8736   task definitions → 11c8736 (both images)
+  #6  37818578784  21c6fa7   app → 21c6fa7; ANTHROPIC_API_KEY secret reference removed
+  #7  38151369162  82a55a2   caddy → 82a55a2
+  #8  38260893498  9656cbe   caddy-dns01 inline policy +route53:ListResourceRecordSets
+
+What the running stack is on 2026-10-12 after #8: web task definition
+espn-edge-web:4 = app 21c6fa7 + caddy 82a55a2 on host i-0f394561be17356b8.
+
+Found by reading the logs of #4 through #8 (the raw job logs, public):
+every one of them destroyed and recreated aws_instance.host --
+  #4  i-0ea5b98c12d4ba4a2 → i-0103497ed3ec535c3   "Plan: 6 to add, 1 to change, 2 to destroy"
+  #5  i-0103497ed3ec535c3 → i-083b57cd516d00cab   "Plan: 5 to add, 3 to change, 5 to destroy"
+  #6  i-083b57cd516d00cab → i-07e5eb2aed0706ade   "Plan: 5 to add, 3 to change, 5 to destroy"
+  #7  i-07e5eb2aed0706ade → i-001a6be109a2c539b   "Plan: 4 to add, 2 to change, 3 to destroy"
+  #8  i-001a6be109a2c539b → i-0f394561be17356b8   "Plan: 2 to add, 2 to change, 2 to destroy"
+each on `associate_public_ip_address = true -> false # forces replacement`.
+Five rebuilds, none intended, none noticed until #8's plan was read
+against a prediction. Fixed in df19dae; the test is the next plan.
