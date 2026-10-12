@@ -44,7 +44,7 @@ export async function triggerRecoveryBackup(
   const path = `/api/recovery/backup?reason=${reason}`;
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
-    headers: { "X-ESPN-Edge-Action": "backup" },
+    headers: { "X-ESPN-Edge-Action": "backup", ...csrfHeaders() },
   });
   if (!res.ok) throw new Error(await errorText(res, path));
   return res.json() as Promise<RecoveryBackupResult>;
@@ -986,6 +986,23 @@ export interface AiReportList<T = Record<string, unknown>> {
 const SIGN_IN_REQUIRED = "authentication required";
 const SIGN_IN_PATH = "/api/auth/login";
 
+/**
+ * Double-submit CSRF, hosted mode only. `api/security.py` sets a cookie the
+ * page may read and refuses every unsafe request whose `X-CSRF-Token` header
+ * does not echo it. In private-operator mode the cookie is never set and the
+ * check never runs, so sending nothing is correct there. Found on the first
+ * hosted POST: every mutation came back `403 csrf check failed`, because the
+ * backend half of Phase 40 was proven by test and this half did not exist.
+ * Both literals are pinned against api/security.py by tests/test_spa_csrf.py.
+ */
+const CSRF_COOKIE = "edge_csrf";
+const CSRF_HEADER = "X-CSRF-Token";
+
+function csrfHeaders(): Record<string, string> {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${CSRF_COOKIE}=([^;]*)`));
+  return match ? { [CSRF_HEADER]: decodeURIComponent(match[1]) } : {};
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(await errorText(res, path));
@@ -995,7 +1012,7 @@ async function get<T>(path: string): Promise<T> {
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers: { ...csrfHeaders(), ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(await errorText(res, path));
