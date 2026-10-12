@@ -9,10 +9,16 @@ need `<repo>/.venv/bin/python`, which points at a macOS framework interpreter an
 the operator's Mac. Each names that path in its reason, and the skip condition is guarded by a test
 that is never skipped itself — see the CI note below.
 
-This closes the project at **Phase 41 (narrowed)**, with Phase 40 completed afterwards (2026-10-07). Phases 39, 40 and 41 were done after the first
-close-out was written. 42 was then taken to a validated, reviewed plan, with the operator running Terraform in
-his own account (bootstrap applied; the stack itself not). That apply, and with it 43–45, is a separate
-approval that has not been given.
+This closes the project at **Phase 42 (applied, synthetic)**. Phases 39, 40 and 41 were done after the
+first close-out was written, narrowed. 42 was taken to a validated, reviewed plan on 2026-10-07; the
+operator gave a bounded approval on 2026-10-08 ("exactly as planned -- synthetic, me as the only user"),
+and the stack was applied in his own account across apply runs #2–#9. On 2026-10-12 the site answered
+through CloudFront, the operator signed in through a real Cognito, and `/api/accounts` returned `[]`
+for an authenticated, provisioned user -- the finish line that approval named. 43–45 are not started;
+the live-callback half of 43 happened as a consequence of 42, and 44's launch clause is met in
+substance (a public synthetic site, real spend of about $35/month) without its other clauses being
+claimed. Phase 46 -- real data for the operator and an invited group -- is a stated direction with no
+approval and no ADR.
 
 | Phase | Status |
 | --- | --- |
@@ -22,7 +28,7 @@ approval that has not been given.
 | 39 durable job queue | done (narrowed) — queue, leases, retry, poison, fairness, schedules, worker, outbox |
 | 40 application sessions | **done** — cookie sessions, CSRF, headers, and the OIDC front door (`api/oidc.py`, `/api/auth/login` → provider → `/api/auth/callback`, revision 0017). The earlier "PyJWT uninstallable" was the venv lacking `pip`, not the package. The callback is proven against a provider faked at the `httpx` seam; it has never met a real Cognito. |
 | 41 observability | done (narrowed) — ten series, ten alarms, worker heartbeat, fault harness; CloudWatch half needs AWS |
-| 42 public infrastructure + CI | **drafted, validated, planned — not applied** — the selected topology in Terraform (`infra/terraform/`), bootstrap with OIDC plan/deploy roles and a budget, 23 offline policy tests holding the architecture's guarantees, plan/apply workflows. The operator ran it in his own account: bootstrap applied (14 resources — state, lock, budget, OIDC roles), stack `validate` → `Success!`, plan **88 to add, 0 to change, 0 to destroy** (`docs/evidence/phase-42-first-plan.txt`). The first plan found one more defect — CloudFront's error-page rewrite would have turned API 403/404s into 200s with the SPA shell — fixed before the re-plan. The stack apply is a separate approval, not given. |
+| 42 public infrastructure + CI | **applied and verified (synthetic)** — the selected topology in Terraform (`infra/terraform/`): bootstrap (state, lock, $52 budget, GitHub OIDC plan/deploy roles with a permissions boundary), the 88-resource stack, 31 offline policy tests holding the architecture's guarantees, plan/apply workflows behind a required reviewer. Applied by the operator in his own account across runs #2–#9 (2026-10-08 → 12); nine defects found by running what the plans had passed (boundary gaps, KMS grants, RDS capacity, a 0600 checkout in the image, a secret with no version, alembic's ConfigParser leaking the owner URL -- rotated within minutes -- a ZeroSSL issuer that killed Caddy, a DNS-01 read the task role lacked, the viewer's Host header reaching the origin) and one the applies themselves caused (the host rebuilt on every apply, five times, until the plan was read before the apply). Verified 2026-10-12 from a browser: `/api/health` from the application behind a Let's Encrypt origin certificate, `/api/accounts` 401 unauthenticated, the SPA bouncing to the real Cognito hosted UI, sign-in, `/api/auth/me` → `{user_id 1, tenant_id 1}`, `/api/accounts` → `[]`. Evidence in `docs/evidence/phase-42-*`; the running record in `docs/agent-handoffs/ORCHESTRATION_STATE.md`. |
 | 43–45 | not started — **AWS** |
 
 ---
@@ -242,9 +248,10 @@ Phases 39–45 are roughly 39 sessions and 930 operator minutes in the plan.
 
 39, 40 and 41 turned out to be substantially doable offline and were done, narrowed. 41's offline
 half is larger than the plan suggested: four of its five acceptance clauses are provable on a
-laptop, and the CloudWatch half is one sink implementation away. 42 reached a validated, reviewed
-plan with the operator running Terraform in his own account (bootstrap applied, stack not); the stack
-apply, and with it 43–45, is a separate approval that has not been given.
+laptop, and the CloudWatch half is one sink implementation away. 42 was applied under a bounded
+approval and verified end to end in synthetic mode on 2026-10-12, with every AWS mutation run by the
+operator in his own terminal or console and no credential ever held by the agent. 43–45 are not
+started as phases; what 42 proved of them is named in the table above and nothing more is claimed.
 
 The operator's standing direction was that this is a practice project to be narrowed and
 time-boxed. The architecture lessons it exists to teach have been learned and recorded.
@@ -311,9 +318,12 @@ files, so git could not clean up after itself. `.git/objects/**/tmp_obj_*` and `
 hold that debris. `git gc` clears the first; the second is gitignored and can be deleted.
 
 Standing constraints that were honoured throughout and should stay honoured: no secrets in chat,
-logs, evidence, fixtures, commits or handoffs; public hosted mode stays synthetic-only; no provider,
-Anthropic or AWS calls; no spend. Commits and the merge to `main` were authorized explicitly
-mid-session; the push was performed by the operator.
+logs, evidence, fixtures, commits or handoffs (one incident: the owner database URL reached a
+CloudWatch stream and chat through alembic's ConfigParser on 2026-10-08, was rotated within minutes,
+and is lesson 46); public hosted mode stays synthetic-only; no provider or Anthropic calls; AWS calls
+and spend only under the operator's bounded approval of 2026-10-08, and only from his own terminal or
+console. Commits and the merge to `main` were authorized explicitly mid-session; every push was
+performed by the operator.
 
 ---
 
