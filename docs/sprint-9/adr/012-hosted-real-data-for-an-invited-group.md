@@ -1,6 +1,6 @@
 # ADR-012 — Real ESPN data on the hosted site, for an invited group
 
-**Status:** proposed; becomes accepted when the operator says so in the orchestration record.
+**Status:** accepted by the operator on 2026-10-16 ("yes to all" to the six questions in the orchestration record, the first of which was this ADR as written).
 **Date:** 2026-10-12. **Supersedes, in part:** the custody row of `03-architecture.md`
 ("public synthetic AWS; private real data local; private AWS unselected") and the public half of
 ADR-006 ("no public CMK"). **Does not change:** the tenant kernel, RLS, the session model, Phase 31's

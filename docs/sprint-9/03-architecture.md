@@ -512,11 +512,11 @@ record rather than here: C5 (the origin certificate's DNS-01 role may read the z
 (the database's placement is unpinned so RDS may use either private subnet's AZ) and C7
 (`db.t3.micro`, because Graviton micro capacity was absent in both AZs).
 
-### C8. Custody: real ESPN data for an invited group (proposed, ADR-012)
+### C8. Custody: real ESPN data for an invited group (accepted 2026-10-16, ADR-012)
 
 The custody row above -- "public synthetic AWS; private real data local; private AWS unselected" --
-is amended by [ADR-012](adr/012-hosted-real-data-for-an-invited-group.md) when the operator accepts
-it: **one hosted deployment, in a third mode `private_invited`, holding the ESPN sessions of a
+is amended by [ADR-012](adr/012-hosted-real-data-for-an-invited-group.md), accepted by the operator on
+2026-10-16: **one hosted deployment, in a third mode `private_invited`, holding the ESPN sessions of a
 closed, invited group of known people, each session entered by its owner, each erasable by its
 owner and revocable by the operator, encrypted at rest under a customer-managed key whose policy
 names one reader.** The 100× column's conditions for real strangers (written provider

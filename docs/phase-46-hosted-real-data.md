@@ -1,8 +1,8 @@
 # Phase 46 — real ESPN data on the hosted site, for an invited group
 
 Decision: [ADR-012](sprint-9/adr/012-hosted-real-data-for-an-invited-group.md); custody amendment C8
-in `sprint-9/03-architecture.md`. **Status: proposed. Nothing here is built, applied or authorized
-until gate G1 is recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` by the operator's words.**
+in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 open. Each later gate is its own approval,
+recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
 their own ESPN account, the way it worked locally. Delivered in order: first for him alone (G2–G5),
