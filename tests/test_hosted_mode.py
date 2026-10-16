@@ -45,11 +45,15 @@ class _Account:
 
 def test_default_mode_is_private_operator():
     assert Settings().app_mode == "private_operator"
-    assert Settings().is_public_synthetic is False
+    assert Settings().is_synthetic is False
+    assert Settings().is_hosted is False
 
 
 def test_configured_mode_is_explicit_and_validated():
-    assert Settings(app_mode="public_synthetic").is_public_synthetic is True
+    assert Settings(app_mode="public_synthetic").is_synthetic is True
+    assert Settings(app_mode="public_synthetic").is_hosted is True
+    assert Settings(app_mode="private_invited").is_synthetic is False
+    assert Settings(app_mode="private_invited").is_hosted is True
     with pytest.raises(ValidationError):
         Settings(app_mode="somewhere_else")
 
@@ -119,7 +123,8 @@ def test_real_settings_default_does_not_block_anything():
     """A default deployment must not accidentally be in hosted mode."""
 
     get_settings.cache_clear()
-    assert get_settings().is_public_synthetic is False
+    assert get_settings().is_synthetic is False
+    assert get_settings().is_hosted is False
 
 
 def test_mode_resolves_from_the_real_environment(monkeypatch):
@@ -133,7 +138,7 @@ def test_mode_resolves_from_the_real_environment(monkeypatch):
     monkeypatch.setenv("APP_MODE", "public_synthetic")
     get_settings.cache_clear()
     try:
-        assert get_settings().is_public_synthetic is True
+        assert get_settings().is_synthetic is True
         with pytest.raises(HostedModeForbidden):
             EspnService()
     finally:
@@ -157,7 +162,7 @@ def test_the_mode_cannot_be_flipped_at_runtime():
     settings = Settings(app_mode="public_synthetic")
     with pytest.raises(ValidationError):
         settings.app_mode = "private_operator"
-    assert settings.is_public_synthetic is True
+    assert settings.is_synthetic is True
 
 
 def test_hosted_mode_cannot_store_a_credential(monkeypatch):
@@ -212,8 +217,8 @@ def test_the_mode_must_be_declared_before_the_process_exists(monkeypatch):
         Settings(_env_file=None)
     assert "app_mode" in str(caught.value)
 
-    # Both declared values still construct.
-    for mode in ("private_operator", "public_synthetic"):
+    # All three declared values still construct.
+    for mode in ("private_operator", "public_synthetic", "private_invited"):
         monkeypatch.setenv("APP_MODE", mode)
         assert Settings(_env_file=None).app_mode == mode
 

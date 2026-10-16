@@ -184,7 +184,9 @@ def _bound_session(*, request=None, tenant_id: int | None = None) -> Session:
     from .config import get_settings
     from .tenancy import TenantNotResolved, bind_session, resolve_tenant_id, tenant_for_user
 
-    hosted = get_settings().is_public_synthetic
+    # `is_hosted`: default deny is about where requests come from, not about
+    # what data the deployment holds (ADR-012).
+    hosted = get_settings().is_hosted
     session = SessionLocal()
     try:
         if tenant_id is not None:

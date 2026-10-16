@@ -25,7 +25,9 @@ def _forbid_credential_custody_in_hosted_mode() -> None:
     """
     from .config import get_settings
 
-    if get_settings().is_public_synthetic:
+    # `is_synthetic`: custody is forbidden on the synthetic site and admitted on
+    # the invited one, whose key is the CMK-encrypted secret of ADR-012.
+    if get_settings().is_synthetic:
         from .services.espn import HostedModeForbidden
 
         raise HostedModeForbidden("credential custody")

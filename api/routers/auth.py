@@ -58,7 +58,9 @@ NOT_PROVISIONED = "this identity is not provisioned"
 
 def _hosted() -> bool:
     # Through the module, at call time, for the reason security.py explains.
-    return config.get_settings().is_public_synthetic
+    # `is_hosted`, not `is_synthetic`: the front door exists wherever requests
+    # come from the internet, real data or not (ADR-012).
+    return config.get_settings().is_hosted
 
 
 def _require_hosted() -> None:

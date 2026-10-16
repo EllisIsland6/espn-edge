@@ -121,7 +121,9 @@ class HostedModeForbidden(RuntimeError):
 
 
 def _forbid_in_hosted_mode(operation: str) -> None:
-    if get_settings().is_public_synthetic:
+    # `is_synthetic`: the real provider is unconstructible on the synthetic site
+    # and admitted on the invited one (ADR-012).
+    if get_settings().is_synthetic:
         raise HostedModeForbidden(operation)
 
 

@@ -28,7 +28,9 @@ def _hosted() -> bool:
     the hosted-mode tests and they passed anyway, for the wrong reason.
     Measured, then fixed.
     """
-    return config.get_settings().is_public_synthetic
+    # `is_hosted`: cookies are secure and CSRF is checked on every hosted
+    # deployment, synthetic or real (ADR-012).
+    return config.get_settings().is_hosted
 
 #: The double-submit pair. The session cookie is HttpOnly so JavaScript cannot
 #: read it; this one deliberately is NOT, because the page must read it to put

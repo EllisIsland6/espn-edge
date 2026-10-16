@@ -1001,7 +1001,7 @@ def test_the_flag_on_path_binds_the_shared_recorder(monkeypatch):
     class Enabled:
         telemetry_enabled = True
         espn_api_host = HOST
-        is_public_synthetic = False
+        is_synthetic = False
 
     monkeypatch.setattr(espn_module, "get_settings", lambda: Enabled())
     service = EspnService(host=HOST, client=ScriptedClient([]), cache=None, min_interval=0.0)

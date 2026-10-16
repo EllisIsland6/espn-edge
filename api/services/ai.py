@@ -181,7 +181,11 @@ def _spend_bound_required() -> bool:
     recorded in E31.5 alongside the existing `api/Dockerfile` item.
     """
     settings = get_settings()
-    return settings.is_public_synthetic or bool(settings.ai_price_micro_usd_per_mtok)
+    # `is_hosted`: any internet-facing deployment holding a host key is bounded
+    # by the ledger whether or not a price is configured. The per-user key of
+    # ADR-012's gate G7 bypasses the host ledger because the spend is the
+    # user's, and that path does not exist yet.
+    return settings.is_hosted or bool(settings.ai_price_micro_usd_per_mtok)
 
 
 _SYSTEM = (

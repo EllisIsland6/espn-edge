@@ -7,7 +7,7 @@ export interface Health {
   season: number;
   db_path: string;
   backend: string;
-  mode: "private_operator" | "public_synthetic";
+  mode: "private_operator" | "public_synthetic" | "private_invited";
 }
 
 export interface RecoveryStatus {

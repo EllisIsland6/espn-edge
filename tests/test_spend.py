@@ -675,7 +675,7 @@ def test_hosted_mode_requires_the_bound_even_with_no_prices_configured(
     is not a structural bound."""
     settings = get_settings()
     monkeypatch.setattr(settings, "ai_price_micro_usd_per_mtok", {}, raising=False)
-    monkeypatch.setattr(type(settings), "is_public_synthetic", property(lambda _self: True))
+    monkeypatch.setattr(type(settings), "is_hosted", property(lambda _self: True))
     client = RecordingClient(usage=TokenUsage(10, 10))
     with pytest.raises(AiSpendBlockedError):
         _generate(AiService(db_session, client), league.id)

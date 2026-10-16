@@ -47,7 +47,18 @@ class Settings(BaseSettings):
     # `frozen` is a typo guard on top of that, not the boundary: it refuses
     # `settings.app_mode = ...`, and `object.__setattr__` still gets through. The
     # boundary is that the value must be declared before the process exists.
-    app_mode: Literal["private_operator", "public_synthetic"] = Field(frozen=True)
+    #
+    # Three modes, two questions (ADR-012). `private_operator` is one person on
+    # their own machine: not hosted, not synthetic. `public_synthetic` is the
+    # internet-facing demo: hosted AND synthetic. `private_invited` is the
+    # internet-facing real site for an invited group: hosted, NOT synthetic.
+    # Callers ask `is_hosted` (does a request need a session, CSRF, the front
+    # door, default deny?) or `is_synthetic` (is the real provider, credential
+    # custody and the raw cache forbidden?) -- never "which mode is it", because
+    # the third mode is exactly where the two answers differ.
+    app_mode: Literal["private_operator", "public_synthetic", "private_invited"] = Field(
+        frozen=True
+    )
 
     season: int = 2026
 
@@ -157,7 +168,15 @@ class Settings(BaseSettings):
     web_port: int = 5173
 
     @property
-    def is_public_synthetic(self) -> bool:
+    def is_hosted(self) -> bool:
+        """Requests arrive from the internet: sessions, CSRF, the OIDC front
+        door and default deny apply. True for both hosted modes."""
+        return self.app_mode in ("public_synthetic", "private_invited")
+
+    @property
+    def is_synthetic(self) -> bool:
+        """No real provider, no credential custody, no raw-cache write.
+        True for `public_synthetic` only; `private_invited` is hosted and real."""
         return self.app_mode == "public_synthetic"
 
     @property

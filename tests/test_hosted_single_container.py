@@ -219,7 +219,7 @@ def test_health_reports_the_mode(monkeypatch):
     from api.config import Settings
     from api.main import app
 
-    for mode in ("private_operator", "public_synthetic"):
+    for mode in ("private_operator", "public_synthetic", "private_invited"):
         monkeypatch.setattr("api.config.get_settings", lambda mode=mode: Settings(app_mode=mode))
         monkeypatch.setattr("api.routers.health.get_settings", lambda mode=mode: Settings(app_mode=mode))
         with TestClient(app) as client:
