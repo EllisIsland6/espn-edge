@@ -41,7 +41,6 @@ FORBIDDEN_RESOURCE_TYPES = {
     "aws_alb": "no ALB",
     "aws_lb_listener": "no ALB",
     "aws_wafv2_web_acl": "no WAF",
-    "aws_kms_key": "no custody key -- there is nothing to decrypt in a synthetic deployment",
     "aws_kms_grant": "no custody key grant",
     "aws_iam_user": "no IAM users; roles assumed by OIDC only",
     "aws_iam_access_key": "no long-lived keys",
@@ -153,6 +152,16 @@ def _container_definitions(task: dict) -> list[dict]:
 def test_no_forbidden_resource_types_in_the_stack(stack):
     present = {rtype: reason for rtype, reason in FORBIDDEN_RESOURCE_TYPES.items() if rtype in stack["resource"]}
     assert present == {}, f"the architecture rejects these and the stack declares them: {present}"
+
+
+def test_the_only_kms_key_is_the_custody_key(stack):
+    # ADR-012 admits exactly one customer-managed key, the one that encrypts
+    # the Fernet secret. A second key is a custody change nobody decided; the
+    # CI gate in terraform-plan.yml makes the same exception by the same name.
+    keys = _resources(stack, "aws_kms_key")
+    assert set(keys) == {"custody"}, sorted(keys)
+    gate = (ROOT / ".github/workflows/terraform-plan.yml").read_text(encoding="utf-8")
+    assert 'if t == "aws_kms_key" and rc["name"] == "custody":' in gate
 
 
 def test_the_only_vpc_endpoint_is_the_free_s3_gateway(stack):
@@ -282,17 +291,80 @@ def test_the_host_is_replaced_only_on_purpose(stack):
 
 # ------------------------------------------------------- custody and mode
 
-def test_every_task_runs_public_synthetic_and_no_fernet_key(stack):
+def test_every_task_runs_public_synthetic_until_gate_g4(stack):
     tasks = _resources(stack, "aws_ecs_task_definition")
     assert set(tasks) == {"web", "worker", "migrate"}, sorted(tasks)
     # The environment is a local; its literal is what we check.
     env = _as_list(stack["locals"]["app_environment"])
     by_name = {e["name"]: e["value"] for e in env}
     assert by_name["APP_MODE"] == "public_synthetic"
-    assert "FERNET_KEY" not in by_name
+    assert "FERNET_KEY" not in by_name, "the key is a secret, never an environment literal"
     secrets = {s["name"] for s in _as_list(stack["locals"]["app_secrets"])}
-    assert "FERNET_KEY" not in secrets
+    assert "FERNET_KEY" not in secrets, "the shared list feeds the worker too; the key is web-only"
     assert "DATABASE_URL" in secrets and "OIDC_CLIENT_SECRET" in secrets
+
+
+# ------------------------------------------------------------ ADR-012 custody
+
+def test_the_custody_key_policy_names_one_application_reader(stack, bootstrap):
+    key = _one(stack, "aws_kms_key")
+    assert key["enable_key_rotation"] is True
+    assert key["deletion_window_in_days"] == 30
+    alias = _one(stack, "aws_kms_alias")
+    assert alias["name"] == "alias/espn-edge/custody"
+    # The bootstrap scopes the deploy role's Deny by this alias; the two roots
+    # must agree on the string or the Deny guards nothing.
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    deny = next(s for s in boundary["statement"] if s.get("sid") == "CustodyKeyNeverDecryptedByDeploy")
+    (cond,) = deny["condition"]
+    assert cond["variable"] == "kms:ResourceAliases" and cond["values"] == [alias["name"]]
+    doc = stack["data"]["aws_iam_policy_document"]["custody_key"]
+    by_sid = {s["sid"]: s for s in doc["statement"]}
+    assert set(by_sid) == {"AccountAdministration", "WebTaskReadsTheFernetSecret"}, sorted(by_sid)
+    reader = by_sid["WebTaskReadsTheFernetSecret"]
+    assert sorted(reader["actions"]) == ["kms:Decrypt", "kms:DescribeKey"]
+    (principal,) = reader["principals"]
+    assert principal["identifiers"] == ["${aws_iam_role.task_execution.arn}"]
+    (via,) = reader["condition"]
+    assert via["variable"] == "kms:ViaService" and via["values"] == ["secretsmanager.${var.region}.amazonaws.com"]
+    (root,) = by_sid["AccountAdministration"]["principals"]
+    assert root["identifiers"] == ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+
+
+def test_the_deploy_role_can_administer_but_never_decrypt_the_custody_key(bootstrap):
+    boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
+    by_sid = {s.get("sid"): s for s in boundary["statement"]}
+    admin = by_sid["CustodyKeyAdministration"]
+    assert "kms:CreateKey" in admin["actions"]
+    assert not any(a.split(":")[1] in {"Decrypt", "Encrypt", "ReEncrypt*", "CreateGrant"} or a.startswith("kms:GenerateDataKey") for a in admin["actions"]), admin["actions"]
+    encrypt = by_sid["CustodyKeyEncryptOnlyViaSecretsManager"]
+    assert "kms:Decrypt" not in encrypt["actions"]
+    conds = {c["variable"]: c for c in encrypt["condition"]}
+    assert conds["kms:ViaService"]["values"] == ["secretsmanager.${var.region}.amazonaws.com"]
+    assert conds["kms:ResourceAliases"]["values"] == ["alias/espn-edge/custody"]
+    deny = by_sid["CustodyKeyNeverDecryptedByDeploy"]
+    assert deny["effect"] == "Deny"
+    assert sorted(deny["actions"]) == ["kms:CreateGrant", "kms:Decrypt", "kms:ReEncrypt*"]
+
+
+def test_the_fernet_secret_reaches_exactly_the_web_task_once_wired(stack):
+    secret = _resources(stack, "aws_secretsmanager_secret")["fernet_key"]
+    assert secret["kms_key_id"] == "${aws_kms_key.custody.arn}"
+    assert secret["depends_on"] == ["${aws_kms_alias.custody}"]
+    gate = _load(STACK)["variable"]["wire_fernet_key"]
+    assert gate["default"] is False, "the secret must hold a value before any task references it"
+    web = str(stack["locals"]["web_secrets"])
+    assert "var.wire_fernet_key" in web and "FERNET_KEY" in web and "fernet_key.arn" in web
+    tasks = _resources(stack, "aws_ecs_task_definition")
+    web_app = next(c for c in _container_definitions(tasks["web"]) if c["name"] == "app")
+    assert web_app["secrets"] == "${local.web_secrets}", web_app["secrets"]
+    worker_app = next(c for c in _container_definitions(tasks["worker"]) if c["name"] == "worker")
+    assert worker_app["secrets"] == "${local.app_secrets}", worker_app["secrets"]
+    migrate = _container_definitions(tasks["migrate"])
+    assert all("FERNET_KEY" not in str(c.get("secrets", "")) for c in migrate)
+    execution = stack["data"]["aws_iam_policy_document"]["task_execution_secrets"]
+    (stmt,) = execution["statement"]
+    assert "${aws_secretsmanager_secret.fernet_key.arn}" in stmt["resources"]
 
 
 def test_every_variable_the_stack_sets_is_one_the_application_reads(stack):
@@ -395,8 +467,11 @@ def test_the_deploy_role_is_bounded_and_the_boundary_denies_the_rejected_actions
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
     denies = [s for s in boundary["statement"] if s.get("effect") == "Deny"]
     (deny,) = [s for s in denies if "condition" not in s]
-    for action in ("ec2:CreateNatGateway", "elasticloadbalancing:*", "wafv2:*", "kms:CreateKey", "iam:CreateUser", "iam:CreateAccessKey", "rds:CreateDBCluster"):
+    for action in ("ec2:CreateNatGateway", "elasticloadbalancing:*", "wafv2:*", "iam:CreateUser", "iam:CreateAccessKey", "rds:CreateDBCluster"):
         assert action in deny["actions"], action
+    # kms:CreateKey left this Deny with ADR-012: the stack creates exactly one
+    # key, and what the deploy role may do with it is tested below.
+    assert "kms:CreateKey" not in deny["actions"]
     # The stack creates the free S3 *gateway* endpoint; an unconditional Deny on
     # CreateVpcEndpoint refused it. Found by reading the first plan against the
     # boundary, before any apply. The conditional statement is tested below.
@@ -414,17 +489,22 @@ def test_aws_managed_keys_are_usable_only_through_the_stacks_services(bootstrap)
     assert "kms:CreateGrant" in kms["actions"]
     assert "kms:CreateKey" not in kms["actions"], "creating a key is the custody line"
     assert not any(a == "kms:*" for a in kms["actions"])
-    (cond,) = kms["condition"]
+    conds = {c["variable"]: c for c in kms["condition"]}
+    assert set(conds) == {"kms:ViaService", "kms:ResourceAliases"}, sorted(conds)
+    cond = conds["kms:ViaService"]
     assert cond["test"] == "StringEquals"
-    assert cond["variable"] == "kms:ViaService"
     assert sorted(cond["values"]) == sorted(
         f"{svc}.${{var.region}}.amazonaws.com" for svc in ("ec2", "rds", "acm", "secretsmanager")
     ), cond["values"]
+    # ADR-012: the Decrypt granted here reaches AWS-managed keys only. Every
+    # aws/* key carries an alias/aws/* alias; the custody key does not.
+    alias = conds["kms:ResourceAliases"]
+    assert alias["test"] == "ForAnyValue:StringLike" and alias["values"] == ["alias/aws/*"]
 
 
 def test_interface_endpoints_stay_denied_while_the_s3_gateway_is_allowed(bootstrap, stack):
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
-    (deny,) = [s for s in boundary["statement"] if s.get("effect") == "Deny" and "condition" in s]
+    (deny,) = [s for s in boundary["statement"] if s.get("sid") == "ArchitectureRejectedInterfaceEndpoints"]
     assert deny["actions"] == ["ec2:CreateVpcEndpoint"]
     # Scoped to the endpoint ARN: on the vpc and route-table resources the same
     # call touches, ec2:VpceServiceName is absent, and StringNotEquals on an

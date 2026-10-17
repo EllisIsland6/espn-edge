@@ -72,3 +72,13 @@ variable "season" {
   type    = number
   default = 2026
 }
+
+# ADR-012, gate G3 in two applies. ECS refuses to start a task whose secret
+# has no version (the Anthropic-key lesson of apply #5), so the key and the
+# secret are applied first with this false, the operator writes the value,
+# and a second apply with this true wires FERNET_KEY into the web task.
+variable "wire_fernet_key" {
+  description = "Whether the web task reads FERNET_KEY from espn-edge/fernet-key. Flip only after the secret holds a value."
+  type        = bool
+  default     = false
+}

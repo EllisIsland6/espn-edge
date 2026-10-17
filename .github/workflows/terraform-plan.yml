@@ -106,6 +106,9 @@ jobs:
                   # the one permitted endpoint is the free S3 gateway
                   if t == "aws_vpc_endpoint" and rc["change"]["after"].get("vpc_endpoint_type") == "Gateway":
                       continue
+                  # the one permitted key is ADR-012's custody key, by name
+                  if t == "aws_kms_key" and rc["name"] == "custody":
+                      continue
                   bad.append(f'{t}.{rc["name"]}')
           if bad:
               sys.exit(f"the plan would create resources the architecture rejects: {bad}")

@@ -78,6 +78,7 @@ data "aws_iam_policy_document" "task_execution_secrets" {
       aws_secretsmanager_secret.anthropic_api_key.arn,
       aws_secretsmanager_secret.oidc_client_secret.arn,
       aws_secretsmanager_secret.origin_verify.arn,
+      aws_secretsmanager_secret.fernet_key.arn,
       aws_db_instance.main.master_user_secret[0].secret_arn,
     ]
   }
@@ -163,8 +164,9 @@ resource "aws_cloudwatch_log_group" "migrate" {
 }
 
 # ------------------------------------------------------- the environment
-# Mirrors docs/aws-deploy.md s4 and the CDK artefact. public_synthetic is the
-# accepted custody boundary; no FERNET_KEY exists in this deployment.
+# Mirrors docs/aws-deploy.md s4 and the CDK artefact. APP_MODE is the custody
+# boundary; FERNET_KEY exists only in custody.tf's secret and reaches only the
+# web task (ADR-012).
 locals {
   app_image   = "${aws_ecr_repository.app.repository_url}:${var.app_image_tag}"
   caddy_image = "${aws_ecr_repository.caddy.repository_url}:${var.caddy_image_tag}"
@@ -192,6 +194,14 @@ locals {
     # Phase 46's direction is a key per user, held client-side, never here.
     { name = "OIDC_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.oidc_client_secret.arn },
   ]
+
+  # ADR-012: the custody key's secret reaches the web task and nothing else --
+  # the worker is parked and the migrate task needs no credential -- and only
+  # once `wire_fernet_key` says the secret holds a value.
+  web_secrets = concat(
+    local.app_secrets,
+    var.wire_fernet_key ? [{ name = "FERNET_KEY", valueFrom = aws_secretsmanager_secret.fernet_key.arn }] : [],
+  )
 }
 
 # --------------------------------------------------------------- web task
@@ -239,7 +249,7 @@ resource "aws_ecs_task_definition" "web" {
       memory      = 1024
       cpu         = 512
       environment = local.app_environment
-      secrets     = local.app_secrets
+      secrets     = local.web_secrets
       healthCheck = {
         command     = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).status == 200 else 1)\""]
         interval    = 30

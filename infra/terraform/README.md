@@ -13,7 +13,8 @@ the re-plan: **88 to add, 0 to change, 0 to destroy**, kept at `docs/evidence/ph
 This is the architecture `docs/sprint-9/03-architecture.md` selects, at **$34.26/month** by its
 own bill: one public-egress `t4g.small` with an EIP running ECS-on-EC2, single-AZ RDS PostgreSQL 16
 in a private subnet, S3 + CloudFront in front, Route 53 + ACM, Cognito's hosted UI. No NAT gateway,
-no ALB, no interface endpoint, no WAF, no KMS custody key, no private stack. The CDK draft in
+no ALB, no interface endpoint, no WAF, no private stack, and one customer-managed KMS key --
+ADR-012's custody key, behind gate G3. The CDK draft in
 `infra/app.py` is the *unselected* topology and stays an artefact.
 
 ## What is not in Terraform, deliberately
@@ -58,16 +59,20 @@ terraform apply ...same vars...
 
 Creates: the state bucket and lock table, **the budget alarms (80% actual, 100% forecast of $52)**,
 the GitHub OIDC provider, the **plan role** (`ReadOnlyAccess` + state) and the **deploy role**
-(bounded by a policy that *denies* NAT, ALB, interface endpoints, WAF, KMS keys, IAM users and
-access keys, whatever is attached later). Keep this root's local `terraform.tfstate` with the
+(bounded by a policy that *denies* NAT, ALB, interface endpoints, WAF, IAM users, access keys
+and any Decrypt with the custody key, whatever is attached later). Keep this root's local `terraform.tfstate` with the
 account; it is gitignored.
 
 If the account already has a GitHub OIDC provider, pass `-var create_github_oidc_provider=false`.
 
 **Re-apply this root whenever the deploy boundary changes** (it did on 2026-10-07: a scoped,
 conditional Deny so the free S3 gateway endpoint is allowed while interface endpoints stay
-denied, and the IAM tag action the instance profile needs). The plan only ever ran under the
-plan role, so the boundary is probed directly, read-only, before the first stack apply:
+denied, and the IAM tag action the instance profile needs; and again on 2026-10-17 for ADR-012:
+`kms:CreateKey` left the Deny, the custody-key statements arrived, and the AWS-managed-key Allow
+is scoped to `alias/aws/*` by `kms:ResourceAliases` -- a condition of the key, not the request,
+valid for every operation on a key, and every AWS-managed key carries its `alias/aws/<service>`
+alias in the account). The plan only ever ran under the plan role, so the boundary is probed
+directly, read-only, before the first stack apply:
 
 ```bash
 ROLE=$(terraform output -raw deploy_role_arn)
@@ -83,11 +88,17 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names iam
 echo 'expect: allowed (the boundary caps the role'"'"'s own state policy too)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names dynamodb:PutItem --resource-arns "$LOCK_ARN" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: allowed (ACM, EBS and RDS create grants on aws/* keys)'
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=acm.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/aws/acm,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: implicitDeny (not through a service the stack uses)'
-aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=lambda.us-east-1.amazonaws.com,ContextKeyType=string --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
-echo 'expect: explicitDeny (the custody line)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateGrant --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=lambda.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/aws/lambda,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed (ADR-012: the stack creates exactly one key, the custody key)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: explicitDeny (the deploy role never decrypts with the custody key, not even through Secrets Manager)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:Decrypt --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/espn-edge/custody,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed (it may encrypt into the custody key through Secrets Manager)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:GenerateDataKey --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/espn-edge/custody,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+echo 'expect: allowed (the aws/secretsmanager key behind the other secrets is untouched)'
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:Decrypt --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/aws/secretsmanager,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: allowed for session-secret, implicitDeny for database-url-app'
 aws iam simulate-principal-policy --policy-source-arn "$PLAN_ROLE" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/session-secret-AAAAAA" "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/database-url-app-AAAAAA" --query 'EvaluationResults[].ResourceSpecificResults[].[EvalResourceName,EvalResourceDecision]' --output text
 ```
@@ -151,18 +162,65 @@ applies the saved plan. Then, in order (`docs/aws-deploy.md`):
    (DNS-01 against `_acme-challenge.origin.eaedgefinder.com`, the only record its role may write).
 7. `https://eaedgefinder.com/api/health`, then sign in.
 
+### 6. Gate G3 -- the custody key, in two applies (ADR-012)
+
+ECS refuses to start a task whose secret has no version (apply #5's lesson, `docs/CLOSE-OUT.md`),
+so the key and the empty secret land first and the task's reference to it follows once the value
+is in. Every apply is plan-first (lesson 47): run **terraform plan** on the commit, read its
+`Plan:` line against the prediction, then **terraform apply**.
+
+1. Re-apply the bootstrap root (the boundary changed) and run the probe block above, including
+   the four ADR-012 lines.
+2. Stack apply with `wire_fernet_key` at its default `false`. Predicted: `3 to add` (key, alias,
+   secret) and `1 to change` (the execution role's secrets policy), nothing destroyed, no task
+   definition touched -- plus whatever an image-tag change in the same commit brings.
+3. Write the value in your terminal, from a variable that is never printed. The version id the
+   command returns is not secret. Then the read-only checks:
+
+```bash
+cd ~/espn-edge
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+FK=$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+aws secretsmanager put-secret-value --secret-id espn-edge/fernet-key --secret-string "${FK}" --query VersionId --output text
+unset FK
+echo 'expect: AWSCURRENT'
+aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query 'VersionIdsToStages.*[]' --output text
+echo 'expect: the custody key id, twice (the secret is encrypted with the custody key, and the alias points at it)'
+aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsKeyId --output text
+aws kms describe-key --key-id alias/espn-edge/custody --query KeyMetadata.Arn --output text
+echo 'expect: true (the KMS key rotates; the Fernet value never does -- a new value makes every stored session unreadable)'
+aws kms get-key-rotation-status --key-id alias/espn-edge/custody --query KeyRotationEnabled --output text
+echo 'expect: allowed (the web task execution role is the one reader)'
+aws iam simulate-principal-policy --policy-source-arn "arn:aws:iam::${ACCT}:role/espn-edge-task-execution" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/fernet-key-AAAAAA" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+```
+
+4. In one commit: `default = false` becomes `true` in `stack/variables.tf`, and the `is False`
+   assertion in `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired` becomes
+   `is True` -- the test records which side of the value-write the stack is on. Plan-first
+   apply: predicted `1 to add, 1 to change, 1 to destroy` (the web task definition is replaced by
+   a revision carrying `FERNET_KEY`; the web service moves to it). ECS rolls the service; then
+   `/api/health` still answers `public_synthetic` -- the key is loaded and unused until G4 flips
+   the mode, which is its own approval.
+
+Nothing in these steps prints, logs or stores the value anywhere but the secret: `terraform` never
+holds it (no `aws_secretsmanager_secret_version` exists for it), the plan role cannot read it
+(`managed-secret-values` names three other secrets), and the deploy role cannot decrypt it.
+
 ## Guarantees, and where each is held
 
-| Guarantee (Phase 42) | Held by |
+| Guarantee (Phase 42; ADR-012 rows marked) | Held by |
 | --- | --- |
-| No NAT, ALB, interface endpoint, WAF, KMS custody key, Aurora, IAM user or key | `test_no_forbidden_resource_types_in_the_stack`; the deploy boundary's `Deny`; the plan workflow's JSON check |
+| No NAT, ALB, interface endpoint, WAF, Aurora, IAM user or key; one KMS key, the custody key (ADR-012) | `test_no_forbidden_resource_types_in_the_stack`, `test_the_only_kms_key_is_the_custody_key`; the deploy boundary's `Deny`; the plan workflow's JSON check, which admits `aws_kms_key.custody` by name |
+| The custody key has one application reader; the deploy role administers it and never decrypts with it (ADR-012) | `test_the_custody_key_policy_names_one_application_reader`, `test_the_deploy_role_can_administer_but_never_decrypt_the_custody_key`; the simulator probes above |
 | Private subnets have no route out | `test_private_route_table_has_no_route_out` |
 | Host answers CloudFront only, on 443, no SSH | `test_the_host_admits_only_cloudfront_on_443`, `test_no_ssh_and_no_key_pair` |
 | Database private, single-AZ, encrypted, password never in state | `test_the_database_is_private_single_az_encrypted` |
-| `public_synthetic`, no `FERNET_KEY`, every variable read | `test_every_task_runs_public_synthetic_and_no_fernet_key`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
+| `public_synthetic` until G4; `FERNET_KEY` reaches the web task only, and only once wired; every variable read | `test_every_task_runs_public_synthetic_until_gate_g4`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
 | No long-lived GitHub key; plan cannot deploy | `test_roles_trust_only_this_repository_via_oidc`, `test_the_plan_role_cannot_write` |
 | Budget before anything else | `test_the_budget_exists_before_anything_else_can` |
 | Alarms are Phase 41's catalog, not a copy | `ops/render_alarms.py --check`, run as a test |
 
 Every one of those was control-removed: the resource planted, the route added, the mode flipped,
-the Deny deleted, port 22 opened — each fails the test that names it.
+the Deny deleted, port 22 opened, Decrypt handed to the deploy role, the alias string drifted
+between roots, the wiring gate flipped early, a second reader named on the key — each fails the
+test that names it.

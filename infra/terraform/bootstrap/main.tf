@@ -212,8 +212,9 @@ data "aws_iam_policy_document" "deploy_trust" {
 # What the stack root may create. Named services only, and an explicit Deny
 # on the resources the architecture rejected, so that even a permissive
 # policy attached later cannot buy a NAT gateway, an ALB, an interface
-# endpoint, a WAF or a KMS key by accident. `tests/test_terraform_policy.py`
-# asserts these Deny actions stay present.
+# endpoint or a WAF by accident. `tests/test_terraform_policy.py` asserts
+# these Deny actions stay present. kms:CreateKey left the Deny with ADR-012:
+# the stack now creates exactly one key, under the statements below.
 data "aws_iam_policy_document" "deploy_boundary" {
   statement {
     sid = "StackServices"
@@ -253,8 +254,11 @@ data "aws_iam_policy_document" "deploy_boundary" {
   # the Deny on kms:CreateGrant -- written to keep a custody key out, it also
   # stopped those services creating grants on the account's aws/* keys
   # ("InvalidKMSKey.InvalidState" on the instance; AccessDenied on ACM).
-  # kms:CreateKey stays denied: that is the custody line, and ViaService
-  # means the role cannot use KMS on its own account at all.
+  # ViaService means the role cannot use KMS on its own account at all, and
+  # the alias condition (ADR-012) means this statement reaches AWS-managed
+  # keys only -- every aws/* key carries an alias/aws/* alias and the custody
+  # key below carries alias/espn-edge/custody -- so the Decrypt granted here
+  # can never be the custody key's.
   statement {
     sid       = "AwsManagedKeysViaService"
     actions   = ["kms:CreateGrant", "kms:DescribeKey", "kms:Decrypt", "kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*"]
@@ -269,6 +273,56 @@ data "aws_iam_policy_document" "deploy_boundary" {
         "secretsmanager.${var.region}.amazonaws.com",
       ]
     }
+    condition {
+      test     = "ForAnyValue:StringLike"
+      variable = "kms:ResourceAliases"
+      values   = ["alias/aws/*"]
+    }
+  }
+  # ADR-012: the stack creates ONE customer-managed key, the custody key for
+  # the Fernet secret that encrypts ESPN sessions at rest. The deploy role
+  # administers it -- creates, aliases, tags, rotates, can schedule its
+  # deletion with the 30-day minimum -- and can encrypt into it through
+  # Secrets Manager (CreateSecret with a kms_key_id). It can never decrypt
+  # with it: the Deny below says so by alias, so no later Allow can change
+  # that, and the key's own policy names the web task's execution role as
+  # the one reader.
+  statement {
+    sid = "CustodyKeyAdministration"
+    actions = [
+      "kms:CreateKey", "kms:DescribeKey", "kms:GetKeyPolicy", "kms:PutKeyPolicy",
+      "kms:GetKeyRotationStatus", "kms:EnableKeyRotation", "kms:ListResourceTags",
+      "kms:TagResource", "kms:UntagResource", "kms:UpdateKeyDescription",
+      "kms:EnableKey", "kms:DisableKey", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion",
+      "kms:CreateAlias", "kms:UpdateAlias", "kms:DeleteAlias", "kms:ListAliases",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "CustodyKeyEncryptOnlyViaSecretsManager"
+    actions   = ["kms:Encrypt", "kms:GenerateDataKey*", "kms:DescribeKey"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${var.region}.amazonaws.com"]
+    }
+    condition {
+      test     = "ForAnyValue:StringLike"
+      variable = "kms:ResourceAliases"
+      values   = ["alias/espn-edge/custody"]
+    }
+  }
+  statement {
+    sid       = "CustodyKeyNeverDecryptedByDeploy"
+    effect    = "Deny"
+    actions   = ["kms:Decrypt", "kms:ReEncrypt*", "kms:CreateGrant"]
+    resources = ["*"]
+    condition {
+      test     = "ForAnyValue:StringLike"
+      variable = "kms:ResourceAliases"
+      values   = ["alias/espn-edge/custody"]
+    }
   }
   statement {
     sid    = "ArchitectureRejected"
@@ -278,7 +332,6 @@ data "aws_iam_policy_document" "deploy_boundary" {
       "elasticloadbalancing:*",
       "wafv2:*",
       "waf:*",
-      "kms:CreateKey",
       "rds:CreateDBCluster",
       "iam:CreateUser",
       "iam:CreateAccessKey",

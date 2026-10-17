@@ -60,6 +60,17 @@ deploy role may administer the key (create, tag, describe, schedule deletion wit
 minimum) and may not decrypt with it. A policy test pins all of that and the boundary's `CreateKey`
 Allow to exactly one key.
 
+*Implementation note, WU-2 (2026-10-17).* IAM cannot bind `kms:CreateKey` to one key -- the key
+does not exist when the call is authorized -- so "exactly one" is held by
+`test_the_only_kms_key_is_the_custody_key` and by the plan workflow's gate, which admits
+`aws_kms_key.custody` by name and refuses any other key. The deploy role's Decrypt is an explicit
+Deny by alias (`kms:ResourceAliases`), and the Allow it holds for AWS-managed keys is scoped to
+`alias/aws/*`, so it cannot reach this key by any path. The key policy names the account root (the
+lock-out guard, which is what lets IAM govern the key) and the one reader; the deploy role's
+administration lives in the boundary, beside its Deny. The secret is wired into the web task behind
+a variable, `wire_fernet_key`, because ECS refuses a task whose secret has no version: G3 is two
+applies with the operator's value-write between them.
+
 **Sync.** `POST /api/leagues/{id}/sync` runs the provider inside the request today, which is how the
 UI works locally; it needs no worker. The worker service stays parked at zero and scheduled syncing
 stays deferred, as Phase 39 left it. The shared one-request-per-second limiter is per process, which
