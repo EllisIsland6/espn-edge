@@ -892,6 +892,18 @@ This was a practice project. These are the findings that are not about fantasy f
     "expect the Host header to contain the origin domain name"), and a test now pins it. The move:
     list the layers between the two logs you have, and go to the one that neither of them writes.
 
+49. **A policy test reads the policy; it cannot see what a service does on your behalf.** ADR-012's
+    boundary denied the deploy role `kms:Decrypt` on the custody key, by alias, and 35 tests agreed
+    with it. Secrets Manager's own page on how it uses KMS says that establishing a secret's key --
+    `CreateSecret` with a `KmsKeyId`, value or no value -- calls `GenerateDataKey` *and* `Decrypt`
+    on the caller's behalf to validate access (`SecretVersionId` `RequestToValidateKeyAccess`). The
+    first apply would have been refused by the Deny the tests were proud of. Found by "check your
+    work" before any apply: read the service's page on what it does with the key, as the caller,
+    for every resource that names the key. The fix made the design cleaner, not looser -- the
+    secret became the operator's to create, with its value, and the deploy role lost its last
+    cryptographic Allow on the key. The move: for every Deny you write, list the AWS calls made
+    *for* the denied principal by the services it drives, and check each against the Deny.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

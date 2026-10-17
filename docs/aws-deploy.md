@@ -215,7 +215,7 @@ Create these in Secrets Manager before the first deploy.
 
 | Secret | How to generate | Notes |
 | --- | --- | --- |
-| ~~`FERNET_KEY`~~ | — | **Not used by this stack.** It decrypts stored ESPN cookies, and a synthetic deployment has none. The operator's key stays on the operator's machine. (If a private-mode deployment is ever decided — section 0a — it must be generated once and never rotated: a new key makes every stored credential undecryptable without failing loudly.) |
+| ~~`FERNET_KEY`~~ | — | **Not used by this stack.** It decrypts stored ESPN cookies, and a synthetic deployment has none. The operator's key stays on the operator's machine. (If a private-mode deployment is ever decided — section 0a — it must be generated once and never rotated: a new key makes every stored credential undecryptable without failing loudly.) **ADR-012 decided it (2026-10-16):** at gate G3 the hosted key becomes a Secrets Manager secret the operator creates with its value, encrypted with the stack's one customer-managed KMS key, read by the web task's execution role only; `infra/terraform/README.md` §6 is the procedure. Still unused until gate G4 flips the mode. |
 | `SESSION_SECRET` | 48+ random chars | **Read by nothing** today — there is no endpoint that mints a session. Wired ahead of the identity provider. |
 | `OPERATOR_PASSWORD_HASH` | any value | **Read by nothing.** Wired ahead of the identity provider. See the warning below before you treat it as a factor. |
 | `DATABASE_URL_OWNER` | `postgresql+psycopg2://edge_owner:…@<rds-endpoint>:5432/edge` | Only the migration task gets this. |

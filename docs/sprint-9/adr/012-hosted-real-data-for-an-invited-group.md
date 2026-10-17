@@ -63,13 +63,16 @@ Allow to exactly one key.
 *Implementation note, WU-2 (2026-10-17).* IAM cannot bind `kms:CreateKey` to one key -- the key
 does not exist when the call is authorized -- so "exactly one" is held by
 `test_the_only_kms_key_is_the_custody_key` and by the plan workflow's gate, which admits
-`aws_kms_key.custody` by name and refuses any other key. The deploy role's Decrypt is an explicit
-Deny by alias (`kms:ResourceAliases`), and the Allow it holds for AWS-managed keys is scoped to
-`alias/aws/*`, so it cannot reach this key by any path. The key policy names the account root (the
-lock-out guard, which is what lets IAM govern the key) and the one reader; the deploy role's
-administration lives in the boundary, beside its Deny. The secret is wired into the web task behind
-a variable, `wire_fernet_key`, because ECS refuses a task whose secret has no version: G3 is two
-applies with the operator's value-write between them.
+`aws_kms_key.custody` by name and refuses any other key. The deploy role never uses the key: an
+explicit Deny by alias (`kms:ResourceAliases`) covers Encrypt, Decrypt, ReEncrypt, GenerateDataKey
+and CreateGrant, and the Allow it holds for AWS-managed keys is scoped to `alias/aws/*`, so no path
+reaches this key. The key policy names the account root (the lock-out guard, which is what lets IAM
+govern the key) and the one reader; the deploy role's administration lives in the boundary, beside
+its Deny. The secret itself is the operator's, not Terraform's: Secrets Manager validates a new
+secret's key by decrypting with it on the caller's behalf, which the deploy role may not do, so the
+operator creates `espn-edge/fernet-key` with its value and the stack reads its ARN behind a
+variable, `wire_fernet_key`. G3 is therefore two applies -- key and alias; the operator's
+`create-secret`; the flip that wires the web task.
 
 **Sync.** `POST /api/leagues/{id}/sync` runs the provider inside the request today, which is how the
 UI works locally; it needs no worker. The worker service stays parked at zero and scheduled syncing

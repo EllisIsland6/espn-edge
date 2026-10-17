@@ -282,11 +282,13 @@ data "aws_iam_policy_document" "deploy_boundary" {
   # ADR-012: the stack creates ONE customer-managed key, the custody key for
   # the Fernet secret that encrypts ESPN sessions at rest. The deploy role
   # administers it -- creates, aliases, tags, rotates, can schedule its
-  # deletion with the 30-day minimum -- and can encrypt into it through
-  # Secrets Manager (CreateSecret with a kms_key_id). It can never decrypt
-  # with it: the Deny below says so by alias, so no later Allow can change
-  # that, and the key's own policy names the web task's execution role as
-  # the one reader.
+  # deletion with the 30-day minimum -- and never uses it: no Encrypt, no
+  # Decrypt, no data key, no grant. The Deny below says so by alias, so no
+  # later Allow can change that, and the key's own policy names the web
+  # task's execution role as the one reader. This is also why the Fernet
+  # secret is the operator's to create, not Terraform's: Secrets Manager
+  # validates a new secret's key by decrypting with it on the caller's
+  # behalf, which this role may not do (stack/custody.tf).
   statement {
     sid = "CustodyKeyAdministration"
     actions = [
@@ -299,24 +301,9 @@ data "aws_iam_policy_document" "deploy_boundary" {
     resources = ["*"]
   }
   statement {
-    sid       = "CustodyKeyEncryptOnlyViaSecretsManager"
-    actions   = ["kms:Encrypt", "kms:GenerateDataKey*", "kms:DescribeKey"]
-    resources = ["*"]
-    condition {
-      test     = "StringEquals"
-      variable = "kms:ViaService"
-      values   = ["secretsmanager.${var.region}.amazonaws.com"]
-    }
-    condition {
-      test     = "ForAnyValue:StringLike"
-      variable = "kms:ResourceAliases"
-      values   = ["alias/espn-edge/custody"]
-    }
-  }
-  statement {
-    sid       = "CustodyKeyNeverDecryptedByDeploy"
+    sid       = "CustodyKeyNeverUsedByDeploy"
     effect    = "Deny"
-    actions   = ["kms:Decrypt", "kms:ReEncrypt*", "kms:CreateGrant"]
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:CreateGrant"]
     resources = ["*"]
     condition {
       test     = "ForAnyValue:StringLike"

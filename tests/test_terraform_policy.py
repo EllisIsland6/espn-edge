@@ -315,7 +315,7 @@ def test_the_custody_key_policy_names_one_application_reader(stack, bootstrap):
     # The bootstrap scopes the deploy role's Deny by this alias; the two roots
     # must agree on the string or the Deny guards nothing.
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
-    deny = next(s for s in boundary["statement"] if s.get("sid") == "CustodyKeyNeverDecryptedByDeploy")
+    deny = next(s for s in boundary["statement"] if s.get("sid") == "CustodyKeyNeverUsedByDeploy")
     (cond,) = deny["condition"]
     assert cond["variable"] == "kms:ResourceAliases" and cond["values"] == [alias["name"]]
     doc = stack["data"]["aws_iam_policy_document"]["custody_key"]
@@ -331,30 +331,58 @@ def test_the_custody_key_policy_names_one_application_reader(stack, bootstrap):
     assert root["identifiers"] == ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
 
 
-def test_the_deploy_role_can_administer_but_never_decrypt_the_custody_key(bootstrap):
+CRYPTOGRAPHIC_KMS_ACTIONS = ("Encrypt", "Decrypt", "ReEncrypt", "GenerateDataKey", "CreateGrant")
+
+
+def _is_cryptographic(action: str) -> bool:
+    service, _, name = action.partition(":")
+    return service == "kms" and (name == "*" or name.startswith(CRYPTOGRAPHIC_KMS_ACTIONS))
+
+
+def test_the_deploy_role_can_administer_but_never_use_the_custody_key(bootstrap):
+    """The administration statement carries no cryptographic action; no Allow
+    anywhere in the boundary reaches a cryptographic action on the custody
+    alias (the one such Allow is scoped to alias/aws/*); and an explicit Deny
+    by alias covers every cryptographic action, so no later Allow can change
+    that. The Deny is also why the Fernet secret is the operator's to create:
+    Secrets Manager validates a new secret's key by decrypting with it on the
+    caller's behalf (its docs: SecretVersionId "RequestToValidateKeyAccess"),
+    which this role may not do -- a thing no policy test can see; it is
+    pinned here as the premise of test_the_fernet_secret_reaches_exactly_the_web_task_once_wired."""
     boundary = bootstrap["data"]["aws_iam_policy_document"]["deploy_boundary"]
     by_sid = {s.get("sid"): s for s in boundary["statement"]}
     admin = by_sid["CustodyKeyAdministration"]
     assert "kms:CreateKey" in admin["actions"]
-    assert not any(a.split(":")[1] in {"Decrypt", "Encrypt", "ReEncrypt*", "CreateGrant"} or a.startswith("kms:GenerateDataKey") for a in admin["actions"]), admin["actions"]
-    encrypt = by_sid["CustodyKeyEncryptOnlyViaSecretsManager"]
-    assert "kms:Decrypt" not in encrypt["actions"]
-    conds = {c["variable"]: c for c in encrypt["condition"]}
-    assert conds["kms:ViaService"]["values"] == ["secretsmanager.${var.region}.amazonaws.com"]
-    assert conds["kms:ResourceAliases"]["values"] == ["alias/espn-edge/custody"]
-    deny = by_sid["CustodyKeyNeverDecryptedByDeploy"]
+    assert not any(_is_cryptographic(a) for a in admin["actions"]), admin["actions"]
+    for stmt in boundary["statement"]:
+        if stmt.get("effect", "Allow") != "Allow" or not any(_is_cryptographic(a) for a in stmt["actions"]):
+            continue
+        conds = {c["variable"]: c for c in stmt.get("condition", [])}
+        assert conds["kms:ResourceAliases"]["values"] == ["alias/aws/*"], (stmt.get("sid"), stmt["actions"])
+        assert conds["kms:ResourceAliases"]["test"] == "ForAnyValue:StringLike"
+    deny = by_sid["CustodyKeyNeverUsedByDeploy"]
     assert deny["effect"] == "Deny"
-    assert sorted(deny["actions"]) == ["kms:CreateGrant", "kms:Decrypt", "kms:ReEncrypt*"]
+    assert sorted(deny["actions"]) == [
+        "kms:CreateGrant", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*", "kms:ReEncrypt*",
+    ]
+    (cond,) = deny["condition"]
+    assert cond["test"] == "ForAnyValue:StringLike" and cond["values"] == ["alias/espn-edge/custody"]
 
 
 def test_the_fernet_secret_reaches_exactly_the_web_task_once_wired(stack):
-    secret = _resources(stack, "aws_secretsmanager_secret")["fernet_key"]
-    assert secret["kms_key_id"] == "${aws_kms_key.custody.arn}"
-    assert secret["depends_on"] == ["${aws_kms_alias.custody}"]
+    assert "fernet_key" not in _resources(stack, "aws_secretsmanager_secret"), (
+        "the secret is the operator's: Secrets Manager decrypts with the key to validate a new "
+        "secret, and the deploy role may never decrypt with the custody key"
+    )
+    secret = stack["data"]["aws_secretsmanager_secret"]["fernet_key"]
+    assert secret["name"] == "espn-edge/fernet-key"
+    assert secret["count"] == "${var.wire_fernet_key ? 1 : 0}", secret
     gate = _load(STACK)["variable"]["wire_fernet_key"]
-    assert gate["default"] is False, "the secret must hold a value before any task references it"
+    assert gate["default"] is False, "the operator creates the secret before any task references it"
+    splat = "data.aws_secretsmanager_secret.fernet_key[*].arn"
     web = str(stack["locals"]["web_secrets"])
-    assert "var.wire_fernet_key" in web and "FERNET_KEY" in web and "fernet_key.arn" in web
+    assert splat in web and "FERNET_KEY" in web and "app_secrets" in web, web
+    assert "aws_secretsmanager_secret.fernet_key.arn" not in web
     tasks = _resources(stack, "aws_ecs_task_definition")
     web_app = next(c for c in _container_definitions(tasks["web"]) if c["name"] == "app")
     assert web_app["secrets"] == "${local.web_secrets}", web_app["secrets"]
@@ -364,7 +392,7 @@ def test_the_fernet_secret_reaches_exactly_the_web_task_once_wired(stack):
     assert all("FERNET_KEY" not in str(c.get("secrets", "")) for c in migrate)
     execution = stack["data"]["aws_iam_policy_document"]["task_execution_secrets"]
     (stmt,) = execution["statement"]
-    assert "${aws_secretsmanager_secret.fernet_key.arn}" in stmt["resources"]
+    assert splat in str(stmt["resources"]) and "aws_secretsmanager_secret.fernet_key.arn" not in str(stmt["resources"])
 
 
 def test_every_variable_the_stack_sets_is_one_the_application_reads(stack):

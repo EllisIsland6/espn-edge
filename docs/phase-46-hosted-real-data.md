@@ -50,53 +50,62 @@ fixtures, commits or handoffs, ever (lesson 46 and the incident behind it).
 
 ### WU-2. Key custody (gate G3; bootstrap + stack; plan-first, two applies)
 
-Built 2026-10-17; nothing applied until G3 is given in words.
+Built 2026-10-17, corrected the same day before any apply (see the orchestration state); nothing
+applied until G3 is given in words.
 
-- Bootstrap: the deploy boundary's unconditional Deny loses `kms:CreateKey`. Three statements
-  arrive. `CustodyKeyAdministration`: create, describe, key-policy get/put, rotation status and
-  enable, tags, description, enable/disable, schedule and cancel deletion, alias create/update/
-  delete/list -- the set the AWS provider reads and writes for a key and an alias, nothing
-  cryptographic. `CustodyKeyEncryptOnlyViaSecretsManager`: `Encrypt`, `GenerateDataKey*`,
-  `DescribeKey`, only via Secrets Manager and only on a key aliased `alias/espn-edge/custody`.
-  `CustodyKeyNeverDecryptedByDeploy`: an explicit Deny on `Decrypt`, `ReEncrypt*`, `CreateGrant`
-  for that alias, which no later Allow can undo. The AWS-managed-key ViaService Allow gains
-  `kms:ResourceAliases = alias/aws/*` -- a condition of the key, not the request, valid for every
-  operation on a key, and every AWS-managed key carries its `alias/aws/<service>` alias in the
-  account -- so the Decrypt it grants for RDS, EBS, ACM and the other secrets can never be the
-  custody key's.
+- Bootstrap: the deploy boundary's unconditional Deny loses `kms:CreateKey`. Two statements arrive.
+  `CustodyKeyAdministration`: create, describe, key-policy get/put, rotation status and enable,
+  tags, description, enable/disable, schedule and cancel deletion, alias create/update/delete/list
+  -- the set the AWS provider reads and writes for a key and an alias, nothing cryptographic.
+  `CustodyKeyNeverUsedByDeploy`: an explicit Deny on `Encrypt`, `Decrypt`, `ReEncrypt*`,
+  `GenerateDataKey*` and `CreateGrant` for `alias/espn-edge/custody`, which no later Allow can
+  undo. The AWS-managed-key ViaService Allow gains `kms:ResourceAliases = alias/aws/*` -- a
+  condition of the key, not the request, valid for every operation on a key, and every AWS-managed
+  key carries its `alias/aws/<service>` alias in the account -- so the Decrypt it grants for RDS,
+  EBS, ACM and the other secrets can never be the custody key's. No Allow anywhere in the boundary
+  reaches a cryptographic action on the custody alias; the deploy role administers the key and
+  never uses it.
 - Stack (`custody.tf`): `aws_kms_key.custody` (rotation on, 30-day deletion window) whose policy has
   two statements: the account root -- the lock-out guard every key policy carries, and what lets
   IAM govern the key; the deploy role's administration is IAM's business, where its Deny lives --
   and `WebTaskReadsTheFernetSecret`: the web task's **execution** role, `kms:Decrypt` and
-  `kms:DescribeKey`, via Secrets Manager only. `aws_kms_alias.custody`, and
-  `aws_secretsmanager_secret.fernet_key` encrypted with the key and dependent on the alias (the
-  boundary admits the deploy role's encrypt side by alias). The execution role's secrets policy
-  names it.
-- The wiring gate: `variable "wire_fernet_key"` (default `false`). The web task's `secrets` are
-  `local.web_secrets` -- the shared list plus `FERNET_KEY` only when the variable is true; the
-  worker and migrate tasks keep the shared list. ECS refuses to start a task whose secret has no
-  version (apply #5's lesson), so G3 is two applies: key + empty secret; the operator writes the
-  value; the flip -- one line in `variables.tf` and the assertion that records which side of the
-  value-write the stack is on -- and the second apply. `infra/terraform/README.md` §6 is the
-  procedure, paste-safe.
+  `kms:DescribeKey`, via Secrets Manager only. `aws_kms_alias.custody`. And the secret is **read,
+  not created**: `data "aws_secretsmanager_secret" "fernet_key"` with `count` on `wire_fernet_key`.
+- Why the secret is the operator's (the correction): Secrets Manager validates a new secret's key by
+  calling `GenerateDataKey` and `Decrypt` with it on the caller's behalf -- its documentation names
+  the calls, `SecretVersionId` `RequestToValidateKeyAccess` -- so a `CreateSecret` by the deploy
+  role would have been refused by its own Deny at the first apply. The policy tests read policy
+  text; they cannot see what a service does on the caller's behalf. Found by reading the service's
+  "how it uses KMS" page before the apply (CLOSE-OUT lesson 49). The operator creates the secret
+  with its value in one command (README §6), which also retires the empty-version problem: the
+  secret is born with its value.
+- The wiring gate: `variable "wire_fernet_key"` (default `false`) drives the data source's `count`;
+  the web task's `secrets` are `local.web_secrets` -- the shared list plus one `FERNET_KEY` entry
+  per element of the splat `data...fernet_key[*].arn` (none until wired); the execution role's
+  secrets policy concatenates the same splat; the worker and migrate tasks keep the shared list.
+  G3 is two applies: key + alias; the operator creates the secret; the flip -- one line in
+  `variables.tf` and the assertion that records which side of the secret's creation the stack is
+  on -- and the second apply. `infra/terraform/README.md` §6 is the procedure, paste-safe.
 - The plan workflow's gate, which refuses any `aws_kms_key` in a plan, admits exactly
   `aws_kms_key.custody` by name. IAM cannot bind `CreateKey` to one key (none exists when the call
   is authorized); "exactly one key" is held there and by `test_the_only_kms_key_is_the_custody_key`.
-- The value: generated by the operator in his terminal, written with `put-secret-value` from a
-  variable, never printed, never in chat. No `aws_secretsmanager_secret_version` exists for it; the
-  plan role's `managed-secret-values` names three other secrets.
+- The value: generated by the operator in his terminal, passed to `create-secret` from a variable,
+  never printed, never in chat. Terraform holds neither the value nor the secret; the plan role's
+  `managed-secret-values` names three other secrets.
 - **Tests** (`tests/test_terraform_policy.py`, 35): the only key is the custody key; the key policy
   names one reader under the ViaService condition and the alias string agrees across the two roots;
-  the admin statement carries no cryptographic action, the encrypt statement is conditioned on both
-  service and alias, the Deny names the alias and `CreateKey` is out of the unconditional Deny; the
-  secret is encrypted with the key, the gate defaults to `false`, `FERNET_KEY` reaches the web task
-  through `web_secrets` and no other task, the execution role's policy names the secret.
-  **Controls run, each failing exactly the test that names it:** `Decrypt` added to the admin
-  statement; the Deny's alias string drifted; the gate's default flipped early; a second reader
-  named on the key; the reader widened to `*`; the worker task given `web_secrets`. Probes in the
-  README: deploy role `kms:Decrypt` via Secrets Manager on the custody alias → `explicitDeny`,
-  `GenerateDataKey` there → `allowed`, `Decrypt` on `alias/aws/secretsmanager` → `allowed`;
-  execution role `GetSecretValue` on the secret → `allowed`.
+  the admin statement carries no cryptographic action, every Allow in the boundary that carries one
+  is scoped to `alias/aws/*`, the Deny names the alias and all five cryptographic actions, and
+  `CreateKey` is out of the unconditional Deny; no `aws_secretsmanager_secret` named `fernet_key`
+  exists, the data source is gated by `count` on the variable, the gate defaults to `false`,
+  `FERNET_KEY` reaches the web task through `web_secrets` and no other task, the execution role's
+  policy carries the same splat. **Controls run, each failing exactly the test that names it:**
+  `Decrypt` added to the admin statement; `GenerateDataKey*` dropped from the Deny; the alias scope
+  dropped from the AWS-managed Allow; the Deny's alias string drifted; the gate's default flipped
+  early; a second reader named on the key; the worker task given `web_secrets`; the secret planted
+  as a resource. Probes in the README: deploy role `kms:Decrypt` and `kms:GenerateDataKey` via
+  Secrets Manager on the custody alias → `explicitDeny`, `Decrypt` on `alias/aws/secretsmanager` →
+  `allowed`; execution role `GetSecretValue` on the secret → `allowed` once wired.
 
 ### WU-3. Provisioning as a script, not a paste (gate G4)
 

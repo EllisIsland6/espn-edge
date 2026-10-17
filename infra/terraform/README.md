@@ -24,6 +24,10 @@ ADR-012's custody key, behind gate G3. The CDK draft in
 - **The application role and its password.** Created as the owner after the first apply
   (`docs/aws-deploy.md` §2), written into the `espn-edge/database-url-app` secret by hand. A password
   is not something to put in state.
+- **The Fernet secret** (ADR-012). Secrets Manager validates a new secret's key by decrypting with
+  it on the caller's behalf, and the deploy role may never decrypt with the custody key -- so the
+  operator creates `espn-edge/fernet-key`, with its value, in one command, and the stack reads its
+  ARN (a `data` source behind `wire_fernet_key`). The key and its alias are the stack's.
 - **Users, memberships, identities.** Provisioned as the owner with the recipe in
   `alembic/versions/0017_identities.py` — not three plain INSERTs; `FORCE ROW LEVEL SECURITY` binds
   the owner too.
@@ -95,7 +99,7 @@ echo 'expect: allowed (ADR-012: the stack creates exactly one key, the custody k
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:CreateKey --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: explicitDeny (the deploy role never decrypts with the custody key, not even through Secrets Manager)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:Decrypt --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/espn-edge/custody,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
-echo 'expect: allowed (it may encrypt into the custody key through Secrets Manager)'
+echo 'expect: explicitDeny (nor generate a data key with it -- the deploy role never uses the key, which is why the secret is the operator'"'"'s to create)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:GenerateDataKey --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/espn-edge/custody,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 echo 'expect: allowed (the aws/secretsmanager key behind the other secrets is untouched)'
 aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names kms:Decrypt --context-entries ContextKeyName=kms:ViaService,ContextKeyValues=secretsmanager.us-east-1.amazonaws.com,ContextKeyType=string ContextKeyName=kms:ResourceAliases,ContextKeyValues=alias/aws/secretsmanager,ContextKeyType=stringList --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
@@ -164,54 +168,63 @@ applies the saved plan. Then, in order (`docs/aws-deploy.md`):
 
 ### 6. Gate G3 -- the custody key, in two applies (ADR-012)
 
-ECS refuses to start a task whose secret has no version (apply #5's lesson, `docs/CLOSE-OUT.md`),
-so the key and the empty secret land first and the task's reference to it follows once the value
-is in. Every apply is plan-first (lesson 47): run **terraform plan** on the commit, read its
-`Plan:` line against the prediction, then **terraform apply**.
+The Fernet secret is the operator's to create. Secrets Manager validates a new secret's key by
+calling `GenerateDataKey` and `Decrypt` with it on the caller's behalf (its documentation names the
+calls: `SecretVersionId` `RequestToValidateKeyAccess`), and the deploy role may never decrypt with
+the custody key -- a refusal no policy test could see, found by reading the service's own page on
+how it uses KMS before the first apply. So the key and its alias are the stack's; the secret is
+created by hand, with its value, in one command; and the stack reads its ARN behind
+`wire_fernet_key`. Every apply is plan-first (lesson 47): run **terraform plan** on the commit,
+read its `Plan:` line against the prediction, then **terraform apply**.
 
 1. Re-apply the bootstrap root (the boundary changed) and run the probe block above, including
    the four ADR-012 lines.
-2. Stack apply with `wire_fernet_key` at its default `false`. Predicted: `3 to add` (key, alias,
-   secret) and `1 to change` (the execution role's secrets policy), nothing destroyed, no task
-   definition touched -- plus whatever an image-tag change in the same commit brings.
-3. Write the value in your terminal, from a variable that is never printed. The version id the
-   command returns is not secret. Then the read-only checks:
+2. Stack apply with `wire_fernet_key` at its default `false`. Predicted: `2 to add` (the key and
+   its alias), nothing changed, nothing destroyed, no task definition touched -- plus whatever an
+   image-tag change in the same commit brings.
+3. Create the secret in your terminal, its value from a variable that is never printed. The ARN
+   the command returns is not secret. Then the read-only checks:
 
 ```bash
 cd ~/espn-edge
-ACCT=$(aws sts get-caller-identity --query Account --output text)
+KEY_ARN=$(aws kms describe-key --key-id alias/espn-edge/custody --query KeyMetadata.Arn --output text)
 FK=$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
-aws secretsmanager put-secret-value --secret-id espn-edge/fernet-key --secret-string "${FK}" --query VersionId --output text
+aws secretsmanager create-secret --name espn-edge/fernet-key --kms-key-id "${KEY_ARN}" --secret-string "${FK}" --description "ADR-012: the Fernet key behind ESPN sessions at rest. Created by the operator, read by Terraform, never rotated." --query ARN --output text
 unset FK
 echo 'expect: AWSCURRENT'
 aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query 'VersionIdsToStages.*[]' --output text
-echo 'expect: the custody key id, twice (the secret is encrypted with the custody key, and the alias points at it)'
+echo 'expect: the same ARN twice (the secret is encrypted with the custody key)'
+echo "${KEY_ARN}"
 aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsKeyId --output text
-aws kms describe-key --key-id alias/espn-edge/custody --query KeyMetadata.Arn --output text
 echo 'expect: true (the KMS key rotates; the Fernet value never does -- a new value makes every stored session unreadable)'
 aws kms get-key-rotation-status --key-id alias/espn-edge/custody --query KeyRotationEnabled --output text
-echo 'expect: allowed (the web task execution role is the one reader)'
-aws iam simulate-principal-policy --policy-source-arn "arn:aws:iam::${ACCT}:role/espn-edge-task-execution" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/fernet-key-AAAAAA" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
 ```
 
 4. In one commit: `default = false` becomes `true` in `stack/variables.tf`, and the `is False`
    assertion in `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired` becomes
-   `is True` -- the test records which side of the value-write the stack is on. Plan-first
-   apply: predicted `1 to add, 1 to change, 1 to destroy` (the web task definition is replaced by
-   a revision carrying `FERNET_KEY`; the web service moves to it). ECS rolls the service; then
-   `/api/health` still answers `public_synthetic` -- the key is loaded and unused until G4 flips
-   the mode, which is its own approval.
+   `is True` -- the test records which side of the secret's creation the stack is on. Plan-first
+   apply: predicted `1 to add, 2 to change, 1 to destroy` (the web task definition is replaced by a
+   revision carrying `FERNET_KEY`; the execution role's secrets policy and the web service change
+   in place). ECS rolls the service. Then the last probe, and `https://eaedgefinder.com/api/health`
+   still answers `public_synthetic` -- the key is loaded and unused until G4 flips the mode, which
+   is its own approval:
 
-Nothing in these steps prints, logs or stores the value anywhere but the secret: `terraform` never
-holds it (no `aws_secretsmanager_secret_version` exists for it), the plan role cannot read it
-(`managed-secret-values` names three other secrets), and the deploy role cannot decrypt it.
+```bash
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+echo 'expect: allowed (the web task execution role is the one reader; before step 4 this is implicitDeny)'
+aws iam simulate-principal-policy --policy-source-arn "arn:aws:iam::${ACCT}:role/espn-edge-task-execution" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/fernet-key-AAAAAA" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+```
+
+Nothing in these steps prints, logs or stores the value anywhere but the secret: Terraform never
+holds the value or the secret (a `data` source reads the ARN), the plan role cannot read the value
+(`managed-secret-values` names three other secrets), and the deploy role cannot use the key.
 
 ## Guarantees, and where each is held
 
 | Guarantee (Phase 42; ADR-012 rows marked) | Held by |
 | --- | --- |
 | No NAT, ALB, interface endpoint, WAF, Aurora, IAM user or key; one KMS key, the custody key (ADR-012) | `test_no_forbidden_resource_types_in_the_stack`, `test_the_only_kms_key_is_the_custody_key`; the deploy boundary's `Deny`; the plan workflow's JSON check, which admits `aws_kms_key.custody` by name |
-| The custody key has one application reader; the deploy role administers it and never decrypts with it (ADR-012) | `test_the_custody_key_policy_names_one_application_reader`, `test_the_deploy_role_can_administer_but_never_decrypt_the_custody_key`; the simulator probes above |
+| The custody key has one application reader; the deploy role administers it and never uses it; the secret is the operator's, read not created (ADR-012) | `test_the_custody_key_policy_names_one_application_reader`, `test_the_deploy_role_can_administer_but_never_use_the_custody_key`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`; the simulator probes above |
 | Private subnets have no route out | `test_private_route_table_has_no_route_out` |
 | Host answers CloudFront only, on 443, no SSH | `test_the_host_admits_only_cloudfront_on_443`, `test_no_ssh_and_no_key_pair` |
 | Database private, single-AZ, encrypted, password never in state | `test_the_database_is_private_single_az_encrypted` |
@@ -221,6 +234,7 @@ holds it (no `aws_secretsmanager_secret_version` exists for it), the plan role c
 | Alarms are Phase 41's catalog, not a copy | `ops/render_alarms.py --check`, run as a test |
 
 Every one of those was control-removed: the resource planted, the route added, the mode flipped,
-the Deny deleted, port 22 opened, Decrypt handed to the deploy role, the alias string drifted
-between roots, the wiring gate flipped early, a second reader named on the key — each fails the
-test that names it.
+the Deny deleted, port 22 opened, Decrypt handed to the deploy role, a data-key action dropped from
+its Deny, the alias scope dropped from the AWS-managed Allow, the alias string drifted between
+roots, the wiring gate flipped early, a second reader named on the key, the secret planted as a
+Terraform resource — each fails the test that names it.

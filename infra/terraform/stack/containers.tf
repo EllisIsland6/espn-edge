@@ -71,16 +71,19 @@ resource "aws_iam_role_policy_attachment" "task_execution_managed" {
 data "aws_iam_policy_document" "task_execution_secrets" {
   statement {
     actions = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_secretsmanager_secret.database_url_app.arn,
-      aws_secretsmanager_secret.database_url_owner.arn,
-      aws_secretsmanager_secret.session_secret.arn,
-      aws_secretsmanager_secret.anthropic_api_key.arn,
-      aws_secretsmanager_secret.oidc_client_secret.arn,
-      aws_secretsmanager_secret.origin_verify.arn,
-      aws_secretsmanager_secret.fernet_key.arn,
-      aws_db_instance.main.master_user_secret[0].secret_arn,
-    ]
+    resources = concat(
+      [
+        aws_secretsmanager_secret.database_url_app.arn,
+        aws_secretsmanager_secret.database_url_owner.arn,
+        aws_secretsmanager_secret.session_secret.arn,
+        aws_secretsmanager_secret.anthropic_api_key.arn,
+        aws_secretsmanager_secret.oidc_client_secret.arn,
+        aws_secretsmanager_secret.origin_verify.arn,
+        aws_db_instance.main.master_user_secret[0].secret_arn,
+      ],
+      # ADR-012: the operator's Fernet secret, once wired (custody.tf).
+      data.aws_secretsmanager_secret.fernet_key[*].arn,
+    )
   }
 }
 
@@ -165,8 +168,8 @@ resource "aws_cloudwatch_log_group" "migrate" {
 
 # ------------------------------------------------------- the environment
 # Mirrors docs/aws-deploy.md s4 and the CDK artefact. APP_MODE is the custody
-# boundary; FERNET_KEY exists only in custody.tf's secret and reaches only the
-# web task (ADR-012).
+# boundary; FERNET_KEY is read from the operator's secret (custody.tf) and
+# reaches only the web task (ADR-012).
 locals {
   app_image   = "${aws_ecr_repository.app.repository_url}:${var.app_image_tag}"
   caddy_image = "${aws_ecr_repository.caddy.repository_url}:${var.caddy_image_tag}"
@@ -195,12 +198,13 @@ locals {
     { name = "OIDC_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.oidc_client_secret.arn },
   ]
 
-  # ADR-012: the custody key's secret reaches the web task and nothing else --
-  # the worker is parked and the migrate task needs no credential -- and only
-  # once `wire_fernet_key` says the secret holds a value.
+  # ADR-012: the Fernet secret reaches the web task and nothing else -- the
+  # worker is parked and the migrate task needs no credential -- and only once
+  # `wire_fernet_key` says the operator has created it (custody.tf). The list
+  # is empty until then, so nothing here is conditional on its own.
   web_secrets = concat(
     local.app_secrets,
-    var.wire_fernet_key ? [{ name = "FERNET_KEY", valueFrom = aws_secretsmanager_secret.fernet_key.arn }] : [],
+    [for arn in data.aws_secretsmanager_secret.fernet_key[*].arn : { name = "FERNET_KEY", valueFrom = arn }],
   )
 }
 

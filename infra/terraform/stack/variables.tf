@@ -73,12 +73,14 @@ variable "season" {
   default = 2026
 }
 
-# ADR-012, gate G3 in two applies. ECS refuses to start a task whose secret
-# has no version (the Anthropic-key lesson of apply #5), so the key and the
-# secret are applied first with this false, the operator writes the value,
-# and a second apply with this true wires FERNET_KEY into the web task.
+# ADR-012, gate G3 in two applies. The Fernet secret is the operator's to
+# create (custody.tf says why), so the key and its alias are applied first
+# with this false; the operator creates the secret with its value; and a
+# second apply with this true reads the secret and wires FERNET_KEY into the
+# web task. ECS refuses to start a task whose secret has no version (apply
+# #5's lesson), which is also why the secret is born with its value.
 variable "wire_fernet_key" {
-  description = "Whether the web task reads FERNET_KEY from espn-edge/fernet-key. Flip only after the secret holds a value."
+  description = "Whether the stack reads the operator-created secret espn-edge/fernet-key and wires it into the web task as FERNET_KEY. Flip only once the secret exists with its value."
   type        = bool
   default     = false
 }
