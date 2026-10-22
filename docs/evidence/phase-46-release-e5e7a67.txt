@@ -1,0 +1,48 @@
+Phase 46 -- gate G2: WU-1 deployed with APP_MODE unchanged, 2026-10-22
+Image built on the operator's Mac (Apple silicon, Docker Desktop), linux/arm64
+for the t4g.small host. Digest from the push output in the operator's terminal.
+
+app    387865673700.dkr.ecr.us-east-1.amazonaws.com/espn-edge/app:e5e7a67
+       digest sha256:2133a11b264696a8bb65ff69ecc446191f1939517bfc03d465f75a061c76cfcf
+       built 2026-10-22 from e5e7a67. The image inputs (api/, web/, alembic/,
+       pyproject.toml, alembic.ini) are identical to 986f769's: the two
+       commits between them touch infra/, tests/, docs/ and .github/ only.
+       ops/preflight-image.sh: 19 checks passed; /api/health in the image
+       answered mode public_synthetic.
+
+caddy  unchanged: 82a55a2 (sha256:292cbead...), see phase-42-release-82a55a2.txt.
+
+Plan run  39724779816 on main = 986f769 (the custody commits held back locally
+          so that this apply carried no key): policy tests, fmt -check, init,
+          validate, plan, the architecture refusal -- all green.
+          "Plan: 4 to add, 2 to change, 3 to destroy."
+          Predicted 3/2/3. The one unpredicted line:
+            aws_sns_topic_subscription.operator will be created
+          -- the operator's email subscription to espn-edge-alarms, present in
+          state as a confirmed ARN (...:b4f1153c-...) and gone from AWS at
+          refresh. Explained before the apply as an unsubscribe outside
+          Terraform; the apply recreates it and SNS re-sends the confirmation.
+          Everything else as predicted: web, worker and migrate task
+          definitions replaced on `image: app:cfe57bc -> app:e5e7a67` and
+          nothing else inside them; web and worker services updated in place;
+          aws_instance.host refreshed and untouched (second apply in a row
+          without a rebuild, df19dae holds).
+Apply run 39725914729 on 986f769, approved by the operator as the production
+          reviewer (gate G2 in his click), job 119649644867, 32 s:
+          "Apply complete! Resources: 4 added, 2 changed, 3 destroyed."
+
+Verified (operator's terminal, read-only, 2026-10-22):
+  aws ecs describe-services --cluster espn-edge --services web
+    PRIMARY  task-definition/espn-edge-web:6  runningCount 1  COMPLETED
+  https://eaedgefinder.com/api/health  (Agent 1, from the session)
+    status ok, season 2026, backend postgresql://espn-edge...rds.amazonaws.com:5432/edge,
+    mode public_synthetic
+  aws sns list-subscriptions-by-topic ... espn-edge-alarms
+    email  PendingConfirmation   -- the recreated subscription awaits the
+    operator's click in his inbox; unconfirmed, SNS drops it after three days
+    and every later plan shows the same "+1".
+
+What the running stack is after apply #11: web task definition espn-edge-web:6
+= app e5e7a67 (WU-1: the third mode exists in code; APP_MODE still
+public_synthetic) + caddy 82a55a2 on host i-0f394561be17356b8. Nothing of
+Phase 46 is live at runtime; that is what G2 promised.
