@@ -56,5 +56,5 @@ output "cloudfront_distribution_id" {
 }
 
 output "custody" {
-  value = "public_synthetic; no FERNET_KEY, no ESPN credential, no raw cache, no private stack. docs/aws-deploy.md s0a."
+  value = "APP_MODE public_synthetic until gate G4; FERNET_KEY ${var.wire_fernet_key ? "wired to the web task from the operator's secret, encrypted with alias/espn-edge/custody" : "not wired"}; no raw cache, no private stack. ADR-012; docs/aws-deploy.md s0a."
 }

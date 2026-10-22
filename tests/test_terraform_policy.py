@@ -378,7 +378,10 @@ def test_the_fernet_secret_reaches_exactly_the_web_task_once_wired(stack):
     assert secret["name"] == "espn-edge/fernet-key"
     assert secret["count"] == "${var.wire_fernet_key ? 1 : 0}", secret
     gate = _load(STACK)["variable"]["wire_fernet_key"]
-    assert gate["default"] is False, "the operator creates the secret before any task references it"
+    # Flipped at G3 step 4 (2026-10-22): the operator created the secret with
+    # its value, under the custody key, before any task referenced it. The
+    # assertion records which side of that creation the stack is on.
+    assert gate["default"] is True, "the secret exists with its value; the web task may read it"
     splat = "data.aws_secretsmanager_secret.fernet_key[*].arn"
     web = str(stack["locals"]["web_secrets"])
     assert splat in web and "FERNET_KEY" in web and "app_secrets" in web, web

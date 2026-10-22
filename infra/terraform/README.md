@@ -182,14 +182,17 @@ read its `Plan:` line against the prediction, then **terraform apply**.
 2. Stack apply with `wire_fernet_key` at its default `false`. Predicted: `2 to add` (the key and
    its alias), nothing changed, nothing destroyed, no task definition touched -- plus whatever an
    image-tag change in the same commit brings.
-3. Create the secret in your terminal, its value from a variable that is never printed. The ARN
-   the command returns is not secret. Then the read-only checks:
+3. **After step 2 has applied**, create the secret in your terminal, its value from a variable that
+   is never printed. The ARN the command returns is not secret. The block guards its precondition:
+   with no key, `KEY_ARN` is empty and nothing is created. Then the read-only checks:
 
 ```bash
 cd ~/espn-edge
 KEY_ARN=$(aws kms describe-key --key-id alias/espn-edge/custody --query KeyMetadata.Arn --output text)
+echo "custody key: ${KEY_ARN}"
+echo 'expect: an arn:aws:kms:... line above; if it is empty or an error, step 2 has not applied -- stop here'
 FK=$(.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
-aws secretsmanager create-secret --name espn-edge/fernet-key --kms-key-id "${KEY_ARN}" --secret-string "${FK}" --description "ADR-012: the Fernet key behind ESPN sessions at rest. Created by the operator, read by Terraform, never rotated." --query ARN --output text
+[ -n "${KEY_ARN}" ] && aws secretsmanager create-secret --name espn-edge/fernet-key --kms-key-id "${KEY_ARN}" --secret-string "${FK}" --description "ADR-012: the Fernet key behind ESPN sessions at rest. Created by the operator, read by Terraform, never rotated." --query ARN --output text
 unset FK
 echo 'expect: AWSCURRENT'
 aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query 'VersionIdsToStages.*[]' --output text
@@ -197,12 +200,22 @@ echo 'expect: the same ARN twice (the secret is encrypted with the custody key)'
 echo "${KEY_ARN}"
 aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsKeyId --output text
 echo 'expect: true (the KMS key rotates; the Fernet value never does -- a new value makes every stored session unreadable)'
-aws kms get-key-rotation-status --key-id alias/espn-edge/custody --query KeyRotationEnabled --output text
+aws kms get-key-rotation-status --key-id "${KEY_ARN}" --query KeyRotationEnabled --output text
 ```
 
-4. In one commit: `default = false` becomes `true` in `stack/variables.tf`, and the `is False`
-   assertion in `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired` becomes
-   `is True` -- the test records which side of the secret's creation the stack is on. Plan-first
+   If `KmsKeyId` prints `None`, the secret was created before the key existed and sits under the
+   default `aws/secretsmanager` key (it happened on 2026-10-22: the block was run ahead of step 2,
+   with an empty `KEY_ARN` and no guard). One command moves it; Secrets Manager re-encrypts the
+   existing version with the new key, so the value stays:
+
+```bash
+aws secretsmanager update-secret --secret-id espn-edge/fernet-key --kms-key-id "${KEY_ARN}" --query ARN --output text
+aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsKeyId --output text
+```
+
+4. In one commit (made 2026-10-22): `default = false` becomes `true` in `stack/variables.tf`, and
+   the `is False` assertion in `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`
+   becomes `is True` -- the test records which side of the secret's creation the stack is on. Plan-first
    apply: predicted `1 to add, 2 to change, 1 to destroy` (the web task definition is replaced by a
    revision carrying `FERNET_KEY`; the execution role's secrets policy and the web service change
    in place). ECS rolls the service. Then the last probe, and `https://eaedgefinder.com/api/health`

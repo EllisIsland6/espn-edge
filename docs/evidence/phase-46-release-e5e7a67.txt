@@ -66,3 +66,22 @@ Probes (aws iam simulate-principal-policy, read-only), expected -> measured:
   kms:Decrypt via secretsmanager, alias/aws/secretsmanager
                                                     allowed      -> allowed
   plan role GetSecretValue: session-secret allowed, database-url-app implicitDeny -> same
+
+--- Gate G3, steps 2 and 3: the key, the secret (2026-10-22)
+Plan run  39787623417 on 3dd8fd2: "Plan: 2 to add, 0 to change, 0 to destroy."
+          aws_kms_key.custody (SYMMETRIC_DEFAULT, rotation on, 30-day window,
+          bypass_policy_lockout_safety_check false; policy: AccountAdministration
+          root kms:*; WebTaskReadsTheFernetSecret role/espn-edge-task-execution
+          kms:Decrypt + kms:DescribeKey, kms:ViaService secretsmanager.us-east-1)
+          aws_kms_alias.custody = alias/espn-edge/custody
+          Nothing else. The refusal step admitted the key by name.
+Apply run 39788870328 (#12), approved: "Apply complete! Resources: 2 added, 0 changed, 0 destroyed."
+          aws_kms_key.custody id c7b317c3-ec6a-4b77-87dd-27a4e61aae6d (14 s); alias (0 s).
+Secret    espn-edge/fernet-key (suffix -Pxs9R3), created by the operator with its value
+          from a variable, never printed. Created BEFORE #12 by mistake (empty KEY_ARN,
+          no guard): KmsKeyId None, i.e. the default aws/secretsmanager key. Recovered
+          after #12 with update-secret --kms-key-id <custody ARN>:
+            KmsKeyId          arn:aws:kms:us-east-1:387865673700:key/c7b317c3-ec6a-4b77-87dd-27a4e61aae6d
+            VersionIdsToStages AWSCURRENT
+            KeyRotationEnabled True
+          No value appeared in any terminal output, log, chat or file.

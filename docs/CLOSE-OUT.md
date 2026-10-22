@@ -904,6 +904,16 @@ This was a practice project. These are the findings that are not about fantasy f
     cryptographic Allow on the key. The move: for every Deny you write, list the AWS calls made
     *for* the denied principal by the services it drives, and check each against the Deny.
 
+50. **A block handed out before its precondition exists will be run before its precondition
+    exists.** G3's secret-creation block was given in the same message as the apply that creates
+    the key, "then, and only then" in prose; the operator ran it first. `describe-key` found no
+    alias, `KEY_ARN` was empty, and `create-secret --kms-key-id ""` quietly fell back to the
+    default `aws/secretsmanager` key. Nothing leaked and one `update-secret` moved it, but the
+    shape is general: prose ordering is not a guard. The move: hand out one step per message when
+    a step depends on the previous one's apply, and make every block check its own precondition
+    (`[ -n "${KEY_ARN}" ] && ...`) so an empty variable produces nothing instead of a default.
+    Also from the same paste: `get-key-rotation-status` takes a key id or ARN, never an alias.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
