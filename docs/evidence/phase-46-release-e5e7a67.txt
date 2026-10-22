@@ -46,3 +46,23 @@ What the running stack is after apply #11: web task definition espn-edge-web:6
 = app e5e7a67 (WU-1: the third mode exists in code; APP_MODE still
 public_synthetic) + caddy 82a55a2 on host i-0f394561be17356b8. Nothing of
 Phase 46 is live at runtime; that is what G2 promised.
+
+--- Gate G3, step 1: the deploy boundary (bootstrap root, operator's terminal, 2026-10-22)
+terraform plan   Plan: 0 to add, 1 to change, 0 to destroy.  (aws_iam_policy.deploy_boundary)
+terraform apply  Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
+Probes (aws iam simulate-principal-policy, read-only), expected -> measured:
+  ec2:CreateVpcEndpoint s3 gateway      allowed       -> allowed
+  ec2:CreateVpcEndpoint ssm interface   explicitDeny  -> explicitDeny
+  iam:TagInstanceProfile / CreateInstanceProfile / ec2:CreateNatGateway
+                                        allowed allowed explicitDeny -> same
+  dynamodb:PutItem on the lock table    allowed       -> allowed
+  kms:CreateGrant via acm, alias/aws/acm            allowed      -> allowed
+  kms:CreateGrant via lambda, alias/aws/lambda      implicitDeny -> implicitDeny
+  kms:CreateKey                                     allowed      -> allowed
+  kms:Decrypt via secretsmanager, alias/espn-edge/custody
+                                                    explicitDeny -> explicitDeny
+  kms:GenerateDataKey via secretsmanager, alias/espn-edge/custody
+                                                    explicitDeny -> explicitDeny
+  kms:Decrypt via secretsmanager, alias/aws/secretsmanager
+                                                    allowed      -> allowed
+  plan role GetSecretValue: session-secret allowed, database-url-app implicitDeny -> same
