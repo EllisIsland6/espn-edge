@@ -914,6 +914,19 @@ This was a practice project. These are the findings that are not about fantasy f
     (`[ -n "${KEY_ARN}" ] && ...`) so an empty variable produces nothing instead of a default.
     Also from the same paste: `get-key-rotation-status` takes a key id or ARN, never an alias.
 
+51. **A prerequisite with a timer is not done until a read says so.** README step 0 listed "verification
+    email clicked" among the things to have in place before the first apply; nobody checked it, and
+    on 2026-10-22, fifteen days after registration, the registrar put `eaedgefinder.com` on
+    `clientHold` -- hosted zone intact, four name servers intact, and no delegation in the public
+    DNS, so nothing resolved. Found while verifying G3: `curl` said "could not resolve host" and
+    two browsers failed to load the site; `dig NS` printed nothing while `get-hosted-zone` printed
+    four servers, and `get-domain-detail` said `clientHold`, `get-contact-reachability-status`
+    said `PENDING`. The fix was the verification email, resent and clicked. The move: every
+    prerequisite that a third party enforces on a clock gets a read-only check in the runbook, and
+    the check runs before the apply that depends on it, not after the outage that reveals it. Also
+    worth keeping: an apply that touches only ECS and IAM cannot break DNS, so when the site goes
+    dark on the same afternoon, separate the two stories before touching either.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

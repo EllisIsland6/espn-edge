@@ -46,8 +46,17 @@ session that wrote it.
 ### 0. Prerequisites in the account (once)
 
 - Root: MFA on, no access keys.
-- The domain registered in Route 53 **in this account**, verification email clicked, hosted zone
-  present (`eaedgefinder.com`).
+- The domain registered in Route 53 **in this account**, hosted zone present (`eaedgefinder.com`),
+  and the registrant email **verified -- checked, not remembered**: the registrar suspends the domain
+  (`clientHold`, nothing resolves) when the verification is not done within 15 days of registration,
+  which is what happened on 2026-10-22, fifteen days after the 7th.
+
+```bash
+aws route53domains get-contact-reachability-status --region us-east-1 --domain-name eaedgefinder.com --output json
+echo 'expect: DONE -- PENDING means click the email; resend it with: aws route53domains resend-contact-reachability-email --region us-east-1 --domain-name eaedgefinder.com'
+aws route53domains get-domain-detail --region us-east-1 --domain-name eaedgefinder.com --query StatusList --output json
+echo 'expect: no clientHold or serverHold'
+```
 - An email you read, for the budget, the alarms and SES.
 
 ### 1. Bootstrap (once, with your own credentials)
@@ -224,9 +233,16 @@ aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsK
 
 ```bash
 ACCT=$(aws sts get-caller-identity --query Account --output text)
+FK_ARN=$(aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query ARN --output text)
 echo 'expect: allowed (the web task execution role is the one reader; before step 4 this is implicitDeny)'
-aws iam simulate-principal-policy --policy-source-arn "arn:aws:iam::${ACCT}:role/espn-edge-task-execution" --action-names secretsmanager:GetSecretValue --resource-arns "arn:aws:secretsmanager:us-east-1:${ACCT}:secret:espn-edge/fernet-key-AAAAAA" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+aws iam simulate-principal-policy --policy-source-arn "arn:aws:iam::${ACCT}:role/espn-edge-task-execution" --action-names secretsmanager:GetSecretValue --resource-arns "${FK_ARN}" --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+aws ecs describe-services --cluster espn-edge --services web --query 'services[0].deployments[].[status,taskDefinition,runningCount,failedTasks,rolloutState]' --output text
+echo 'expect: PRIMARY, the new revision, 1, 0, COMPLETED -- the task starting is the proof: ECS fetched the secret and KMS decrypted it with the custody key'
 ```
+
+   The execution role's policy names the secret's exact ARN (the six-character suffix included), so
+   the `-AAAAAA` placeholder that works against the plan role's wildcard reads `implicitDeny` here;
+   resolve the ARN first, as above.
 
 Nothing in these steps prints, logs or stores the value anywhere but the secret: Terraform never
 holds the value or the secret (a `data` source reads the ARN), the plan role cannot read the value

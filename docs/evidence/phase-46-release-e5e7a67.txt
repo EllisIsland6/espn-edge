@@ -85,3 +85,29 @@ Secret    espn-edge/fernet-key (suffix -Pxs9R3), created by the operator with it
             VersionIdsToStages AWSCURRENT
             KeyRotationEnabled True
           No value appeared in any terminal output, log, chat or file.
+
+--- Gate G3, step 4: the flip (2026-10-23)
+Plan run  39997081916 on a23c650: "Plan: 1 to add, 2 to change, 1 to destroy."
+          aws_ecs_task_definition.web replaced: + { name = "FERNET_KEY", valueFrom = <secret ARN> }
+          aws_iam_role_policy.task_execution_secrets: + one resource ARN (the secret), - none
+          aws_ecs_service.web updated in place
+Apply run 39997867513 (#13), approved: "Apply complete! Resources: 1 added, 2 changed, 1 destroyed."
+Verified (operator's terminal, read-only, 2026-10-23):
+  describe-services web   PRIMARY espn-edge-web:7  running 1  failed 0  COMPLETED
+                          "(service web) has reached a steady state."
+  describe-tasks          app RUNNING HEALTHY; caddy RUNNING
+  Caddy log               automatic TLS management enabled for origin.eaedgefinder.com; no error
+  -> the execution role fetched the secret and KMS decrypted it with the custody key via
+     Secrets Manager; APP_MODE still public_synthetic, the key loaded and unused until G4.
+  Probe note: GetSecretValue on ...fernet-key-AAAAAA read implicitDeny -- the execution
+     role's policy names the exact ARN (suffix -Pxs9R3); the README now resolves it.
+
+--- Separate incident, same afternoon: the domain on clientHold (2026-10-22 -> 23)
+  curl                    Could not resolve host: eaedgefinder.com
+  dig NS @8.8.8.8         (nothing)
+  get-hosted-zone         ns-1804.awsdns-33.co.uk ns-475.awsdns-59.com ns-1385.awsdns-45.org ns-1005.awsdns-61.net
+  get-domain-detail       StatusList ["clientHold"]; the same four name servers; expires 2027-10-07
+  reachability status     PENDING  -> resend-contact-reachability-email (to the operator) -> clicked -> DONE
+  clientHold              still listed minutes after DONE; the registrar's removal propagates.
+  Cause: registrant-email verification not completed within 15 days of registration (10-07 -> 10-22).
+  Not Terraform's: no plan or apply of Phase 46 touched Route 53 or the registration.

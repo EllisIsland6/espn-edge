@@ -1,9 +1,10 @@
 # Phase 46 — real ESPN data on the hosted site, for an invited group
 
 Decision: [ADR-012](sprint-9/adr/012-hosted-real-data-for-an-invited-group.md); custody amendment C8
-in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 built 2026-10-16 and deployed at gate
-G2 on 2026-10-22 (apply #11, `APP_MODE` unchanged); WU-2 built 2026-10-17, code only -- G3 (the key,
-two applies) is not yet applied. Each later gate is its own approval,
+in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 deployed at gate G2 on 2026-10-22 (apply
+#11, `APP_MODE` unchanged); WU-2 applied at gate G3 on 2026-10-22/23 (bootstrap; apply #12 the key and alias;
+the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_KEY`, still `public_synthetic`).
+Next: WU-3, WU-4, then G4 in the operator's words. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
