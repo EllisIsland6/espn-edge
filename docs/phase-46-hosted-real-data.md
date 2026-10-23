@@ -4,9 +4,9 @@ Decision: [ADR-012](sprint-9/adr/012-hosted-real-data-for-an-invited-group.md); 
 in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 deployed at gate G2 on 2026-10-22 (apply
 #11, `APP_MODE` unchanged); WU-2 applied at gate G3 on 2026-10-22/23 (bootstrap; apply #12 the key and alias;
 the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_KEY`, still `public_synthetic`).
-WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built 2026-10-23
-(SPA only; the live page keeps saying "synthetic" until G4 flips the mode). Next: G4 in the
-operator's words. Each later gate is its own approval,
+WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built and deployed 2026-10-23
+(`s3 sync` + invalidation, CI #58 green; the live page says "hosted on synthetic data" until G4 flips
+the mode). Next: G4 in the operator's words. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -148,9 +148,12 @@ Built 2026-10-23; runs for nobody but the operator until gate G6.
 
 ### WU-4. The page tells the truth (gate G4; SPA; `s3 sync`)
 
-Built 2026-10-23. Static assets only -- no Terraform, no task definition; it reaches the site by
-`npm run build`, `aws s3 sync`, and a CloudFront invalidation, and until G4 flips the mode the
-live page keeps saying what it says today.
+Built and deployed 2026-10-23. Static assets only -- no Terraform, no task definition; it reached
+the site by `npm run build`, `aws s3 sync --delete`, and a CloudFront invalidation after CI #58 on
+`d765dc5` was green. Read from the edge afterwards: `/` and `/index.html` reference the new bundle
+and not the old one, the old bundle answers 403 (deleted), `x-cache: Miss from cloudfront` on the
+fresh `index.html`, and the served bundle carries the three footer labels, the synthetic empty state
+and the consent sentences. Until G4 flips the mode the live page says "hosted on synthetic data".
 
 - `web/src/copy.ts` holds every word the page says about custody, by mode, as plain strings, so
   the backend's tests can hold them by literal: `INVITED_CONSENT` (three sentences: *"Your ESPN
