@@ -6,7 +6,8 @@ in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to
 the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_KEY`, still `public_synthetic`).
 WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built and deployed 2026-10-23
 (`s3 sync` + invalidation, CI #58 green; the live page says "hosted on synthetic data" until G4 flips
-the mode). Next: G4 in the operator's words. Each later gate is its own approval,
+the mode). G7's design decided 2026-10-23 in the operator's words (keys stored encrypted per tenant;
+WU-7 below). Next: G4 in the operator's words. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -197,9 +198,68 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
 
 - G6, one person at a time: Cognito user by the operator (console, invitation email); WU-3 script;
   the person signs in and adds their own session. The first invitee is also the revocation drill.
-- G7: `X-Anthropic-Key` (or equivalent) read per request, used for that call, never stored, never
-  logged; the host-key ledger path stays for `public_synthetic`. Pinned by a test that greps the
-  log capture for the key after a request that used it. Specified fully when G6 is done, not before.
+- G7: the per-request header design was replaced on 2026-10-23 by the operator's decision --
+  *they pay for their own AI API, and we store what's needed and practical, per best practice* --
+  recorded in ADR-012's decision note and specified as WU-7 below. The host-key ledger path stays
+  for `public_synthetic`; the gate is still the first AI call on the hosted site.
+
+### WU-7. Per-user AI key custody (gate G7; image + migration + plan-first apply)
+
+**The Question.** Where does an invited person's Anthropic key live, who can read it, and what
+else is kept with it?
+
+**The Lens.** The ESPN session already answers the same question (ADR-012, C8): entered by its
+owner, encrypted at rest under the custody key through one chokepoint, readable by one tenant,
+erasable by its owner. A second kind of credential gets the same treatment, not a new one; and
+because the spend is the person's own, the host's spend ledger -- built to bound the host's money
+-- has nothing to bound on this path.
+
+**The Selection.**
+
+- *Storage.* Migration `0018_ai_credentials`: table `ai_credentials` -- `tenant_id` (primary key,
+  FK `tenants`, no cascade, like `accounts`), `provider` (`anthropic`), `api_key_encrypted`
+  (Fernet ciphertext through `api/crypto.py`), `key_hint` (the last four characters), `created_at`,
+  `updated_at`, `last_used_at` (nullable), `last_error` (nullable; the exception class, never a
+  message). `FORCE ROW LEVEL SECURITY`; policy `tenant_id = current_tenant()` for USING and WITH
+  CHECK; `edge_app` granted SELECT, INSERT, UPDATE, DELETE (0016's pattern). `ops/provision_user.py`'s
+  `REVOKE_ORDER` gains `("ai_credentials", "tenant_id")` after `accounts`, so revoking a person
+  takes their key with them.
+- *Chokepoint.* The ciphertext is written and read through `api/crypto.py::_fernet`, so a synthetic
+  instance refuses custody of this credential exactly as it refuses the ESPN session, and the key
+  behind both is the one the custody key protects.
+- *API.* `GET /api/ai/key` → `{provider, hint, created_at, last_used_at, last_error}` or `null`;
+  `PUT /api/ai/key {api_key}` → the key is checked against Anthropic's `GET /v1/models` (a listing
+  call that costs no tokens; a refusal stores nothing and answers 400 "the key was refused by
+  Anthropic"), then encrypted and upserted; answers the GET shape; `DELETE /api/ai/key` → the row is
+  gone (204). Every mutation carries the CSRF header like the rest. The request body is never
+  logged (the `_redact_account_validation_errors` pattern for the `api_key` field); no response
+  ever carries the key.
+- *Service.* `AiService` resolves its key by mode: `private_invited` → the tenant's stored key,
+  decrypted at the moment of the call and held no longer than the call; no host key, no ledger
+  reservation (the spend is theirs); a tenant with no key gets `enabled: false` and the same
+  "absent" answers the no-key deployment gives today. `private_operator` and `public_synthetic`
+  are unchanged byte for byte: the operator's key from his environment, the host key behind the
+  ledger. `last_used_at` is written on success; `last_error` on failure, class name only.
+- *Page.* An "AI key" panel on Manage, rendered in `private_invited` only, with its sentences in
+  `web/src/copy.ts` (`AI_KEY_CONSENT`): *"Your Anthropic API key will be stored encrypted on this
+  server and used only for the reports you ask for. Anthropic bills you directly for those calls.
+  Deleting the key here erases it."* The field is write-only (a password input); after saving, the
+  page shows the provider, `…` plus the hint, and when it was last used; Replace and Delete.
+- *Deployment.* A backend change, so an image: preflight, push, the migrate task for 0018, then
+  plan-first apply (both task definitions replaced for the new tag; the web service moved). Gate
+  G7 is the first AI call afterwards: the operator saves his own key, asks for one report, and the
+  log grep is clean. Built after G5 (so the first AI call is not tangled with the first ESPN call);
+  may be built while G6 invitations proceed.
+
+**The Synthesis -- tests, each with a control that removes it.** The consent copy pinned by literal
+and rendered only in the invited branch; the chokepoint reused (a control that encrypts with a
+second Fernet instance fails it); on PostgreSQL, two tenants, one key each, each invisible to the
+other through `edge_app`, and the owner read after DELETE proving the row gone, not hidden; the
+synthetic instance refusing `PUT` with the hosted-mode 403 and answering `GET` with `null`; a
+refused validation storing nothing; the log capture holding no fragment of the key after a `PUT`
+and a report; the host key untouched on the invited site when a tenant has no key (control: host
+key configured, request made, no outbound call, `enabled: false`); the ledger not consulted on
+the per-user path; `revoke` deleting the credential row and counting it. Acceptance criterion 10.
 
 ## Explicit deltas and guarantees
 
@@ -235,6 +295,9 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
 8. Deleting an account on the page erases the ciphertext row.
 9. `ruff`, `tsc -b --noEmit`, the policy tests and the full suite pass; the plan workflow precedes
    every apply.
+10. On the invited site, a tenant's AI key is readable by that tenant alone, is never returned
+    after it is saved, appears in no log, and leaves with the tenant; a tenant without a key gets
+    the no-key answers; the host key is never used there.
 
 ## Non-goals
 

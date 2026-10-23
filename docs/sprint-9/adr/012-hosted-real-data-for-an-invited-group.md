@@ -89,6 +89,19 @@ click-through theatre.
 **AI.** Per the operator: each user's own Anthropic key, held client-side and forwarded per request,
 never persisted or logged. Last in the order, because nothing above depends on it.
 
+*Decision note, G7 design (2026-10-23).* The operator revised the paragraph above in his words:
+*they pay for their own AI API, and we store what's needed and practical, per best practice.* So
+the key is **stored**, not forwarded: one row per tenant, Fernet-encrypted under the same custody
+key as the ESPN session and through the same chokepoint (`api/crypto.py::_fernet`, which refuses
+on the synthetic site); readable only by the tenant that wrote it (row security,
+`tenant_id = current_tenant()`); decrypted in-process at the moment of the call; never returned
+to the browser after it is saved, never logged; erased by deleting the row. Stored beside it
+because it is needed or practical and not secret: the provider, the key's last four characters
+as a hint, when it was saved, when it was last used, and the class of the last failure. The
+spend is the person's own, so the host ledger does not apply to that path, and on the invited
+site the host key is never used. G7 remains the first AI call on the hosted site; the build is
+WU-7 in `docs/phase-46-hosted-real-data.md`.
+
 ## The Synthesis
 
 Phase 46 opens with this ADR and proceeds in gates, each its own approval, in this order:
@@ -101,7 +114,7 @@ Phase 46 opens with this ADR and proceeds in gates, each its own approval, in th
 | **G4** | The mode switch: `APP_MODE=private_invited` on the web task, with the consent copy on the page. | The site refuses no hosted behaviour it had; the account form appears; no account exists yet, so no live read has happened. |
 | **G5** | **The first live ESPN read**, with the operator's own session only. | One league of the operator's syncs from AWS; the raw cache row is his tenant's; CloudWatch shows no credential; the limiter's cadence is visible. |
 | **G6** | Invitations, one person at a time. | Each person's rows are their own tenant; the 27-attack argument applies unchanged; revocation measured on the first invitee. |
-| G7 | Per-user Anthropic key. | AI answers for a user with a key and is absent for one without; nothing of the key in logs. |
+| G7 | Per-user Anthropic key, stored encrypted per tenant (decision note above). | AI answers for a tenant with a key and is absent for one without; the host key is never used on the invited site; nothing of the key in logs, in the browser after saving, or in another tenant's rows. |
 
 Estimate: five to seven sessions. Cost: about $1.40/month on top of today's ≈$35.
 
