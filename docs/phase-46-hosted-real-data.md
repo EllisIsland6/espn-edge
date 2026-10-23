@@ -4,7 +4,8 @@ Decision: [ADR-012](sprint-9/adr/012-hosted-real-data-for-an-invited-group.md); 
 in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 deployed at gate G2 on 2026-10-22 (apply
 #11, `APP_MODE` unchanged); WU-2 applied at gate G3 on 2026-10-22/23 (bootstrap; apply #12 the key and alias;
 the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_KEY`, still `public_synthetic`).
-Next: WU-3, WU-4, then G4 in the operator's words. Each later gate is its own approval,
+WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). Next: WU-4, then G4 in
+the operator's words. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -111,15 +112,38 @@ applied until G3 is given in words.
 
 ### WU-3. Provisioning as a script, not a paste (gate G4)
 
-- `ops/provision_user.py`: runs as the owner through the tunnel; arguments are an email and a
-  Cognito `sub`; creates the tenant (slug derived from the email's local part, unique), the user,
-  the membership, the identity -- 0017's transaction generalised to a new tenant -- and prints the
-  three ids and nothing else. Idempotent on the identity. A `--revoke` form deletes the identity,
-  the membership and the tenant's rows in the order RLS permits, and prints the counts.
-- **Test:** against PostgreSQL in the container (the only place RLS is real): provision two people,
-  prove each sees only their own rows through the app role, revoke one, prove the other is
-  untouched and the revoked one's rows are gone. The SQLite suite gets the argument-parsing and
-  idempotency tests only, and says so.
+Built 2026-10-23; runs for nobody but the operator until gate G6.
+
+- `ops/provision_user.py provision <email> <sub>`: runs as the owner through the tunnel
+  (`DATABASE_URL` without a password, `PGPASSWORD` from the RDS-managed secret, `OIDC_ISSUER`);
+  creates the tenant (slug from the email's local part, `uq_tenants_slug` deciding uniqueness
+  with a suffix retried inside a savepoint -- the policied table cannot be pre-read), the user,
+  the membership and the identity in one transaction -- 0017's shape one level up: `tenants` is
+  policied on `id = current_tenant()`, so the tenant id is reserved and bound before its own row
+  is inserted. Prints `tenant_id= user_id= membership_id=` and nothing else: no email, no subject,
+  in any output. Idempotent on the identity. `revoke <sub>` deletes one person who is their own
+  tenant in the order the keys permit (leagues before accounts; jobs, schedules, outbox by tenant;
+  sessions and identity by user; membership, user, tenant), prints a count per table, and refuses
+  the operator's tenant (`TENANT_ID`), a user with more than one membership, and a tenant with
+  more than one member -- it will not guess whose rows those are.
+- **Measured** on PostgreSQL 16 as a NOSUPERUSER NOBYPASSRLS owner (the cluster in the cloud
+  workspace, migrated to 0017 by that role): two people provisioned; through `edge_app`, the
+  login read path finds the identity with nothing bound and binds the user to its one membership;
+  bound to one person, the other's tenant, league and team are invisible; `edge_app` cannot write
+  `identities` (42501, as 0017 says); the revoke takes the person's league, account, team (by
+  cascade, which referential integrity runs under, bypassing row security), identity, membership,
+  user and tenant, and a superuser read proves the rows gone rather than hidden; the other person
+  is untouched; the slug collision lands on `-2`; both refusals refuse before any delete. The
+  owner-without-binding control reproduces 0017's finding verbatim: `new row violates row-level
+  security policy for table "tenants"`.
+- **Tests** (`tests/test_provision_user.py`, 21): the offline half runs everywhere (slug, arguments,
+  the delete order, a refusal naming no person); the PostgreSQL half runs where
+  `PROVISION_PG_OWNER_URL`/`PROVISION_PG_APP_URL` point at a migrated cluster and skips with that
+  reason otherwise, and its fixture refuses a superuser or BYPASSRLS owner as the premise.
+  **Controls, each failing exactly the test that names it:** the tenant inserted before its id is
+  bound; accounts deleted before leagues; the shared-tenant refusal removed; the operator refusal
+  removed; the identity lookup skipped; the subject printed in a refusal; a superuser offered as
+  the owner.
 
 ### WU-4. The page tells the truth (gate G4; SPA; `s3 sync`)
 

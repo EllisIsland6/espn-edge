@@ -169,7 +169,7 @@ applies the saved plan. Then, in order (`docs/aws-deploy.md`):
 2. Write the owner URL into `espn-edge/database-url-owner` (the password is in the RDS-managed secret
    the stack outputs).
 3. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`).
-4. Provision yourself (0017's recipe).
+4. Provision yourself (0017's recipe). Anyone else: section 7, and not before gate G6.
 5. Upload `web/dist` to the SPA bucket; invalidate CloudFront.
 6. Restart the web service; watch `/espn-edge/web` for Caddy obtaining the origin certificate
    (DNS-01 against `_acme-challenge.origin.eaedgefinder.com`, the only record its role may write).
@@ -247,6 +247,42 @@ echo 'expect: PRIMARY, the new revision, 1, 0, COMPLETED -- the task starting is
 Nothing in these steps prints, logs or stores the value anywhere but the secret: Terraform never
 holds the value or the secret (a `data` source reads the ARN), the plan role cannot read the value
 (`managed-secret-values` names three other secrets), and the deploy role cannot use the key.
+
+### 7. Inviting a person -- gate G6, one person at a time (ADR-012)
+
+The person signs up in Cognito (invitation-only there); you read their `sub` from the pool; the
+script makes them their own tenant. It runs as the owner through an SSM tunnel to the host, the
+password from the RDS-managed secret into `PGPASSWORD` and nowhere else. Terminal 1 holds the
+tunnel open:
+
+```bash
+HOST=$(aws ec2 describe-instances --filters Name=tag:Name,Values=espn-edge-host Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId' --output text)
+RDS=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].Endpoint.Address' --output text)
+echo "tunnel to ${RDS} through ${HOST}"
+aws ssm start-session --target "${HOST}" --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters "host=${RDS},portNumber=5432,localPortNumber=15432"
+```
+
+Terminal 2, from the repo root, with the person's email and `sub` typed in place of the two
+placeholders (the only two things in this block that are not a read):
+
+```bash
+cd ~/espn-edge
+SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ARN}" --query SecretString --output text | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+export DATABASE_URL='postgresql+psycopg2://edge_owner@127.0.0.1:15432/edge?sslmode=require'
+export OIDC_ISSUER=$(aws cognito-idp list-user-pools --max-results 10 --query 'UserPools[?Name==`espn-edge`].Id' --output text | sed 's#^#https://cognito-idp.us-east-1.amazonaws.com/#')
+echo "${OIDC_ISSUER}"
+echo 'expect: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_... -- stop if it is empty'
+.venv/bin/python ops/provision_user.py provision PERSON_EMAIL PERSON_SUB
+echo 'expect: tenant_id=N user_id=N membership_id=N, one line, nothing else'
+unset PGPASSWORD
+```
+
+`revoke PERSON_SUB` in place of the provision line undoes one person and prints a count per table;
+it refuses your own tenant, a user with more than one membership and a tenant with more than one
+member. The script never prints an email or a subject, in success or failure -- the terminal is a
+log. Its PostgreSQL proof is `tests/test_provision_user.py`, run against a migrated cluster as a
+NOSUPERUSER NOBYPASSRLS owner, which is what `edge_owner` is on RDS.
 
 ## Guarantees, and where each is held
 

@@ -111,3 +111,22 @@ Verified (operator's terminal, read-only, 2026-10-23):
   clientHold              still listed minutes after DONE; the registrar's removal propagates.
   Cause: registrant-email verification not completed within 15 days of registration (10-07 -> 10-22).
   Not Terraform's: no plan or apply of Phase 46 touched Route 53 or the registration.
+
+--- WU-3: ops/provision_user.py measured on PostgreSQL 16.15 (cloud workspace, 2026-10-23)
+Cluster   initdb as postgres; roles: pgowner (superuser, for the gone-not-hidden read only),
+          edge_owner LOGIN NOSUPERUSER NOBYPASSRLS (owner of db edge; ran alembic upgrade head
+          0001 -> 0017), edge_app LOGIN NOSUPERUSER NOBYPASSRLS (0016 grants).
+Tests     tests/test_provision_user.py: 21 passed with PROVISION_PG_*_URL set; 17 passed,
+          4 skipped without (skip reason names the variables).
+Controls  (each restored; each fails exactly the test that names it)
+  A  tenant inserted before its id is bound  -> 4 PostgreSQL tests fail:
+       psycopg2.errors.InsufficientPrivilege: new row violates row-level security policy
+       for table "tenants"                                   (0017's finding, one level up)
+  B  accounts deleted before leagues         -> the order test and the two-people test fail
+  C  shared-tenant refusal removed           -> test_revoke_refuses_the_operator_and_the_shared_tenant
+  D  operator refusal removed                -> the same
+  E  identity lookup skipped                 -> two tests fail (idempotency)
+  F  subject printed in a refusal            -> test_main_names_no_person_when_it_refuses and the CLI test
+  G  superuser offered as the owner URL      -> the fixture's premise assertion
+Full suite in the cloud workspace, SQLite, two runs: 1022 passed 6 skipped; 636 passed 17 skipped.
+Nothing of this ran against RDS.
