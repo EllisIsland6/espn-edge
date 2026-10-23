@@ -1,5 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, Outlet, ScrollRestoration, useLocation } from "react-router";
+import { getHealth } from "../api";
+import { FOOTER_LABEL, type Mode } from "../copy";
 import { applyTheme, currentTheme, storeTheme, type ThemeMode } from "../lib/theme";
 
 const SIDEBAR_COLLAPSED_KEY = "espn-edge.sidebar-collapsed";
@@ -59,6 +61,21 @@ function initialSidebarCollapsed(): boolean {
 }
 
 export default function Layout() {
+  // The footer names the deployment it is part of; the mode is the backend's
+  // word (/api/health, public by design). Until it answers, or if it cannot,
+  // the footer claims nothing beyond the name.
+  const [mode, setMode] = useState<Mode | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getHealth()
+      .then((health) => {
+        if (alive) setMode(health.mode ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [theme, setTheme] = useState<ThemeMode>(currentTheme);
   const location = useLocation();
@@ -176,7 +193,7 @@ export default function Layout() {
           </main>
           <footer className="border-t border-line">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-2 px-3 py-4 text-[10px] text-muted sm:px-6">
-              <span>ESPN Edge · local portfolio analytics</span>
+              <span data-testid="footer-mode">{footerLabel(mode)}</span>
               <span className="flex flex-wrap items-center gap-x-3">
                 <span>
                   Current-market ADP by{" "}
@@ -322,4 +339,8 @@ function NavIcon({ name }: { name: IconName }) {
       )}
     </svg>
   );
+}
+
+function footerLabel(mode: Mode | null): string {
+  return (mode && FOOTER_LABEL[mode]) || "ESPN Edge";
 }

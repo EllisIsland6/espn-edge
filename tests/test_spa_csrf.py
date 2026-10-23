@@ -59,13 +59,20 @@ MANAGE_TSX = ROOT / "web/src/pages/Manage.tsx"
 HEALTH_ROUTER = ROOT / "api/routers/health.py"
 
 
+COPY_TS = ROOT / "web/src/copy.ts"
+
+
 def test_the_manage_page_offers_no_credential_form_on_a_synthetic_instance():
     """The operator pasted a real ESPN session into the live site's form: the
     chokepoint refused it, as designed, and the form should never have been
-    there. The page gates the form on the mode the health route reports."""
+    there. The page gates the form on the mode the health route reports --
+    an allow-list of the two modes that hold credentials, so an unknown mode
+    (health not yet answered, or answered without one) shows no form."""
     manage = MANAGE_TSX.read_text(encoding="utf-8")
-    assert 'health.mode === "public_synthetic"' in manage
-    assert "{synthetic === false && <AddAccountForm" in manage, (
-        "the form must be gated on a KNOWN non-synthetic mode, not on the absence of a flag"
+    assert "{holdsCredentials(mode) && <AddAccountForm" in manage, (
+        "the form must be gated on a KNOWN credentialed mode, not on the absence of a flag"
     )
+    copy = COPY_TS.read_text(encoding="utf-8")
+    assert 'return mode === "private_operator" || mode === "private_invited";' in copy
+    assert "public_synthetic" not in copy.split("export function holdsCredentials")[1]
     assert "mode=settings.app_mode" in HEALTH_ROUTER.read_text(encoding="utf-8")

@@ -18,6 +18,13 @@ import {
 import { AchievementRow } from "../components/Gamification";
 import { TeamIdentity } from "../components/TeamIdentity";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
+import {
+  INVITED_CONSENT,
+  LOCAL_NOTICE,
+  SYNTHETIC_NOTICE,
+  holdsCredentials,
+  type Mode,
+} from "../copy";
 import { LIFECYCLE_LABEL, relTime } from "../lib/format";
 import {
   classifySyncSummary,
@@ -66,11 +73,14 @@ const SYNC_STATUS_TONE: Record<SyncOutcome, string> = {
 export default function Manage() {
   const [accounts, setAccounts] = useState<AccountOut[] | null>(null);
   const [leagues, setLeagues] = useState<LeagueOut[] | null>(null);
-  // Hosted synthetic mode refuses credential custody at a chokepoint in the
-  // backend (api/crypto.py); offering the form there only invites a real
-  // ESPN session to be pasted into a site that will not keep it. The mode
-  // comes from /api/health, which is public by design.
-  const [synthetic, setSynthetic] = useState<boolean | null>(null);
+  // The mode decides what this page may honestly offer. Hosted synthetic mode
+  // refuses credential custody at a chokepoint in the backend (api/crypto.py);
+  // offering the form there only invites a real ESPN session to be pasted into
+  // a site that will not keep it. The invited mode keeps sessions under
+  // ADR-012's key and says so before the form. The mode comes from
+  // /api/health, which is public by design; until it answers, nothing is
+  // claimed and no form is shown.
+  const [mode, setMode] = useState<Mode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncOperation, setSyncOperation] = useState<SyncOperation | null>(null);
   const syncOperationRef = useRef<SyncOperation | null>(null);
@@ -83,7 +93,7 @@ export default function Manage() {
     ]);
     setAccounts(nextAccounts);
     setLeagues(nextLeagues);
-    setSynthetic(health.mode === "public_synthetic");
+    setMode(health.mode ?? null);
   }, []);
 
   const reload = useCallback(async () => {
@@ -124,24 +134,25 @@ export default function Manage() {
   return (
     <div className="max-w-4xl">
       <h1 className="text-xl font-semibold">Manage accounts & leagues</h1>
-      {synthetic ? (
-        <p className="mt-1 text-sm text-secondary">
-          This hosted instance runs on synthetic data. It does not hold ESPN accounts and
-          does not talk to ESPN, so there is nothing to add here and nothing to sync.
+      {mode === "public_synthetic" && (
+        <p className="mt-1 text-sm text-secondary">{SYNTHETIC_NOTICE}</p>
+      )}
+      {mode === "private_invited" && (
+        <p className="mt-1 text-sm text-secondary" data-testid="invited-consent">
+          {INVITED_CONSENT.storage} {INVITED_CONSENT.erase} {INVITED_CONSENT.terms}
         </p>
-      ) : (
-        <p className="mt-1 text-sm text-secondary">
-          Cookies are stored encrypted and never leave your machine. All ESPN traffic goes
-          through the backend.
-        </p>
+      )}
+      {mode === "private_operator" && (
+        <p className="mt-1 text-sm text-secondary">{LOCAL_NOTICE}</p>
       )}
       {error && <div className="mt-4"><ErrorNote message={error} /></div>}
 
-      {synthetic === false && <AddAccountForm onDone={reload} onError={setError} />}
+      {holdsCredentials(mode) && <AddAccountForm onDone={reload} onError={setError} />}
       {!accounts ? (
         <Spinner />
       ) : (
         <AccountList
+          mode={mode}
           accounts={accounts}
           leagues={leagues ?? []}
           onChange={reload}
@@ -213,6 +224,7 @@ function AddAccountForm({ onDone, onError }: { onDone: () => void; onError: (e: 
 }
 
 function AccountList({
+  mode,
   accounts,
   leagues,
   onChange,
@@ -221,6 +233,7 @@ function AccountList({
   beginSyncOperation,
   endSyncOperation,
 }: {
+  mode: Mode | null;
   accounts: AccountOut[];
   leagues: LeagueOut[];
   onChange: () => void;
@@ -232,16 +245,23 @@ function AccountList({
   if (accounts.length === 0)
     return (
       <div className="mt-3">
-        <EmptyState
-          title="No accounts yet"
-          hint={
-            <>
-              Add one above using the <b>SWID</b> and <b>espn_s2</b> cookies from a
-              logged-in fantasy.espn.com session (DevTools → Application → Cookies).
-              Public leagues need no account.
-            </>
-          }
-        />
+        {mode === "public_synthetic" ? (
+          <EmptyState
+            title="No accounts on a synthetic instance"
+            hint="This instance holds no ESPN sessions. The leagues below are synthetic."
+          />
+        ) : (
+          <EmptyState
+            title="No accounts yet"
+            hint={
+              <>
+                Add one above using the <b>SWID</b> and <b>espn_s2</b> cookies from a
+                logged-in fantasy.espn.com session (DevTools → Application → Cookies).
+                Public leagues need no account.
+              </>
+            }
+          />
+        )}
       </div>
     );
   return (

@@ -4,8 +4,9 @@ Decision: [ADR-012](sprint-9/adr/012-hosted-real-data-for-an-invited-group.md); 
 in `sprint-9/03-architecture.md`. **Status: gate G1 recorded 2026-10-16 ("yes to all"); WU-1 deployed at gate G2 on 2026-10-22 (apply
 #11, `APP_MODE` unchanged); WU-2 applied at gate G3 on 2026-10-22/23 (bootstrap; apply #12 the key and alias;
 the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_KEY`, still `public_synthetic`).
-WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). Next: WU-4, then G4 in
-the operator's words. Each later gate is its own approval,
+WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built 2026-10-23
+(SPA only; the live page keeps saying "synthetic" until G4 flips the mode). Next: G4 in the
+operator's words. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -147,13 +148,34 @@ Built 2026-10-23; runs for nobody but the operator until gate G6.
 
 ### WU-4. The page tells the truth (gate G4; SPA; `s3 sync`)
 
-- `/api/health` already reports `mode`. In `private_invited` the Manage page shows the account form
-  with this copy and no other: *"Your ESPN session (`SWID` and `espn_s2`) will be stored encrypted on
-  this server and used only to read your leagues. Deleting the account here erases it. ESPN's terms
-  do not permit this kind of access; you are choosing to do it."* The synthetic copy stays for
-  `public_synthetic`; the local copy for `private_operator`.
-- The accounts empty-state and the footer become mode-aware in the same change.
-- **Test:** the SPA pin test grows a third branch; the copy's two sentences are pinned by literal.
+Built 2026-10-23. Static assets only -- no Terraform, no task definition; it reaches the site by
+`npm run build`, `aws s3 sync`, and a CloudFront invalidation, and until G4 flips the mode the
+live page keeps saying what it says today.
+
+- `web/src/copy.ts` holds every word the page says about custody, by mode, as plain strings, so
+  the backend's tests can hold them by literal: `INVITED_CONSENT` (three sentences: *"Your ESPN
+  session (SWID and espn_s2) will be stored encrypted on this server and used only to read your
+  leagues. Deleting the account here erases it. ESPN's terms do not permit this kind of access;
+  you are choosing to do it."*), `SYNTHETIC_NOTICE`, `LOCAL_NOTICE`, `FOOTER_LABEL` per mode, and
+  `holdsCredentials(mode)`, which is true for `private_operator` and `private_invited` only.
+- The Manage page keeps the mode `/api/health` reports (`Mode | null`), not a boolean. Three
+  branches say three different things; the account form renders only when `holdsCredentials(mode)`;
+  an unknown mode -- health not yet answered, or answered without one -- shows no notice and no
+  form, which is the honest default. The accounts empty state names the synthetic instance when
+  that is what it is. The footer fetches health once and says which deployment this is
+  (`ESPN Edge · local portfolio analytics` / `hosted on synthetic data` / `hosted for an invited
+  group`), `ESPN Edge` until it knows.
+- **Measured:** `tsc -b --noEmit` clean on the operator's machine; Playwright 61 passed in the cloud
+  workspace (57 before; the four new tests mock `/api/health` for every mode and assert the terms
+  sentence appears in the invited mode and nowhere else, the form is absent on a synthetic
+  instance, nothing is claimed until the mode is known, and the operator's local copy is
+  unchanged); the pin tests 10 passed (`tests/test_spa_mode_copy.py`, 5, and `tests/test_spa_csrf.py`,
+  5, whose synthetic-form test now reads the `holdsCredentials` gate).
+- **Controls, each failing exactly the test that names it:** the form gate admitting
+  `public_synthetic` (the pin test, and in the browser the synthetic test sees the `Add ESPN
+  account` heading it must not); a consent sentence softened; the terms sentence rendered in the
+  synthetic branch too; the footer label hard-coded instead of read from the mode; a mode dropped
+  from `MODES` while the backend still names it.
 
 ### WU-5. The mode switch and the first live read (gates G4 and G5)
 

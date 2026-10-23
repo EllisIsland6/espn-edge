@@ -130,3 +130,30 @@ Controls  (each restored; each fails exactly the test that names it)
   G  superuser offered as the owner URL      -> the fixture's premise assertion
 Full suite in the cloud workspace, SQLite, two runs: 1022 passed 6 skipped; 636 passed 17 skipped.
 Nothing of this ran against RDS.
+
+--- WU-4: the page tells the truth, by mode (2026-10-23; static assets only, no Terraform)
+Files     web/src/copy.ts (new: INVITED_CONSENT, SYNTHETIC_NOTICE, LOCAL_NOTICE, FOOTER_LABEL,
+          MODES, holdsCredentials); web/src/pages/Manage.tsx (mode: Mode | null, three branches,
+          form gated by holdsCredentials, mode-aware empty state); web/src/components/Layout.tsx
+          (footer reads /api/health once); web/e2e/smoke.spec.ts (+health mock, +4 tests);
+          tests/test_spa_csrf.py (synthetic-form test reads the gate); tests/test_spa_mode_copy.py (new, 5).
+tsc       node node_modules/typescript/bin/tsc -b --noEmit   exit 0      (operator's machine)
+ruff      ruff check api tests ops                           All checks passed!
+pytest    tests/test_spa_mode_copy.py tests/test_spa_csrf.py tests/test_provision_user.py
+          27 passed, 4 skipped in 0.32s                      (operator's machine; the 4 are PostgreSQL)
+Playwright (cloud workspace, chromium at /opt/pw-browsers, local config not committed)
+          baseline on c7e3412: 57 passed;  with WU-4: 61 passed
+          (ECONNREFUSED 127.0.0.1:8000 lines are pre-existing noise; the baseline prints them too)
+Controls  (each restored; each fails exactly the test that names it)
+  A  holdsCredentials admits public_synthetic -> test_the_manage_page_offers_no_credential_form_on_a_synthetic_instance
+       and in the browser: "manage offers no account form on a synthetic instance and says why"
+       (getByRole heading "Add ESPN account": expected 0, received 1); the other 15 matching tests pass
+  B  the terms sentence softened               -> test_the_consent_copy_is_pinned_by_literal
+  C  footer label hard-coded                   -> test_the_footer_names_the_deployment_from_the_backends_word
+  D  private_invited dropped from MODES         -> test_the_spa_names_the_backends_three_modes_and_no_others
+  E  terms sentence rendered in the synthetic branch too -> test_the_consent_copy_is_pinned_by_literal
+Checksums carried cloud -> device (sha256, identical on both):
+  493255e2 copy.ts  57923050 Manage.tsx  7488a8e6 Layout.tsx  b931a23f smoke.spec.ts
+  8e44a25b test_spa_csrf.py  2cba31f6 test_spa_mode_copy.py
+Not yet on the site: needs the operator's npm run build, s3 sync, CloudFront invalidation.
+Until G4 the live page says "hosted on synthetic data" and shows no form -- which is true.

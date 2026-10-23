@@ -686,6 +686,10 @@ function recordPortfolioAnalyticsRequests(page: Page): string[] {
 async function mockApi(page: Page) {
   // Fallback first (lowest priority) so no request ever escapes to a real backend.
   await page.route("**/api/**", (r) => json(r, {}));
+  // The mode is the backend's word; the suite mocks the local operator's
+  // instance unless a test says otherwise (ADR-012: three modes, one page).
+  await page.route("**/api/health", (r) =>
+    json(r, { status: "ok", season: 2026, db_path: "/data/edge.db", backend: "sqlite", mode: "private_operator" }));
   // Player portraits are same-origin and backend-proxied in production. Fulfill the local
   // route here so the browser suite remains fully offline and deterministic.
   await page.route("**/api/players/*/portrait", (r) =>
@@ -2684,4 +2688,57 @@ test("re-auth form posts new cookies and clears the needs_reauth badge", async (
   await expect(page.getByTestId("account-status-7")).toHaveText("active");
   await expect(page.getByTestId("reauth-form-7")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("fresh-cookie-value");
+});
+
+
+// ADR-012, WU-4: the Manage page and the footer tell the truth about the mode.
+// The three modes are the backend's; the page claims nothing until it hears one.
+
+const HEALTH = { status: "ok", season: 2026, db_path: "/data/edge.db", backend: "postgresql://db.internal:5432/edge" };
+
+test("manage shows the account form with the consent copy on an invited instance", async ({ page }) => {
+  await page.route("**/api/health", (r) => json(r, { ...HEALTH, mode: "private_invited" }));
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.goto("/manage");
+  const consent = page.getByTestId("invited-consent");
+  await expect(consent).toContainText(
+    "Your ESPN session (SWID and espn_s2) will be stored encrypted on this server and used only to read your leagues.",
+  );
+  await expect(consent).toContainText("Deleting the account here erases it.");
+  await expect(consent).toContainText("ESPN's terms do not permit this kind of access; you are choosing to do it.");
+  await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
+  await expect(page.getByText("No accounts yet")).toBeVisible();
+  await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · hosted for an invited group");
+});
+
+test("manage offers no account form on a synthetic instance and says why", async ({ page }) => {
+  await page.route("**/api/health", (r) => json(r, { ...HEALTH, mode: "public_synthetic" }));
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.goto("/manage");
+  await expect(page.getByText(/This hosted instance runs on synthetic data/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add ESPN account" })).toHaveCount(0);
+  await expect(page.getByPlaceholder("espn_s2")).toHaveCount(0);
+  await expect(page.getByText("No accounts on a synthetic instance")).toBeVisible();
+  await expect(page.getByTestId("invited-consent")).toHaveCount(0);
+  await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · hosted on synthetic data");
+});
+
+test("manage claims nothing and shows no form until the mode is known", async ({ page }) => {
+  // A health answer without a mode: neither the local copy nor a form.
+  await page.route("**/api/health", (r) => json(r, { status: "ok", season: 2026, db_path: "/data/edge.db" }));
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.goto("/manage");
+  await expect(page.getByRole("heading", { name: "Manage accounts & leagues" })).toBeVisible();
+  await expect(page.getByText("No accounts yet")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add ESPN account" })).toHaveCount(0);
+  await expect(page.getByText(/never leave your machine/)).toHaveCount(0);
+  await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge");
+});
+
+test("the local operator's instance keeps its copy, its form and its footer", async ({ page }) => {
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.goto("/manage");
+  await expect(page.getByText(/never leave your machine/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
+  await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · local portfolio analytics");
 });
