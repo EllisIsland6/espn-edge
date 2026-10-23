@@ -197,11 +197,14 @@ locals {
   app_secrets = [
     { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url_app.arn },
     { name = "SESSION_SECRET", valueFrom = aws_secretsmanager_secret.session_secret.arn },
-    # No host Anthropic key in the public synthetic stack. ECS refuses to start a
-    # task whose secret has no version, and Secrets Manager refuses an empty
-    # one, so an unset key cannot be expressed through `secrets` at all; the
-    # app treats an absent ANTHROPIC_API_KEY as "AI disabled" (api/services/ai.py).
-    # Phase 46's direction is a key per user, held client-side, never here.
+    # No host Anthropic key on the hosted site, in either mode. ECS refuses to
+    # start a task whose secret has no version, and Secrets Manager refuses an
+    # empty one, so an unset key cannot be expressed through `secrets` at all;
+    # the app treats an absent ANTHROPIC_API_KEY as "AI disabled"
+    # (api/services/ai.py). ADR-012 G7 (decided 2026-10-23): each invited
+    # person's own key, stored as Fernet ciphertext in their tenant's row of
+    # `ai_credentials` under the custody key -- in RDS, never here, and the
+    # service refuses the host's key on the invited site even if one were wired.
     { name = "OIDC_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.oidc_client_secret.arn },
   ]
 

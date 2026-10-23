@@ -41,7 +41,6 @@ SESSIONLESS_ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/redoc"): "FastAPI's own ReDoc UI",
     ("GET", "/api/health"): "liveness; no query",
     ("GET", "/config.json"): "runtime SPA config; read before anyone logs in, nothing private",
-    ("GET", "/api/ai/status"): "reads the AI feature flag and model names; AiService(session=None)",
     ("GET", "/api/players/team-logo/{team}"): "static NFL team logo asset",
     ("GET", "/api/players/{espn_player_id}/portrait"): "public ESPN headshot passthrough",
     ("GET", "/api/recovery/status"): "operator control plane; restic/launchd state, not app data",

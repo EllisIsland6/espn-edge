@@ -80,14 +80,18 @@ def runtime_config() -> dict[str, object]:
 
 
 def _is_account_credential_endpoint(request: Request) -> bool:
-    """True for the two POST endpoints that carry SWID/espn_s2 in the request body.
+    """True for the three endpoints that carry a credential in the request body:
+    the two POSTs with SWID/espn_s2, and the PUT with a tenant's AI key.
 
     FastAPI's default 422 reflects the submitted ``input`` object, which would echo
-    the ESPN cookies back on a malformed request rejected before the router runs.
+    the credential back on a malformed request rejected before the router runs.
     """
+    path = request.url.path.rstrip("/")
+    if request.method == "PUT":
+        # ADR-012 G7: the tenant's AI key arrives in this body and nowhere else.
+        return path == "/api/ai/key"
     if request.method != "POST":
         return False
-    path = request.url.path.rstrip("/")
     return path == "/api/accounts" or (
         path.startswith("/api/accounts/") and path.endswith("/reauth")
     )

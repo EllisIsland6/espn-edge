@@ -23,6 +23,8 @@ from ..ai_config import MAX_TOKENS, SCHEMA_VERSION
 from ..ai_schemas import SCHEMA_BY_KIND
 from ..config import get_settings
 from ..models import AiReport
+from ..tenancy import current_tenant_id
+from . import ai_keys
 from .recovery import assert_recovery_write_allowed
 from .spend import (
     Reservation,
@@ -80,12 +82,22 @@ class LlmClient(Protocol):
 
 
 class AnthropicLlmClient:
-    """Production client using the official SDK + structured outputs."""
+    """Production client using the official SDK + structured outputs.
 
-    def __init__(self, api_key: str):
+    `spend_is_the_hosts` is what the reservation guard below asks before it
+    insists on a charge. True -- the default, and the only value the host-key
+    path ever uses -- means the ledger's rules apply. False means the key is
+    a tenant's own (ADR-012, G7): the spend is theirs, the host's ledger has
+    nothing to bound, and a reservation is not required. The flag is fixed at
+    construction, by the one place that knows whose key it was handed, so a
+    call site cannot talk the guard out of a charge after the fact.
+    """
+
+    def __init__(self, api_key: str, *, spend_is_the_hosts: bool = True):
         import anthropic
 
         self._client = anthropic.Anthropic(api_key=api_key)
+        self._spend_is_the_hosts = spend_is_the_hosts
         # Read back by AiService to settle a reservation against the real token
         # counts. Without it a settle could only restate the reservation, which
         # would make "reserve then settle" a two-step way of doing one step.
@@ -109,7 +121,14 @@ class AnthropicLlmClient:
         # charge was mandatory and none arrived -- including from a future call
         # site that forgets, which is the failure mode a single call-site check
         # cannot cover.
-        if reservation is None and _spend_bound_required():
+        # `getattr` with a True default: a client built any other way than
+        # through `__init__` -- `tests/test_spend.py` does it -- is treated as
+        # the host's, which is the direction that refuses.
+        if (
+            reservation is None
+            and getattr(self, "_spend_is_the_hosts", True)
+            and _spend_bound_required()
+        ):
             raise AiError("model call attempted without a spend reservation")
 
         # Logs and error messages never include the key, prompts, cookies, SWID,
@@ -182,9 +201,10 @@ def _spend_bound_required() -> bool:
     """
     settings = get_settings()
     # `is_hosted`: any internet-facing deployment holding a host key is bounded
-    # by the ledger whether or not a price is configured. The per-user key of
-    # ADR-012's gate G7 bypasses the host ledger because the spend is the
-    # user's, and that path does not exist yet.
+    # by the ledger whether or not a price is configured. The per-tenant key of
+    # ADR-012's gate G7 never reaches this predicate: `AiService` answers False
+    # for it before asking here, because the spend is the tenant's own and the
+    # host's ledger has nothing to bound.
     return settings.is_hosted or bool(settings.ai_price_micro_usd_per_mtok)
 
 
@@ -377,15 +397,32 @@ def enrich_trade_player_refs(content: dict, facts: dict) -> dict:
 
 
 class AiService:
+    """The key is decided by the mode, not by what the deployment happens to set.
+
+    `private_operator` and `public_synthetic`: the host key from the
+    environment, behind the ledger -- unchanged. `private_invited` (ADR-012,
+    G7): the caller's tenant's own stored key, decrypted through the custody
+    chokepoint at the moment of the call, and NEVER the host key, even if a
+    deployment wires one; a tenant with no key gets exactly the answers a
+    deployment with no key gives. `enabled` therefore needs the tenant-bound
+    session on the invited site, and is False without one.
+    """
+
     def __init__(self, session: Session, client: LlmClient | None = None):
         self.session = session
         self._injected = client is not None
         self.client = client
-        self._api_key = get_settings().anthropic_api_key
+        settings = get_settings()
+        self._tenant_keyed = settings.app_mode == "private_invited"
+        self._api_key = "" if self._tenant_keyed else settings.anthropic_api_key
 
     @property
     def enabled(self) -> bool:
-        return self._injected or bool(self._api_key)
+        if self._injected:
+            return True
+        if self._tenant_keyed:
+            return self.session is not None and ai_keys.read_key(self.session) is not None
+        return bool(self._api_key)
 
     # ---- spend bound -------------------------------------------------------
     def _ledger(self) -> SpendLedger:
@@ -401,8 +438,7 @@ class AiService:
 
         return SpendLedger(session_factory=SessionLocal)
 
-    @staticmethod
-    def _spend_bound_required() -> bool:
+    def _spend_bound_required(self) -> bool:
         """Whether a reservation must succeed before the model may be called.
 
         Always in `public_synthetic`: the phase exists to make a hosted process
@@ -414,7 +450,14 @@ class AiService:
         ledger with no configured rate can only refuse, so enforcing it by
         default would turn "unchanged" into "AI turned off". Configuring a rate
         is the operator opting in to their own ceiling.
+
+        Never on the invited site (ADR-012, G7): the key is the tenant's own and
+        so is the bill; the host's ledger bounds the host's money and has
+        nothing to bound here. The client built for that key is told the same
+        at construction, so neither half can be argued out of it separately.
         """
+        if self._tenant_keyed:
+            return False
         return _spend_bound_required()
 
     @staticmethod
@@ -455,10 +498,35 @@ class AiService:
 
     def _ensure_client(self) -> LlmClient:
         if self.client is None:
-            if not self._api_key:
-                raise AiDisabledError()
-            self.client = AnthropicLlmClient(self._api_key)
+            if self._tenant_keyed:
+                key = ai_keys.tenant_key(self.session) if self.session is not None else None
+                if not key:
+                    raise AiDisabledError()
+                self.client = AnthropicLlmClient(key, spend_is_the_hosts=False)
+                del key
+            else:
+                if not self._api_key:
+                    raise AiDisabledError()
+                self.client = AnthropicLlmClient(self._api_key)
         return self.client
+
+    def _note_tenant_key_use(self, error: BaseException | None) -> None:
+        """What is practical to keep beside a stored key: when it last worked,
+        and the class of the last failure. On the invited site only; the host
+        key has no row. A failure is recorded on its own transaction, because
+        the request that failed will roll its own back."""
+        if not self._tenant_keyed or self._injected or self.session is None:
+            return
+        if error is None:
+            ai_keys.note_use(self.session, error=None)
+            return
+        from ..db import session_scope
+
+        try:
+            with session_scope(tenant_id=current_tenant_id(self.session)) as own:
+                ai_keys.note_use(own, error=error)
+        except Exception as exc:  # the note is a courtesy; the failure is the news
+            log.warning("could not record the ai key failure: %s", type(exc).__name__)
 
     # ---- persistence helpers ----------------------------------------------
     def _find_by_hash(self, league_id: int, kind: str, input_hash: str) -> AiReport | None:
@@ -633,13 +701,15 @@ class AiService:
                 max_tokens=output_budget,
                 reservation=reservation,
             )
-        except BaseException:
+        except BaseException as exc:
             # The call left this process. Whether the provider billed it is not
             # knowable here, so the month keeps the full reservation and the
             # entry says the spend is unknown rather than implying it was free.
             self._record_unknown(reservation)
+            self._note_tenant_key_use(exc)
             raise
         self._settle(reservation, model, getattr(client, "last_usage", None))
+        self._note_tenant_key_use(None)
         try:
             validated = schema.model_validate(raw)  # SPEC: validate before storing
         except ValidationError as exc:

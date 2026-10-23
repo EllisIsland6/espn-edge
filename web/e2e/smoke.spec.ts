@@ -690,6 +690,9 @@ async function mockApi(page: Page) {
   // instance unless a test says otherwise (ADR-012: three modes, one page).
   await page.route("**/api/health", (r) =>
     json(r, { status: "ok", season: 2026, db_path: "/data/edge.db", backend: "sqlite", mode: "private_operator" }));
+  // No AI key on file unless a test stores one (ADR-012 G7; the panel renders
+  // on the invited instance only, so most tests never ask).
+  await page.route("**/api/ai/key", (r) => json(r, null));
   // Player portraits are same-origin and backend-proxied in production. Fulfill the local
   // route here so the browser suite remains fully offline and deterministic.
   await page.route("**/api/players/*/portrait", (r) =>
@@ -2709,6 +2712,13 @@ test("manage shows the account form with the consent copy on an invited instance
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByText("No accounts yet")).toBeVisible();
   await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · hosted for an invited group");
+  const aiConsent = page.getByTestId("ai-key-consent");
+  await expect(aiConsent).toContainText(
+    "Your Anthropic API key will be stored encrypted on this server and used only for the reports you ask for.",
+  );
+  await expect(aiConsent).toContainText("Anthropic bills you directly for those calls.");
+  await expect(aiConsent).toContainText("Deleting the key here erases it.");
+  await expect(page.getByPlaceholder("Anthropic API key", { exact: true })).toHaveAttribute("type", "password");
 });
 
 test("manage offers no account form on a synthetic instance and says why", async ({ page }) => {
@@ -2720,6 +2730,7 @@ test("manage offers no account form on a synthetic instance and says why", async
   await expect(page.getByPlaceholder("espn_s2")).toHaveCount(0);
   await expect(page.getByText("No accounts on a synthetic instance")).toBeVisible();
   await expect(page.getByTestId("invited-consent")).toHaveCount(0);
+  await expect(page.getByTestId("ai-key-panel")).toHaveCount(0);
   await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · hosted on synthetic data");
 });
 
@@ -2741,4 +2752,51 @@ test("the local operator's instance keeps its copy, its form and its footer", as
   await expect(page.getByText(/never leave your machine/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add ESPN account" })).toBeVisible();
   await expect(page.getByTestId("footer-mode")).toHaveText("ESPN Edge · local portfolio analytics");
+  // The operator's key comes from his own machine's environment; no panel.
+  await expect(page.getByTestId("ai-key-panel")).toHaveCount(0);
+});
+
+test("saving an AI key sends it once, shows only its tail, and deleting it erases it", async ({ page }) => {
+  const KEY = "sk-ant-api03-browser-test-value-nothing-real-wxyz";
+  const ON_FILE = {
+    provider: "anthropic",
+    hint: "wxyz",
+    created_at: "2026-10-23T20:00:00Z",
+    updated_at: "2026-10-23T20:00:00Z",
+    last_used_at: null,
+    last_error: null,
+  };
+  let stored = false;
+  const bodies: string[] = [];
+  const methods: string[] = [];
+  await page.route("**/api/health", (r) => json(r, { ...HEALTH, mode: "private_invited" }));
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.route("**/api/ai/key", async (route) => {
+    const method = route.request().method();
+    methods.push(method);
+    if (method === "GET") return json(route, stored ? ON_FILE : null);
+    if (method === "PUT") {
+      bodies.push(route.request().postData() ?? "");
+      stored = true;
+      return json(route, ON_FILE);
+    }
+    stored = false;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.goto("/manage");
+  const field = page.getByPlaceholder("Anthropic API key", { exact: true });
+  await expect(field).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+  await field.fill(KEY);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("ai-key-on-file")).toContainText("ending in …wxyz");
+  expect(bodies).toEqual([JSON.stringify({ api_key: KEY })]);
+  await expect(field).toHaveCount(0);
+  await expect(page.getByPlaceholder("Replace with a new Anthropic API key")).toHaveValue("");
+  expect(await page.locator("body").innerText()).not.toContain(KEY);
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByTestId("ai-key-on-file")).toHaveCount(0);
+  await expect(page.getByPlaceholder("Anthropic API key", { exact: true })).toBeVisible();
+  expect(methods.filter((m) => m === "PUT")).toHaveLength(1);
+  expect(methods.filter((m) => m === "DELETE")).toHaveLength(1);
 });

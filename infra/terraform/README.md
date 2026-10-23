@@ -307,6 +307,53 @@ member. The script never prints an email or a subject, in success or failure -- 
 log. Its PostgreSQL proof is `tests/test_provision_user.py`, run against a migrated cluster as a
 NOSUPERUSER NOBYPASSRLS owner, which is what `edge_owner` is on RDS.
 
+### 8. Each person's own AI key -- gate G7 (ADR-012)
+
+Decided by the operator on 2026-10-23: *they pay for their own AI API, and we store what's needed
+and practical, per best practice.* Built as WU-7 (`docs/phase-46-hosted-real-data.md`): one
+`ai_credentials` row per tenant, the key Fernet ciphertext through `api/crypto.py` under the custody
+key, policied `tenant_id = current_tenant()` (revision 0018), decrypted at the moment of the call,
+never returned after saving, never logged, erased by `DELETE`. The invited site never uses a host
+key; the other two modes are unchanged. It is a backend change, so it reaches the site as an
+image, a migration and a plan-first apply -- in that order, because the migrate task must run the
+new image before the web task that expects the table does:
+
+1. Build, preflight and push the app image for the commit (section 4); set `APP_IMAGE_TAG` to it.
+2. **terraform plan** on the commit. Predicted: `2 to add, 2 to change, 2 to destroy` -- the web and
+   migrate task definitions replaced for the new tag, the web service and the migrate task family
+   moved to them, nothing else. (The worker's definition carries the tag too; if the plan counts it,
+   expect `3 / 2 / 3` and say so before the apply.)
+3. **terraform apply**, approved by you. ECS rolls the web service onto the new image; until the
+   migration runs the new code answers `GET /api/ai/key` with a 500 on a missing table, which is
+   why step 4 follows at once.
+4. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`, as in section 5 step 3)
+   and read its log: `Running upgrade 0017 -> 0018`.
+
+```bash
+aws logs tail /espn-edge/migrate --since 10m --format short | grep -E 'Running upgrade|ERROR|Traceback'
+echo 'expect: Running upgrade 0017 -> 0018, ai_credentials ...; no ERROR, no Traceback'
+curl -sS https://eaedgefinder.com/api/health
+echo
+echo 'expect: status ok, mode private_invited'
+```
+
+5. **The gate.** Signed in, on Manage: the "AI key" panel reads its three sentences; paste your own
+   Anthropic key; the panel then shows the provider, the key's last four characters and "last used
+   never". Ask for one report on one league. Then, in your terminal, the log read that is the
+   acceptance criterion:
+
+```bash
+KEY_TAIL=xxxx
+aws logs tail /espn-edge/web --since 15m --format short | grep -c -- "${KEY_TAIL}"
+echo 'expect: 0 -- set KEY_TAIL to the last four characters the panel shows; the count of log lines carrying them must be zero'
+aws logs tail /espn-edge/web --since 15m --format short | grep -i -E 'anthropic|ai key|AiError|APIError' | tail -5
+echo 'expect: at most an exception CLASS name on a failure; never a message carrying a value'
+```
+
+Delete the key on the panel to prove the erase, and paste it again if you want to keep using it.
+Everyone you invite does the same on their own Manage page; their key is theirs, their bill is
+theirs, and revoking them (section 7) takes the row with them.
+
 ## Guarantees, and where each is held
 
 | Guarantee (Phase 42; ADR-012 rows marked) | Held by |
@@ -317,6 +364,7 @@ NOSUPERUSER NOBYPASSRLS owner, which is what `edge_owner` is on RDS.
 | Host answers CloudFront only, on 443, no SSH | `test_the_host_admits_only_cloudfront_on_443`, `test_no_ssh_and_no_key_pair` |
 | Database private, single-AZ, encrypted, password never in state | `test_the_database_is_private_single_az_encrypted` |
 | The web task is `private_invited` since G4 (2026-10-23); migrate and the worker stay `public_synthetic`; no host AI key; `FERNET_KEY` reaches the web task only, and only once wired; every variable read | `test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
+| Each tenant's AI key: one row per tenant, ciphertext through the custody chokepoint, readable by that tenant alone, never returned after saving, never the host's key on the invited site, never in a backup bundle (ADR-012 G7) | `tests/test_ai_key_custody.py` (the PostgreSQL half for the isolation), `test_a_tenants_ai_key_never_travels`, `test_every_table_is_classified`; this file's section 8 log read at the gate |
 | No long-lived GitHub key; plan cannot deploy | `test_roles_trust_only_this_repository_via_oidc`, `test_the_plan_role_cannot_write` |
 | Budget before anything else | `test_the_budget_exists_before_anything_else_can` |
 | Alarms are Phase 41's catalog, not a copy | `ops/render_alarms.py --check`, run as a test |
@@ -325,4 +373,8 @@ Every one of those was control-removed: the resource planted, the route added, t
 the Deny deleted, port 22 opened, Decrypt handed to the deploy role, a data-key action dropped from
 its Deny, the alias scope dropped from the AWS-managed Allow, the alias string drifted between
 roots, the wiring gate flipped early, a second reader named on the key, the secret planted as a
-Terraform resource — each fails the test that names it.
+Terraform resource, the AI key's chokepoint bypassed, its verification skipped, the key echoed in
+a response, the host key used on the invited site, the ledger consulted for a tenant's own spend,
+the failure message recorded instead of its class, the 422 redaction forgetting the PUT, the
+revoke order forgetting the table, row security switched off on it — each fails the test that
+names it.

@@ -21,8 +21,8 @@ from ..ai_config import (
 )
 from ..db import get_session
 from ..models import DraftPick, League, Team
-from ..schemas import AiReportEnvelope, AiReportList, AiStatus
-from ..services import ai_inputs
+from ..schemas import AiKeyIn, AiKeyOut, AiReportEnvelope, AiReportList, AiStatus
+from ..services import ai_inputs, ai_keys
 from ..services.ai import (
     AiError,
     AiService,
@@ -36,9 +36,45 @@ router = APIRouter(tags=["ai"])
 
 
 @router.get("/api/ai/status", response_model=AiStatus)
-def ai_status() -> AiStatus:
-    svc = AiService(session=None)  # enabled check needs no DB
+def ai_status(session: Session = Depends(get_session)) -> AiStatus:
+    # On the invited site "enabled" is a fact about the caller's tenant -- does
+    # it hold a key -- so the status needs the tenant-bound session it used to
+    # do without. Elsewhere the session is simply unused.
+    svc = AiService(session)
     return AiStatus(enabled=svc.enabled, standard_model=STANDARD_MODEL, bulk_model=BULK_MODEL)
+
+
+# ---- the tenant's own key (ADR-012, gate G7) ------------------------------
+#
+# Three verbs, one row, nothing echoed. The body of `PUT` is the only request
+# in this router that carries a credential, and `api/main.py` gives it the same
+# credential-neutral 422 as the account endpoints. `store_key` runs the
+# hosted-mode chokepoint before anything else, so a synthetic instance answers
+# the fixed 403 and stores nothing.
+
+
+@router.get("/api/ai/key", response_model=AiKeyOut | None)
+def ai_key(session: Session = Depends(get_session)) -> AiKeyOut | None:
+    return ai_keys.read_key(session)
+
+
+@router.put("/api/ai/key", response_model=AiKeyOut)
+def put_ai_key(payload: AiKeyIn, session: Session = Depends(get_session)) -> AiKeyOut:
+    try:
+        out = ai_keys.store_key(session, payload.api_key)
+    except ai_keys.AiKeyRefused as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ai_keys.AiKeyUnverifiable as exc:
+        raise HTTPException(503, str(exc)) from None
+    session.commit()
+    return out
+
+
+@router.delete("/api/ai/key", status_code=204)
+def delete_ai_key(session: Session = Depends(get_session)) -> None:
+    if not ai_keys.delete_key(session):
+        raise HTTPException(404, "no key on file")
+    session.commit()
 
 
 def _get_league(session: Session, league_id: int) -> League:

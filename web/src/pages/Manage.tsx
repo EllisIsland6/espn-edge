@@ -4,14 +4,18 @@ import {
   addAccount,
   addLeague,
   deleteAccount,
+  deleteAiKey,
   discoverLeagues,
   getAccounts,
+  getAiKey,
   getHealth,
   getLeagues,
+  putAiKey,
   reauthAccount,
   syncLeague,
   triggerRecoveryBackup,
   type AccountOut,
+  type AiKeyOut,
   type DiscoveredLeague,
   type LeagueOut,
 } from "../api";
@@ -19,6 +23,7 @@ import { AchievementRow } from "../components/Gamification";
 import { TeamIdentity } from "../components/TeamIdentity";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import {
+  AI_KEY_CONSENT,
   INVITED_CONSENT,
   LOCAL_NOTICE,
   SYNTHETIC_NOTICE,
@@ -163,6 +168,8 @@ export default function Manage() {
         />
       )}
 
+      {mode === "private_invited" && <AiKeyPanel onError={setError} />}
+
       <AddLeagueForm accounts={accounts ?? []} onDone={reload} onError={setError} />
       {!leagues ? (
         <Spinner />
@@ -219,6 +226,91 @@ function AddAccountForm({ onDone, onError }: { onDone: () => void; onError: (e: 
           {busy ? "Adding…" : "Add"}
         </Button>
       </form>
+    </Panel>
+  );
+}
+
+function AiKeyPanel({ onError }: { onError: (e: string) => void }) {
+  // The invited site only (ADR-012, G7): each person pays for their own AI
+  // and the site keeps their key the way it keeps their ESPN session. The
+  // field is write-only -- a password input that empties on save -- and the
+  // server never returns the key, so there is nothing here to re-read it from.
+  const [key, setKey] = useState<AiKeyOut | null | undefined>(undefined);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setKey(await getAiKey());
+    } catch (err) {
+      onError(String(err));
+    }
+  }, [onError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      setKey(await putAiKey(draft));
+      setDraft("");
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await deleteAiKey();
+      setKey(null);
+    } catch (err) {
+      onError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel className="mt-5 p-4" data-testid="ai-key-panel">
+      <h2 className="text-sm font-semibold">AI key</h2>
+      <p className="mt-1 text-xs text-muted" data-testid="ai-key-consent">
+        {AI_KEY_CONSENT.storage} {AI_KEY_CONSENT.billing} {AI_KEY_CONSENT.erase}
+      </p>
+      {key === undefined ? (
+        <Spinner />
+      ) : (
+        <>
+          {key && (
+            <p className="mt-2 text-xs text-secondary" data-testid="ai-key-on-file">
+              On file: {key.provider} key ending in <code className="mono">…{key.hint}</code>, saved{" "}
+              {relTime(key.created_at)}, last used {relTime(key.last_used_at)}
+              {key.last_error ? ` (last call failed: ${key.last_error})` : ""}.
+            </p>
+          )}
+          <form onSubmit={save} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <Field
+              value={draft}
+              onChange={setDraft}
+              placeholder={key ? "Replace with a new Anthropic API key" : "Anthropic API key"}
+              type="password"
+            />
+            <Button type="submit" variant="sync" disabled={busy || !draft}>
+              {busy ? "Saving…" : key ? "Replace" : "Save"}
+            </Button>
+            {key && (
+              <Button type="button" variant="danger" disabled={busy} onClick={remove}>
+                Delete
+              </Button>
+            )}
+          </form>
+        </>
+      )}
     </Panel>
   );
 }

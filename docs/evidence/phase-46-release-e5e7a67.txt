@@ -175,3 +175,32 @@ Read from the edge (browser pane, anonymous, same-origin fetch from the served b
                 "hosted for an invited group", "local portfolio analytics", "No accounts on a synthetic instance",
                 "Deleting the account here erases it.", "you are choosing to do it"
 The rendered page needs a session (anonymous visitors go to Cognito) and is the operator's to confirm.
+
+--- WU-7: each tenant's own AI key (built 2026-10-23; not deployed)
+Cluster   the WU-3 cluster at 0017 -> alembic upgrade head as edge_owner (NOSUPERUSER NOBYPASSRLS):
+          Running upgrade 0017 -> 0018; pg_class relrowsecurity=True relforcerowsecurity=True;
+          policy t_ai_credentials USING/WITH CHECK (tenant_id = current_tenant());
+          grants: edge_app SELECT INSERT UPDATE DELETE (0016 default privileges), edge_owner all.
+Tests     tests/test_ai_key_custody.py   16 passed offline, +1 PostgreSQL with PROVISION_PG_*_URL set
+          tests/test_provision_user.py   21 passed with the cluster (REVOKE_ORDER gained ai_credentials)
+          tests/test_recovery_format.py  30 passed after the v5 re-pin; tests/test_recovery.py 291 passed 17 skipped
+          full suite (less terraform/recovery)  1354 passed 7 skipped; tests/test_terraform_policy.py 35 passed
+          Playwright (local config, chromium /opt/pw-browsers)  62 passed (61 before)
+          tsc -b --noEmit exit 0; ruff check api tests ops alembic clean
+Recovery format v5 catalog digests (read off real databases by the shape builders):
+          alembic upgrade head              063067c8573829a7d7665c627296a4212fa436fd2bf30b99c670eb4c447aefc7
+          create_all, opportunity full      0e289c0233fc9e219b49d94d8fbcd2b0ed08bc7ab9dd2b07c1d38d9c8a1e4942
+          create_all, opportunity older     d368c6125d028fb404d920343d467b3ab8b1de5934a7a0e5cf876e8a60125c10
+Controls  (each restored; each fails exactly the test that names it)
+  A  chokepoint bypassed (fresh Fernet)      -> test_the_synthetic_instance_refuses_custody_through_the_same_chokepoint
+  B  verification skipped                   -> 4 tests (stored/never echoed, second PUT, refused, unverifiable)
+  C  the key added to the response          -> test_the_key_is_stored_encrypted_and_never_echoed
+  D  host key used on the invited site      -> test_ai_status_is_a_fact_about_the_tenants_key..., test_the_service_uses_the_tenants_key...
+  E  ledger consulted for a tenant's spend  -> 3 tests (the patched SpendLedger.reserve fires)
+  F  failure message recorded, not class    -> test_a_failed_call_records_the_class_and_never_the_message
+  G  422 redaction forgets the PUT          -> test_a_malformed_body_gets_the_credential_neutral_422 + the predicate test
+  H  revoke order forgets the table         -> test_the_revoke_order_deletes_leagues_before_accounts_and_the_tenant_last
+  I  PostgreSQL: ALTER TABLE ai_credentials DISABLE ROW LEVEL SECURITY
+                                            -> test_one_tenants_key_is_invisible_to_another_and_gone_when_deleted
+                                               (tenant A read [(76,'aaaa'),(77,'bbbb')]); re-enabled, passing
+Nothing deployed; nothing run against RDS; no key of anyone's used anywhere.

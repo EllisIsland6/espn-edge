@@ -60,8 +60,13 @@ from ..config import Settings, get_settings
 # version marker is what makes the refusal say why. No v2 bundle exists
 # outside a test -- no restore has ever been authorized -- so nothing is
 # orphaned.
-FORMAT_VERSION = 4
-BUNDLE_FILENAME = "espn-edge-recovery-v4.json"
+# v4 at revision 0017 (`identities`), v5 at revision 0018 (`ai_credentials`,
+# ADR-012 G7): a new table is a catalog change, so all three pinned shapes
+# move and the number moves with them, for the reason the first paragraph
+# gives. Neither table travels in a bundle (see NOT_BUNDLED). No v4 bundle
+# exists outside a test either.
+FORMAT_VERSION = 5
+BUNDLE_FILENAME = "espn-edge-recovery-v5.json"
 RECOVERY_TAG = "espn-edge-private-v1"
 #: The swid a restored account carries instead of the real one.
 #:
@@ -100,7 +105,7 @@ def is_reauth_placeholder(swid: object) -> bool:
     """
     return isinstance(swid, str) and _REAUTH_SWID_PATTERN.match(swid) is not None
 REAUTH_S2_SENTINEL = "not-a-fernet-token"
-RECOVERY_CANARY = "espn-edge-recovery-format-v4"
+RECOVERY_CANARY = "espn-edge-recovery-format-v5"
 _SCRATCH_ROOT_MARKER = ".espn-edge-recovery-root-v1"
 _SCRATCH_RUN_MARKER = ".espn-edge-recovery-run-v1"
 _MAX_BUNDLE_BYTES = 128 * 1024 * 1024
@@ -229,6 +234,24 @@ _CREDENTIAL_BROKER_CLEANUP_SECONDS = 0.5
 #: Re-pinned as v4 at revision 0017, which added `identities` -- the OIDC
 #: front door's subject-to-user lookup. A new table is a catalog change, so
 #: all three shapes moved; the table itself is NOT_BUNDLED (see there).
+#:
+#: Re-pinned as v5 at revision 0018, which added `ai_credentials` -- each
+#: tenant's own AI key (ADR-012 G7). Same reason, same three shapes, read off
+#: real databases by `tests/test_recovery_format.py`'s builders; the table is
+#: NOT_BUNDLED (see there).
+_FORMAT_V5_CATALOG_SHA256 = frozenset(
+    {
+        # alembic upgrade head
+        "063067c8573829a7d7665c627296a4212fa436fd2bf30b99c670eb4c447aefc7",
+        # create_all, opportunity full
+        "0e289c0233fc9e219b49d94d8fbcd2b0ed08bc7ab9dd2b07c1d38d9c8a1e4942",
+        # create_all, opportunity older
+        "d368c6125d028fb404d920343d467b3ab8b1de5934a7a0e5cf876e8a60125c10",
+    }
+)
+
+#: The v4 triple, retired when 0018 added `ai_credentials`. Kept so the drift
+#: test can assert nothing buildable hashes to it.
 _FORMAT_V4_CATALOG_SHA256 = frozenset(
     {
         # alembic upgrade head
@@ -526,6 +549,17 @@ EXPECTED_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("id", "email", "created_at"),
     "memberships": ("id", "tenant_id", "user_id", "role"),
     "identities": ("id", "issuer", "subject", "user_id", "created_at"),
+    # Revision 0018 (ADR-012 G7): a tenant's own AI key, Fernet ciphertext.
+    "ai_credentials": (
+        "tenant_id",
+        "provider",
+        "api_key_encrypted",
+        "key_hint",
+        "created_at",
+        "updated_at",
+        "last_used_at",
+        "last_error",
+    ),
     "app_sessions": (
         "id",
         "token_hash",
@@ -668,6 +702,13 @@ _CREATE_ALL_LEAGUES_ORDER = (
 #:   exactly as `memberships` would; and it is provisioning, re-done by the
 #:   operator after a restore along with the users it names.
 #:
+#: `ai_credentials` -- each tenant's own AI provider key, as Fernet ciphertext
+#:   (revision 0018, ADR-012 G7). A credential, and credentials do not travel:
+#:   `accounts` carries a placeholder instead of its ciphertext for the same
+#:   reason, and the key under both is the custody key, which a bundle must
+#:   never presuppose. A restore returns the data and each person pastes their
+#:   key again -- the page says so.
+#:
 #: `app_sessions` -- live session tokens. Restoring them would resurrect
 #:   sessions that were valid at backup time, so a restore would silently
 #:   re-admit whoever was signed in hours ago. A restore is a recovery event
@@ -703,6 +744,7 @@ NOT_BUNDLED = frozenset(
         "users",
         "memberships",
         "identities",
+        "ai_credentials",
         "app_sessions",
         "jobs",
         "outbox",
@@ -1321,7 +1363,7 @@ def validate_catalog(catalog: dict[str, Any]) -> str:
             raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     encoded = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode()
     digest = hashlib.sha256(encoded).hexdigest()
-    if digest not in _FORMAT_V4_CATALOG_SHA256:
+    if digest not in _FORMAT_V5_CATALOG_SHA256:
         raise RecoveryError("recovery_schema_drift", "Database schema is not allowlisted.")
     return digest
 

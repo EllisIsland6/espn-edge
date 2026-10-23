@@ -1152,6 +1152,20 @@ function downloadPath(path: string): void {
 
 // AI reads + generate (POST triggers a model call unless cached; ?force=true regenerates).
 export const getAiStatus = () => get<AiStatus>("/api/ai/status");
+// The tenant's own AI key (ADR-012, G7): what the server tells you about the key
+// you hold -- never the key. PUT carries it in the body and nowhere else; the
+// answer is the same shape as GET.
+export interface AiKeyOut {
+  provider: string;
+  hint: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  last_error: string | null;
+}
+export const getAiKey = () => get<AiKeyOut | null>("/api/ai/key");
+export const putAiKey = (api_key: string) => send<AiKeyOut>("PUT", "/api/ai/key", { api_key });
+export const deleteAiKey = () => send<void>("DELETE", "/api/ai/key");
 export const getDraftRecaps = (id: number) =>
   get<AiReportList<DraftRecapContent>>(`/api/leagues/${id}/ai/draft-recaps`);
 export const generateDraftRecaps = (id: number, force = false) =>

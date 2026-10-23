@@ -93,3 +93,50 @@ def test_the_browser_suite_exercises_every_mode():
     for mode in _backend_modes():
         assert f'mode: "{mode}"' in spec, f"no Playwright test mocks {mode}"
     assert CONSENT["terms"] in spec, "the consent is asserted in the browser, not only pinned here"
+
+
+# ------------------------------------------------------- the AI key (G7)
+
+AI_KEY_CONSENT = {
+    "storage": (
+        "Your Anthropic API key will be stored encrypted on this server and used only "
+        "for the reports you ask for."
+    ),
+    "billing": "Anthropic bills you directly for those calls.",
+    "erase": "Deleting the key here erases it.",
+}
+
+
+def test_the_ai_key_copy_is_pinned_and_the_panel_is_the_invited_sites_alone():
+    """ADR-012 G7, the operator's decision of 2026-10-23: each person pays for
+    their own AI and the site keeps their key the way it keeps their ESPN
+    session. The three sentences are the decision; the panel renders in the
+    invited branch and nowhere else; the field is write-only."""
+    copy = COPY_TS.read_text(encoding="utf-8")
+    for key, sentence in AI_KEY_CONSENT.items():
+        assert f"{key}:" in copy and sentence in copy, f"the AI key {key} sentence changed"
+    manage = MANAGE_TSX.read_text(encoding="utf-8")
+    assert 'mode === "private_invited" && <AiKeyPanel' in manage, (
+        "the panel is not gated on the mode"
+    )
+    assert manage.count("<AiKeyPanel") == 1
+    panel = manage.split("function AiKeyPanel(")[1].split("\nfunction ")[0]
+    for key in AI_KEY_CONSENT:
+        assert f"AI_KEY_CONSENT.{key}" in panel
+    assert manage.count("AI_KEY_CONSENT.") == 3, "the consent is rendered somewhere else too"
+    assert 'type="password"' in panel, "the key field must be write-only"
+    assert "key.hint" in panel and "api_key" not in panel.split("putAiKey(")[0], (
+        "the panel shows the hint and never the key"
+    )
+    api = API_TS.read_text(encoding="utf-8")
+    key_out = api.split("export interface AiKeyOut {")[1].split("}")[0]
+    assert "hint: string" in key_out and "api_key" not in key_out, (
+        "the client type must have no field for the key"
+    )
+    assert 'send<AiKeyOut>("PUT", "/api/ai/key", { api_key })' in api
+    assert 'send<void>("DELETE", "/api/ai/key")' in api
+    e2e = E2E.read_text(encoding="utf-8")
+    assert AI_KEY_CONSENT["billing"] in e2e, "the browser suite does not read the billing sentence"
+    assert 'getByTestId("ai-key-panel")).toHaveCount(0)' in e2e, (
+        "the browser suite must assert the panel's absence off the invited site"
+    )

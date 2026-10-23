@@ -7,7 +7,8 @@ the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_K
 WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built and deployed 2026-10-23
 (`s3 sync` + invalidation, CI #58 green; the live page says "hosted on synthetic data" until G4 flips
 the mode). G7's design decided 2026-10-23 in the operator's words (keys stored encrypted per tenant;
-WU-7 below). The operator's "let's start the build to 100% complete" (2026-10-23) opened the build of
+WU-7 below), and WU-7 built the same evening (code only; ships after G5 as an image, migration 0018
+and a plan-first apply). The operator's "let's start the build to 100% complete" (2026-10-23) opened the build of
 everything that remains; the G4 commit is built and its apply is the gate. Next: push, plan, apply. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
@@ -214,6 +215,10 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
 
 ### WU-7. Per-user AI key custody (gate G7; image + migration + plan-first apply)
 
+Built 2026-10-23, the same evening the design was decided; measured below. Not deployed: it
+ships as an image, migration 0018 and a plan-first apply after G5, and the gate is the first AI
+call on the hosted site (README §8).
+
 **The Question.** Where does an invited person's Anthropic key live, who can read it, and what
 else is kept with it?
 
@@ -260,15 +265,43 @@ because the spend is the person's own, the host's spend ledger -- built to bound
   log grep is clean. Built after G5 (so the first AI call is not tangled with the first ESPN call);
   may be built while G6 invitations proceed.
 
-**The Synthesis -- tests, each with a control that removes it.** The consent copy pinned by literal
-and rendered only in the invited branch; the chokepoint reused (a control that encrypts with a
-second Fernet instance fails it); on PostgreSQL, two tenants, one key each, each invisible to the
-other through `edge_app`, and the owner read after DELETE proving the row gone, not hidden; the
-synthetic instance refusing `PUT` with the hosted-mode 403 and answering `GET` with `null`; a
-refused validation storing nothing; the log capture holding no fragment of the key after a `PUT`
-and a report; the host key untouched on the invited site when a tenant has no key (control: host
-key configured, request made, no outbound call, `enabled: false`); the ledger not consulted on
-the per-user path; `revoke` deleting the credential row and counting it. Acceptance criterion 10.
+**The Synthesis -- as built and measured.** `alembic/versions/0018_ai_credentials.py` (the table,
+FORCE row security, 0005's policy shape; 0016's default privileges give `edge_app` its DML);
+`api/models.py::AiCredential`; `api/services/ai_keys.py` (verify against the provider's model
+listing, encrypt through `api/crypto.py`, upsert, read, delete, decrypt for the call, note the use);
+`api/routers/ai.py` (`GET`/`PUT`/`DELETE /api/ai/key`; `/api/ai/status` now takes the tenant's
+session, since "enabled" is a fact about the tenant on the invited site); `api/services/ai.py`
+(`AiService` resolves its key by mode -- the tenant's on the invited site, never the host's, no
+ledger; `AnthropicLlmClient` is told at construction whose spend it is and fails closed when
+built any other way); `api/main.py` (the `PUT` gets the credential-neutral 422); the recovery
+format moved to **v5** (`ai_credentials` allowlisted and NOT_BUNDLED -- a credential never travels;
+the three catalog digests re-pinned from real databases, v4 retired); `ops/provision_user.py`
+takes the row on revoke and counts it; the SPA's `AI_KEY_CONSENT` sentences in `copy.ts`, the
+write-only panel on Manage in `private_invited` only, `getAiKey`/`putAiKey`/`deleteAiKey` through
+the CSRF-carrying `send()`.
+
+**Measured.** `tests/test_ai_key_custody.py`: 16 offline (stored encrypted and never echoed; one
+row, replaced on a second PUT; a refused key and an unverifiable one store nothing, 400 and 503; the
+synthetic instance answers the chokepoint's 403 and asks the provider nothing; the malformed body
+gets the value-free 422; no CSRF header, 403; DELETE erases, then 404; `/api/ai/status` true for a
+tenant with a key only, even with a host key configured; the service builds its client from the
+tenant's key with the ledger's `reserve` patched to fail if called; a failed call records the class
+`AiError` and not a message carrying the key; the other two modes unchanged; nothing of the key in
+the log capture; the real verifier distinguishes 401 from an outage against a fake transport) and
+1 on PostgreSQL 16 as the application role (two provisioned tenants, each sees only its own row,
+nothing bound sees nothing, A cannot write into B's tenant, A's DELETE leaves a row a superuser
+cannot find, revoking B counts `ai_credentials=1`). Full Python suite 1,354 passed in the cloud
+workspace plus the recovery suites 321; Playwright 62 (61 before; the invited panel's three
+sentences, its absence on the synthetic and local instances, and the save/replace/delete flow
+asserting the key is sent once and never rendered); `tsc` clean; `ruff` clean.
+
+**Controls, each failing exactly the test that names it:** the chokepoint bypassed with a fresh
+Fernet (the synthetic refusal); verification skipped (four tests); the key added to the response
+(never echoed); the host key used on the invited site (status and service); the ledger consulted
+for a tenant's own spend (three tests, the patched `reserve` firing); the failure message recorded
+(class only); the 422 redaction forgetting the PUT (two tests); the revoke order forgetting the
+table (the order test); and on PostgreSQL, row security switched off on the table -- tenant A reads
+both keys and the isolation test fails. Acceptance criterion 10.
 
 ## Explicit deltas and guarantees
 

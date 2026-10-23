@@ -119,6 +119,8 @@ def test_the_revoke_order_deletes_leagues_before_accounts_and_the_tenant_last():
     assert tables[-1] == "tenants" and tables[-2] == "users"
     assert tables.index("memberships") < tables.index("users")
     assert {"jobs", "schedules", "outbox", "raw_cache", "app_sessions", "identities"} <= set(tables)
+    # ADR-012 G7: a revoked person's AI key leaves with them, and is counted.
+    assert "ai_credentials" in tables and tables.index("ai_credentials") < tables.index("memberships")
 
 
 def test_main_names_no_person_when_it_refuses(monkeypatch, capsys):

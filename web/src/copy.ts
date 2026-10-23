@@ -21,6 +21,18 @@ export const INVITED_CONSENT = {
   terms: "ESPN's terms do not permit this kind of access; you are choosing to do it.",
 } as const;
 
+/**
+ * The person's own AI provider key, held on this server (ADR-012, G7; the
+ * operator's decision of 2026-10-23). Three sentences for the same three
+ * reasons as INVITED_CONSENT: what is kept, who pays, how to undo it.
+ */
+export const AI_KEY_CONSENT = {
+  storage:
+    "Your Anthropic API key will be stored encrypted on this server and used only for the reports you ask for.",
+  billing: "Anthropic bills you directly for those calls.",
+  erase: "Deleting the key here erases it.",
+} as const;
+
 export const SYNTHETIC_NOTICE =
   "This hosted instance runs on synthetic data. It does not hold ESPN accounts and does not talk to ESPN, so there is nothing to add here and nothing to sync.";
 

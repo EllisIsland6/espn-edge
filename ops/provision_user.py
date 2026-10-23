@@ -39,8 +39,9 @@ membership, and a tenant with more than one member -- those are not the
 shape this script was written for, and guessing would delete someone else's
 rows. Cascades (leagues -> teams -> ...) run under referential integrity,
 which bypasses row security; the explicit deletes are the ones with no
-cascade: leagues before accounts (leagues.account_id), then jobs, schedules
-and outbox, which are unpolicied and keyed by tenant.
+cascade: leagues before accounts (leagues.account_id), the person's own AI
+key (ai_credentials, revision 0018), then jobs, schedules and outbox, which
+are unpolicied and keyed by tenant.
 
 Measured on PostgreSQL 16 as a NOSUPERUSER NOBYPASSRLS owner in
 `tests/test_provision_user.py` (the PostgreSQL half runs only where a
@@ -72,6 +73,7 @@ SLUG_ATTEMPTS = 50
 REVOKE_ORDER: tuple[tuple[str, str], ...] = (
     ("leagues", "tenant_id"),
     ("accounts", "tenant_id"),
+    ("ai_credentials", "tenant_id"),
     ("raw_cache", "tenant_id"),
     ("jobs", "tenant_id"),
     ("schedules", "tenant_id"),

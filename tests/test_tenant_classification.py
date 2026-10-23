@@ -85,6 +85,11 @@ TENANT_TABLES = {
     # so `swid` is not unique and two rows may hold the same credential -- a
     # product decision nobody has made.
     "accounts": "tenant_id",
+    # Revision 0018 (ADR-012 G7): a tenant's own AI key, Fernet ciphertext,
+    # keyed on the tenant so there can be one per tenant. Policied
+    # `tenant_id = current_tenant()` from the revision that created it; the
+    # isolation is measured on PostgreSQL in tests/test_ai_key_custody.py.
+    "ai_credentials": "tenant_id",
     # Scoped at revision 0012, which also made the key composite
     # `(tenant_id, key)` and closed a measured enumeration oracle: with `key`
     # alone, a second tenant's INSERT failed on the primary key, and a

@@ -416,6 +416,26 @@ class AiStatus(BaseModel):
     bulk_model: str
 
 
+class AiKeyIn(BaseModel):
+    """The one request body that carries a provider key. Never echoed: a
+    malformed body gets the credential-neutral 422 (`api/main.py`), and the
+    answer to a good one is `AiKeyOut`, which has no field for the key."""
+
+    api_key: str = Field(..., min_length=1)
+
+
+class AiKeyOut(BaseModel):
+    """What a tenant is told about the key it holds: enough to recognise it,
+    nothing that is it. `hint` is the last four characters."""
+
+    provider: str
+    hint: str
+    created_at: datetime
+    updated_at: datetime
+    last_used_at: datetime | None = None
+    last_error: str | None = None
+
+
 class AiReportEnvelope(BaseModel):
     """A single league/team-scoped AI report (null content = not generated)."""
 

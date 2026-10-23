@@ -163,6 +163,40 @@ class Identity(Base):
     user: Mapped[User] = relationship()
 
 
+class AiCredential(Base):
+    """A tenant's own AI provider key, held the way its ESPN session is held.
+
+    ADR-012's gate G7, decided 2026-10-23 in the operator's words: each person
+    pays for their own AI, and the site stores what is needed and practical.
+    One row per tenant, keyed on the tenant so there can only be one; the key
+    as Fernet ciphertext through `api/crypto.py` -- the chokepoint that
+    refuses custody on the synthetic site and the key the custody CMK
+    protects. Policied `tenant_id = current_tenant()` on PostgreSQL (revision
+    0018), so the tenant that wrote it is the tenant that can read it.
+
+    Beside the ciphertext, only what is needed and not secret: the provider,
+    the key's last four characters so its owner can recognise which key is on
+    file, when it was saved, when it was last used, and the CLASS of the last
+    failure -- never a message, which is the one place a provider could echo
+    something back. The plaintext never appears in a response or a log; the
+    router returns `AiKeyOut`, which has no field for it.
+
+    No cascade from `tenants`, like `accounts`: `ops/provision_user.py` deletes
+    it explicitly when a person is revoked, and counts it.
+    """
+
+    __tablename__ = "ai_credentials"
+
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
+    provider: Mapped[str] = mapped_column(String, nullable=False, default="anthropic")
+    api_key_encrypted: Mapped[str] = mapped_column(String, nullable=False)
+    key_hint: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(64))
+
+
 class Job(Base):
     """One unit of durable work. Replaces in-process scheduling.
 

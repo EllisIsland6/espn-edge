@@ -224,7 +224,7 @@ Create these in Secrets Manager before the first deploy.
 | `OPERATOR_PASSWORD_HASH` | any value | **Read by nothing.** Wired ahead of the identity provider. See the warning below before you treat it as a factor. |
 | `DATABASE_URL_OWNER` | `postgresql+psycopg2://edge_owner:…@<rds-endpoint>:5432/edge` | Only the migration task gets this. |
 | `DATABASE_URL_APP` | `postgresql+psycopg2://edge_app:…@<rds-endpoint>:5432/edge` | The service gets this. |
-| `ANTHROPIC_API_KEY` | from the Anthropic console | Optional. Empty string disables the AI features cleanly. |
+| `ANTHROPIC_API_KEY` | from the Anthropic console | Optional. Empty string disables the AI features cleanly. **Never wired on the hosted site:** on the invited site each tenant's own key is stored encrypted in `ai_credentials` (revision 0018, ADR-012 G7) and the service refuses a host key there even if one were set; `infra/terraform/README.md` §8. |
 
 ---
 
