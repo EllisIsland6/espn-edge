@@ -229,7 +229,7 @@ aws secretsmanager describe-secret --secret-id espn-edge/fernet-key --query KmsK
    revision carrying `FERNET_KEY`; the execution role's secrets policy and the web service change
    in place). ECS rolls the service. Then the last probe, and `https://eaedgefinder.com/api/health`
    still answers `public_synthetic` -- the key is loaded and unused until G4 flips the mode, which
-   is its own approval:
+   is its own approval (section 6b):
 
 ```bash
 ACCT=$(aws sts get-caller-identity --query Account --output text)
@@ -247,6 +247,29 @@ echo 'expect: PRIMARY, the new revision, 1, 0, COMPLETED -- the task starting is
 Nothing in these steps prints, logs or stores the value anywhere but the secret: Terraform never
 holds the value or the secret (a `data` source reads the ARN), the plan role cannot read the value
 (`managed-secret-values` names three other secrets), and the deploy role cannot use the key.
+
+### 6b. Gate G4 -- the mode switch (ADR-012)
+
+One commit (made 2026-10-23): `local.web_environment` in `stack/containers.tf` is the shared
+environment with `APP_MODE` rewritten to `private_invited`, and the web task's `app` container
+reads it; migrate and the parked worker keep `public_synthetic`; the `custody` output and
+`test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic` say so. No image, no
+migration, no IAM change. Plan-first: predicted `1 to add, 1 to change, 1 to destroy` -- the web
+task definition replaced by a revision whose only difference is that literal, and the web service
+moved to it. Then the reads, from your terminal:
+
+```bash
+aws ecs describe-services --cluster espn-edge --services web --query 'services[0].deployments[].[status,taskDefinition,runningCount,failedTasks,rolloutState]' --output text
+echo 'expect: PRIMARY, espn-edge-web:8, 1, 0, COMPLETED'
+curl -sS https://eaedgefinder.com/api/health
+echo
+echo 'expect: status ok, mode private_invited, the postgresql backend'
+```
+
+Then, signed in: the footer reads "ESPN Edge · hosted for an invited group", Manage shows the
+consent sentences and the account form, and the accounts list is empty. No account exists, so no
+provider has been constructed and nothing has touched ESPN; the first live read is gate G5 and is
+yours to perform, with your own session, when you say so.
 
 ### 7. Inviting a person -- gate G6, one person at a time (ADR-012)
 
@@ -293,7 +316,7 @@ NOSUPERUSER NOBYPASSRLS owner, which is what `edge_owner` is on RDS.
 | Private subnets have no route out | `test_private_route_table_has_no_route_out` |
 | Host answers CloudFront only, on 443, no SSH | `test_the_host_admits_only_cloudfront_on_443`, `test_no_ssh_and_no_key_pair` |
 | Database private, single-AZ, encrypted, password never in state | `test_the_database_is_private_single_az_encrypted` |
-| `public_synthetic` until G4; `FERNET_KEY` reaches the web task only, and only once wired; every variable read | `test_every_task_runs_public_synthetic_until_gate_g4`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
+| The web task is `private_invited` since G4 (2026-10-23); migrate and the worker stay `public_synthetic`; no host AI key; `FERNET_KEY` reaches the web task only, and only once wired; every variable read | `test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
 | No long-lived GitHub key; plan cannot deploy | `test_roles_trust_only_this_repository_via_oidc`, `test_the_plan_role_cannot_write` |
 | Budget before anything else | `test_the_budget_exists_before_anything_else_can` |
 | Alarms are Phase 41's catalog, not a copy | `ops/render_alarms.py --check`, run as a test |

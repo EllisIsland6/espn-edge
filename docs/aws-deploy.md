@@ -28,10 +28,14 @@ risk, and withholding apply proves the risk decision is intentional.
 For one commit `infra/app.py` set `APP_MODE=private_operator`, which would
 have put the ESPN provider, the credential decrypt path, the raw cache and
 the operator's real league data in AWS behind a single Cognito gate — a
-change in custody made by a default rather than a decision. It is now
-`public_synthetic` in both tasks, and `FERNET_KEY` is no longer referenced:
-there are no credentials in a synthetic deployment to decrypt, and the
-operator's key must never leave the machine that holds the cookies.
+change in custody made by a default rather than a decision. It was then
+`public_synthetic` in both tasks with `FERNET_KEY` unreferenced: there are
+no credentials in a synthetic deployment to decrypt, and the operator's key
+must never leave the machine that holds the cookies. ADR-012 later decided
+the custody change deliberately, gate by gate: the web task runs
+`private_invited` since gate G4 (2026-10-23) with `FERNET_KEY` from the
+operator's secret under the custody key; migrate and the worker stay
+synthetic. The paragraphs below describe the synthetic site as it was.
 
 **What that means for "working":** in `public_synthetic` mode every route
 except `/api/health` returns 401 without a session cookie, and no endpoint
@@ -215,7 +219,7 @@ Create these in Secrets Manager before the first deploy.
 
 | Secret | How to generate | Notes |
 | --- | --- | --- |
-| ~~`FERNET_KEY`~~ | — | **Not used by this stack.** It decrypts stored ESPN cookies, and a synthetic deployment has none. The operator's key stays on the operator's machine. (If a private-mode deployment is ever decided — section 0a — it must be generated once and never rotated: a new key makes every stored credential undecryptable without failing loudly.) **ADR-012 decided it (2026-10-16):** at gate G3 the hosted key becomes a Secrets Manager secret the operator creates with its value, encrypted with the stack's one customer-managed KMS key, read by the web task's execution role only; `infra/terraform/README.md` §6 is the procedure. Still unused until gate G4 flips the mode. |
+| ~~`FERNET_KEY`~~ | — | **Not used by this stack.** It decrypts stored ESPN cookies, and a synthetic deployment has none. The operator's key stays on the operator's machine. (If a private-mode deployment is ever decided — section 0a — it must be generated once and never rotated: a new key makes every stored credential undecryptable without failing loudly.) **ADR-012 decided it (2026-10-16):** at gate G3 the hosted key becomes a Secrets Manager secret the operator creates with its value, encrypted with the stack's one customer-managed KMS key, read by the web task's execution role only; `infra/terraform/README.md` §6 is the procedure. In use on the web task since gate G4 (2026-10-23, §6b). |
 | `SESSION_SECRET` | 48+ random chars | **Read by nothing** today — there is no endpoint that mints a session. Wired ahead of the identity provider. |
 | `OPERATOR_PASSWORD_HASH` | any value | **Read by nothing.** Wired ahead of the identity provider. See the warning below before you treat it as a factor. |
 | `DATABASE_URL_OWNER` | `postgresql+psycopg2://edge_owner:…@<rds-endpoint>:5432/edge` | Only the migration task gets this. |
@@ -232,7 +236,7 @@ listed rather than assumed.
 
 | Variable | Value | Required |
 | --- | --- | --- |
-| `APP_MODE` | `public_synthetic` | **yes** (no default). The accepted custody boundary — section 0a. |
+| `APP_MODE` | `private_invited` on the web task since gate G4 (2026-10-23); `public_synthetic` on migrate and the parked worker | **yes** (no default). The accepted custody boundary — section 0a and ADR-012. |
 | `TELEMETRY_ENABLED` | `false` | **yes** (no default) |
 | `TELEMETRY_REPORT_PATH` | `/tmp/telemetry-report.md` | **yes** (no default) |
 | `DATABASE_URL` | from `DATABASE_URL_APP` | yes, or it uses SQLite |

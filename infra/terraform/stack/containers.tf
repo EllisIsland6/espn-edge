@@ -170,6 +170,13 @@ resource "aws_cloudwatch_log_group" "migrate" {
 # Mirrors docs/aws-deploy.md s4 and the CDK artefact. APP_MODE is the custody
 # boundary; FERNET_KEY is read from the operator's secret (custody.tf) and
 # reaches only the web task (ADR-012).
+#
+# Gate G4 (ADR-012, 2026-10-23): the web task is the invited site and runs
+# `private_invited`; the migrate task needs nothing real and the worker is
+# parked, so both keep the synthetic literal below. The mode is a literal and
+# not a variable because it is the custody boundary -- api/crypto.py refuses
+# custody of any credential while it is synthetic -- and a boundary that a
+# tfvars line could move is not one a reader can check here.
 locals {
   app_image   = "${aws_ecr_repository.app.repository_url}:${var.app_image_tag}"
   caddy_image = "${aws_ecr_repository.caddy.repository_url}:${var.caddy_image_tag}"
@@ -196,6 +203,13 @@ locals {
     # app treats an absent ANTHROPIC_API_KEY as "AI disabled" (api/services/ai.py).
     # Phase 46's direction is a key per user, held client-side, never here.
     { name = "OIDC_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.oidc_client_secret.arn },
+  ]
+
+  # The web task's environment: the shared list with the one literal that
+  # makes it the invited site. Everything else is identical on purpose, so a
+  # diff of the two lists is the mode and nothing more.
+  web_environment = [
+    for e in local.app_environment : e.name == "APP_MODE" ? { name = "APP_MODE", value = "private_invited" } : e
   ]
 
   # ADR-012: the Fernet secret reaches the web task and nothing else -- the
@@ -252,7 +266,7 @@ resource "aws_ecs_task_definition" "web" {
       essential   = true
       memory      = 1024
       cpu         = 512
-      environment = local.app_environment
+      environment = local.web_environment
       secrets     = local.web_secrets
       healthCheck = {
         command     = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).status == 200 else 1)\""]

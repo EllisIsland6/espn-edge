@@ -291,17 +291,36 @@ def test_the_host_is_replaced_only_on_purpose(stack):
 
 # ------------------------------------------------------- custody and mode
 
-def test_every_task_runs_public_synthetic_until_gate_g4(stack):
+def test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic(stack):
+    """Gate G4 (ADR-012, 2026-10-23). Until it, this test pinned every task to
+    `public_synthetic`; now it pins the one literal that moved and the two
+    that did not. The mode is the custody boundary, so it stays a literal in
+    the stack -- a variable would make it a tfvars decision nobody reads."""
     tasks = _resources(stack, "aws_ecs_task_definition")
     assert set(tasks) == {"web", "worker", "migrate"}, sorted(tasks)
-    # The environment is a local; its literal is what we check.
+    # The shared environment is a local; its literal is what we check.
     env = _as_list(stack["locals"]["app_environment"])
     by_name = {e["name"]: e["value"] for e in env}
-    assert by_name["APP_MODE"] == "public_synthetic"
+    assert by_name["APP_MODE"] == "public_synthetic", "migrate and the parked worker stay synthetic"
     assert "FERNET_KEY" not in by_name, "the key is a secret, never an environment literal"
+    # The web task's list is the shared one with APP_MODE rewritten, and only
+    # APP_MODE: python-hcl2 keeps the for-expression as text, so the text is
+    # what is pinned.
+    web_env = str(stack["locals"]["web_environment"])
+    assert "for e in local.app_environment" in web_env, web_env
+    assert 'e.name == "APP_MODE"' in web_env and '"private_invited"' in web_env, web_env
+    assert "public_synthetic" not in web_env and "private_operator" not in web_env, web_env
+    web_app = next(c for c in _container_definitions(tasks["web"]) if c["name"] == "app")
+    assert web_app["environment"] == "${local.web_environment}", web_app["environment"]
+    worker_app = next(c for c in _container_definitions(tasks["worker"]) if c["name"] == "worker")
+    assert worker_app["environment"] == "${local.app_environment}", worker_app["environment"]
+    (migrate,) = _container_definitions(tasks["migrate"])
+    migrate_env = str(migrate["environment"])
+    assert "local.app_environment" in migrate_env and "web_environment" not in migrate_env, migrate_env
     secrets = {s["name"] for s in _as_list(stack["locals"]["app_secrets"])}
     assert "FERNET_KEY" not in secrets, "the shared list feeds the worker too; the key is web-only"
     assert "DATABASE_URL" in secrets and "OIDC_CLIENT_SECRET" in secrets
+    assert "ANTHROPIC_API_KEY" not in secrets, "no host AI key on the hosted site; G7 is a key per tenant"
 
 
 # ------------------------------------------------------------ ADR-012 custody

@@ -7,7 +7,8 @@ the operator's secret under the key; apply #13 the flip -- web:7 reads `FERNET_K
 WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU-4 built and deployed 2026-10-23
 (`s3 sync` + invalidation, CI #58 green; the live page says "hosted on synthetic data" until G4 flips
 the mode). G7's design decided 2026-10-23 in the operator's words (keys stored encrypted per tenant;
-WU-7 below). Next: G4 in the operator's words. Each later gate is its own approval,
+WU-7 below). The operator's "let's start the build to 100% complete" (2026-10-23) opened the build of
+everything that remains; the G4 commit is built and its apply is the gate. Next: push, plan, apply. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -183,10 +184,18 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
 
 ### WU-5. The mode switch and the first live read (gates G4 and G5)
 
-- G4: `APP_MODE=private_invited` on the web task only (a variable, so a one-line stack change);
-  plan-first; the migrate task stays `public_synthetic` (it needs nothing real); the worker stays
-  parked. Verified: `/api/health` reports the mode; the form appears; `/api/accounts` is `[]`; no
-  account exists, so no provider has been constructed.
+- G4 (commit built 2026-10-23; the apply is the gate): `local.web_environment` in `containers.tf` is
+  the shared environment with `APP_MODE` rewritten to `private_invited` -- a literal, not a variable,
+  because it is the custody boundary and a tfvars line is not where a reader checks one; the web
+  task's `app` container reads it; migrate (needs nothing real) and the parked worker keep the
+  synthetic literal; the `custody` output says so; the pin test became
+  `test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic` (35 policy tests,
+  controls: the web container pointed back at the shared list; `public_synthetic` left in the web
+  list; the migrate task pointed at the web list; a host `ANTHROPIC_API_KEY` added to the shared
+  secrets -- each fails it). Plan-first; predicted `1 to add, 1 to change, 1 to destroy` (the web
+  task definition replaced, the web service moved; no IAM change). Verified after the apply:
+  `/api/health` reports the mode; the consent copy and the form appear; `/api/accounts` is `[]`; no
+  account exists, so no provider has been constructed. README §6b.
 - G5, after its own approval: the operator adds his own ESPN session on the live site, adds one
   league, presses Sync. Verified from the browser and the console: the league syncs; the raw cache
   row carries his tenant; the web log shows no `SWID`, no `espn_s2`, no cookie value (the filter
