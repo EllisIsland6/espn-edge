@@ -437,6 +437,49 @@ def test_a_token_endpoint_error_is_401_and_mints_nothing(monkeypatch, provider):
     assert _sessions_for(user_id) == 0
 
 
+def test_a_failed_sign_in_logs_its_reason_code_and_no_value(monkeypatch, provider, caplog):
+    """The first live refusal (2026-10-24) answered its fixed message and
+    logged nothing, so the cause had to be inferred from Caddy's status codes.
+    Now the callback logs WHY, as a fixed reason -- and never the code, the
+    state, the nonce or anything from the token, because the log is the one
+    place a value would outlive the request."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="espn.auth")
+    user_id, _ = _provision()
+    _hosted(monkeypatch)
+    secret_code = "authorization-code-value-that-must-stay-out-of-logs"
+    secret_state = "state-value-that-must-stay-out-of-logs"
+    provider.token.mock(return_value=httpx.Response(400, json={"error": "invalid_grant"}))
+    with _client() as client:
+        # A stale or missing flow cookie.
+        response = client.get(
+            "/api/auth/callback",
+            params={"code": secret_code, "state": secret_state},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        # A state that does not match the cookie's.
+        client.cookies.set(FLOW_COOKIE, "state-1.nonce-1", path="/api/auth")
+        response = client.get(
+            "/api/auth/callback",
+            params={"code": secret_code, "state": secret_state},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+        # The provider refusing the exchange.
+        assert _callback(client, code=secret_code).status_code == 401
+    assert _sessions_for(user_id) == 0
+    reasons = [r.getMessage() for r in caplog.records if r.name == "espn.auth"]
+    assert reasons == [
+        "sign-in failed: flow_cookie_missing_or_expired",
+        "sign-in failed: state_mismatch",
+        "sign-in failed: token_endpoint_status:400",
+    ], reasons
+    assert secret_code not in caplog.text and secret_state not in caplog.text
+    assert "nonce-1" not in caplog.text
+
+
 def test_a_discovery_document_for_another_issuer_is_refused(monkeypatch, provider):
     user_id, _ = _provision()
     _hosted(monkeypatch)

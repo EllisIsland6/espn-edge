@@ -20,6 +20,7 @@ venv lacking `pip`, not the package; recorded in docs/CLOSE-OUT.md.
 from __future__ import annotations
 
 import hmac
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -53,6 +54,15 @@ FLOW_TTL_SECONDS = 600
 #: Fixed response texts. None of them names which check failed.
 NOT_CONFIGURED = "identity provider not configured"
 FLOW_INVALID = "sign-in could not be completed"
+
+#: The one place a failed sign-in is explained, and only to the operator's
+#: log. The reasons are fixed strings -- `OidcError`'s codes such as
+#: `token_endpoint_status:400`, or the two names below -- never a value: not
+#: the code, the state, the nonce, or anything from the token. The first live
+#: refusal (2026-10-24) was undiagnosable from CloudWatch because the callback
+#: answered a fixed message and logged nothing; the 400/401 split alone had to
+#: be read off Caddy's access log.
+log = logging.getLogger("espn.auth")
 NOT_PROVISIONED = "this identity is not provisioned"
 
 
@@ -100,13 +110,18 @@ def callback(request: Request, code: str = "", state: str = "") -> RedirectRespo
         raise HTTPException(status_code=503, detail=NOT_CONFIGURED)
 
     flow = oidc.Flow.decode(request.cookies.get(FLOW_COOKIE))
-    if flow is None or not code or not state or not hmac.compare_digest(flow.state, state):
+    if flow is None or not code or not state:
+        log.warning("sign-in failed: flow_cookie_missing_or_expired")
+        raise _flow_failure(400)
+    if not hmac.compare_digest(flow.state, state):
+        log.warning("sign-in failed: state_mismatch")
         raise _flow_failure(400)
 
     try:
         raw_token = oidc.exchange_code(code)
         identity = oidc.verify_id_token(raw_token, nonce=flow.nonce)
     except oidc.OidcError as exc:
+        log.warning("sign-in failed: %s", exc)
         raise _flow_failure(401) from exc
 
     # Pre-tenant work, deliberately NOT through `get_session`: there is no
