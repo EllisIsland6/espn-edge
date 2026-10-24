@@ -204,3 +204,22 @@ Controls  (each restored; each fails exactly the test that names it)
                                             -> test_one_tenants_key_is_invisible_to_another_and_gone_when_deleted
                                                (tenant A read [(76,'aaaa'),(77,'bbbb')]); re-enabled, passing
 Nothing deployed; nothing run against RDS; no key of anyone's used anywhere.
+
+--- Gate G4 applied (2026-10-24)
+Push      d765dc5..0b64594  main -> main   (19ecab8, 6fb9e79, 318c5ff, 0b64594)
+CI #59    0b64594: Success 5m 20s
+Plan #12  run 40062481684 on 0b64594: policy tests 39s, terraform plan 35s, Success
+          Plan: 1 to add, 1 to change, 1 to destroy.
+          # aws_ecs_task_definition.web must be replaced
+              ~ environment = [ ~ value = "public_synthetic" -> "private_invited"  # (8 unchanged elements hidden) ]
+              - mountPoints/portMappings/systemControls/volumesFrom = []   (AWS normalisation, as in #13)
+              caddy-data volume re-stated                                 (as in #13)
+          # aws_ecs_service.web will be updated in-place: task_definition -> (known after apply)
+          ~ custody output sentence
+Apply #14 run 40063081062 on 0b64594, approved by EllisIsland6 for production, 30s:
+          aws_ecs_task_definition.web: Destruction complete after 0s; Creation complete after 0s
+          aws_ecs_service.web: Modifications complete after 1s
+          Apply complete! Resources: 1 added, 1 changed, 1 destroyed.
+          custody = "APP_MODE private_invited on the web task since gate G4 (2026-10-23); migrate and worker public_synthetic; ..."
+Edge      GET https://eaedgefinder.com/api/health x3 (browser pane, +75s): 200 {"mode":"private_invited"}
+Not yet   the rendered page (operator's confirmation); the describe-services read (web:8 PRIMARY COMPLETED)

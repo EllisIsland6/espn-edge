@@ -271,6 +271,41 @@ consent sentences and the account form, and the accounts list is empty. No accou
 provider has been constructed and nothing has touched ESPN; the first live read is gate G5 and is
 yours to perform, with your own session, when you say so.
 
+### 6c. Gate G5 -- the first live ESPN read, your own session (ADR-012)
+
+Nothing before this touches ESPN from AWS, and nobody can do it for you: on the live Manage page,
+signed in, add your own account (SWID and espn_s2 from your browser's cookies, as locally), add
+one of your leagues, press Sync. The page shows the sync's outcome. Then the reads, which are the
+gate's proof -- the raw cache row is your tenant's, the limiter's cadence is visible, no credential
+reached the log:
+
+```bash
+cd ~/espn-edge
+aws logs tail /espn-edge/web --since 30m --format short | grep -c -E 'espn_s2=[A-Za-z0-9%._-]{8,}|SWID=\{[0-9A-Fa-f-]{8,}'
+echo 'expect: 0 -- no cookie value in any log line (Caddy redacts Cookie; the app never logs one)'
+aws logs tail /espn-edge/web --since 30m --format short | grep -E 'league [0-9]+:|Traceback|Error' | tail -10
+echo 'expect: nothing -- the sync logs only its failures (auth failed, fetch failed, metrics); a clean sync is silent'
+aws logs tail /espn-edge/web --since 30m --format short | grep -E '"uri":"/api/leagues/[0-9]+/sync"' | grep -o '"status":[0-9]*' | sort | uniq -c
+echo 'expect: one or more "status":200 -- the sync requests Caddy saw, and their answers'
+```
+
+Then, through the tunnel (section 7, Terminal 1 open; Terminal 2 with `PGPASSWORD` and
+`DATABASE_URL` set exactly as there):
+
+```bash
+cd ~/espn-edge
+.venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 60
+echo 'expect: one line per fetched view, every line tenant=1, consecutive fetches +1000 ms or more apart; the payload itself is never printed'
+unset PGPASSWORD
+```
+
+Last, the erase check: remove the league on the page, then delete the account (the delete refuses
+with 409 while a league still points at the account -- by design, so a delete can never orphan
+synced data). The accounts list empties; the ciphertext row is gone, not hidden. `cache_rows.py`
+still shows the cache rows, because the raw cache is the tenant's, not the account's, and it is
+yours to keep or clear. Add the account and the league again afterwards if you want to keep using
+the site.
+
 ### 7. Inviting a person -- gate G6, one person at a time (ADR-012)
 
 The person signs up in Cognito (invitation-only there); you read their `sub` from the pool; the

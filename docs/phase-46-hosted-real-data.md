@@ -9,7 +9,10 @@ WU-3 built 2026-10-23 (code only; runs for nobody but the operator until G6). WU
 the mode). G7's design decided 2026-10-23 in the operator's words (keys stored encrypted per tenant;
 WU-7 below), and WU-7 built the same evening (code only; ships after G5 as an image, migration 0018
 and a plan-first apply). The operator's "let's start the build to 100% complete" (2026-10-23) opened the build of
-everything that remains; the G4 commit is built and its apply is the gate. Next: push, plan, apply. Each later gate is its own approval,
+everything that remains. **G4 applied 2026-10-24: plan #12 read `1/1/1` against the prediction, apply #14
+approved by the operator for `production`, `Apply complete! Resources: 1 added, 1 changed, 1 destroyed`;
+`/api/health` reports `private_invited` from the edge. The hosted site is the invited site, for him alone
+until G6; nothing has touched ESPN.** Next: G5, the first live read, his own session. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -185,7 +188,9 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
 
 ### WU-5. The mode switch and the first live read (gates G4 and G5)
 
-- G4 (commit built 2026-10-23; the apply is the gate): `local.web_environment` in `containers.tf` is
+- G4 (commit built 2026-10-23; applied 2026-10-24 -- plan run 40062481684 read `1 to add, 1 to change,
+  1 to destroy` with the one semantic change `public_synthetic -> private_invited` beside eight unchanged
+  entries; apply run 40063081062 approved by the operator; health `private_invited` read from the edge): `local.web_environment` in `containers.tf` is
   the shared environment with `APP_MODE` rewritten to `private_invited` -- a literal, not a variable,
   because it is the custody boundary and a tfvars line is not where a reader checks one; the web
   task's `app` container reads it; migrate (needs nothing real) and the parked worker keep the
