@@ -112,21 +112,30 @@ def reauth_account(
 
 @router.delete("/{account_id}", status_code=204)
 def delete_account(account_id: int, session: Session = Depends(get_session)) -> None:
-    """Delete an account. Blocked with 409 while leagues still reference it — the
-    user must first re-point or remove those leagues, so a delete can never orphan
-    a league or silently drop synced data. (SPEC has no cascade for accounts.)
+    """Delete an account: the ciphertext row goes; the leagues that used it stay.
+
+    Each linked league is detached first -- `account_id` NULL, `is_public` True,
+    which is the state `add_league` gives a league added with no account -- and
+    its teams, matchups, metrics and cache rows are untouched. So a delete never
+    orphans a league or drops synced data, and the sentence on the form
+    ("Deleting the account here erases it", ADR-012) is true for a person who
+    used the site, not only for one who never linked a league.
+
+    Until 2026-10-24 this answered 409 while leagues pointed at the account and
+    asked the caller to re-point or remove them first. No route ever existed to
+    do either, so on the invited site a credential could not be erased once it
+    had been used -- found while preparing gate G5's erase check. A private
+    league detached this way syncs on the public path and reports auth failed
+    until it is added again with an account, which re-points it.
     """
     account = session.get(Account, account_id)
     if account is None:
         raise HTTPException(404, "account not found")
-    linked = list(
-        session.scalars(select(League.espn_league_id).where(League.account_id == account_id))
-    )
-    if linked:
-        raise HTTPException(
-            409,
-            f"account has {len(linked)} linked league(s): {linked}. "
-            "Re-point or remove them before deleting this account.",
-        )
+    for league in session.scalars(select(League).where(League.account_id == account_id)).all():
+        league.account_id = None
+        league.is_public = True
+    # The UPDATEs reach the database before the DELETE, whatever the unit of
+    # work would have chosen: on PostgreSQL the foreign key is enforced.
+    session.flush()
     session.delete(account)
     session.commit()

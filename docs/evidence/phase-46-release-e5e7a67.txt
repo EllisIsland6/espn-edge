@@ -223,3 +223,33 @@ Apply #14 run 40063081062 on 0b64594, approved by EllisIsland6 for production, 3
           custody = "APP_MODE private_invited on the web task since gate G4 (2026-10-23); migrate and worker public_synthetic; ..."
 Edge      GET https://eaedgefinder.com/api/health x3 (browser pane, +75s): 200 {"mode":"private_invited"}
 Not yet   the rendered page (operator's confirmation); the describe-services read (web:8 PRIMARY COMPLETED)
+
+--- Gate G4 confirmed on the page; the sign-in's silent refusal; WU-8 (2026-10-24)
+Reads     aws ecs describe-services: PRIMARY espn-edge-web:8 1 0 COMPLETED
+          Caddy, 24h URI histogram: 24 /api/health, 16 /api/portfolio/summary, 16 /api/portfolio,
+          15 /api/auth/login, 4 /api/auth/callback, scanner probes (/api/.env, /api/v1/secrets, ...) default-denied
+          callback statuses, last 30m: 1 "status":302
+Page      operator's screenshots: Portfolio board signed in; Manage -- consent sentences (3), "Add ESPN account" form,
+          "No accounts yet", "Add league" form, league 569446945 public · 2026 · synced never,
+          footer "ESPN Edge · hosted for an invited group"
+Sign-in   first attempt after the apply: {"detail":"sign-in could not be completed"}; cause: the 10-minute flow cookie
+          expired while the Cognito tab sat open (400), then the code replayed (401); fresh attempt from / -> 302, signed in.
+          Nothing mode-dependent. Fix 7df80b1: the callback logs a reason code and never a value;
+          tests/test_oidc_front_door.py 28 passed (caplog holds no code, state or nonce).
+WU-8      DELETE /api/accounts/{id} detaches the account's leagues (account_id NULL, is_public True), then deletes the row.
+          Before: 409 "re-point or remove them before deleting this account" with no route able to do either;
+          the consent sentence held only for an account nobody had used.
+          tests/test_api.py 28 passed with the PostgreSQL gate set (27 tests before: the 409 test replaced, the PostgreSQL one added):
+            test_delete_account_detaches_its_leagues_and_keeps_their_data            SQLite, through the client
+            test_delete_account_detaches_on_postgres_where_the_foreign_key_is_enforced PostgreSQL 16, edge_app, tenant bound,
+                                                                                      a provisioned tenant; revoke counts leagues 1 accounts 0
+          ruff check api tests clean
+Suite     full offline suite with the PostgreSQL gates, first run: 1 failed at 35% --
+          test_a_failed_sign_in_logs_its_reason_code_and_no_value (7df80b1), caplog empty; passes alone.
+          Cause reproduced: alembic/env.py fileConfig() with disable_existing_loggers=True (the default) after
+          tests/test_raw_cache_tenant_key.py migrated in-process -> logging.getLogger('espn.auth').disabled == True.
+          Fix: fileConfig(..., disable_existing_loggers=False); the reproducing pair then 12 passed.
+          Full suite after the fix: 1697 passed, 19 skipped, 0 failed of 1716 collected (recovery suites included), exit 0
+          (counted from the -qq dots: addopts -q plus -q suppressed the summary line; --co confirms 1716)
+          ruff check api tests ops alembic clean
+Not yet   G5 (the operator's act); the erase check on the WU-8 image; nothing has touched ESPN.

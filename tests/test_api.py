@@ -1,5 +1,6 @@
 """API smoke tests (Phase 0 AC: /api/health returns season + db path)."""
 
+import os
 import re
 
 import pytest
@@ -151,18 +152,138 @@ def test_delete_unlinked_account_ok():
     assert "Disposable" not in labels
 
 
-def test_delete_account_blocked_when_leagues_linked():
+def test_delete_account_detaches_its_leagues_and_keeps_their_data():
+    """The consent sentence is "Deleting the account here erases it" (ADR-012).
+
+    Until 2026-10-24 a delete answered 409 while a league pointed at the
+    account, and no route could re-point or remove one -- so a person who had
+    used the site could not erase the credential. Now the leagues are detached
+    (no account, public, as a league added without an account is) and the
+    synced data under them stays; only the ciphertext row goes.
+    """
+    from api.db import SessionLocal
+    from api.models import League, Team
+
     aid = client.post(
         "/api/accounts", json={"label": "Linked", "swid": "{X-2}", "espn_s2": "s2"}
     ).json()["id"]
     add = client.post("/api/leagues", json={"league_ref": "445566", "account_id": aid})
     assert add.status_code == 201
+    league_id = add.json()["id"]
+    assert add.json()["account_id"] == aid
+    with SessionLocal() as session:
+        session.add(Team(league_id=league_id, espn_team_id=3, name="Kept Three", is_me=True))
+        session.commit()
 
     r = client.delete(f"/api/accounts/{aid}")
-    assert r.status_code == 409
-    assert "linked league" in r.json()["detail"]
-    # account still present (not deleted)
-    assert aid in [a["id"] for a in client.get("/api/accounts").json()]
+    assert r.status_code == 204
+    assert aid not in [a["id"] for a in client.get("/api/accounts").json()]
+
+    kept = [league for league in client.get("/api/leagues").json() if league["id"] == league_id]
+    assert len(kept) == 1, "the league row stays; only the credential went"
+    assert kept[0]["account_id"] is None
+    assert kept[0]["is_public"] is True
+    with SessionLocal() as session:
+        league = session.get(League, league_id)
+        assert (league.account_id, league.is_public) == (None, True)
+        assert [t.name for t in league.teams] == ["Kept Three"], "synced data is untouched"
+
+    # Adding the league again with a new account re-points it, which is the
+    # way back for a private league after its account is erased.
+    bid = client.post(
+        "/api/accounts", json={"label": "Again", "swid": "{X-3}", "espn_s2": "s2"}
+    ).json()["id"]
+    again = client.post("/api/leagues", json={"league_ref": "445566", "account_id": bid})
+    assert again.status_code == 201
+    assert again.json()["id"] == league_id
+    assert again.json()["account_id"] == bid
+    assert again.json()["is_public"] is False
+
+
+_PG_OWNER_URL = os.environ.get("PROVISION_PG_OWNER_URL", "")
+_PG_APP_URL = os.environ.get("PROVISION_PG_APP_URL", "")
+
+
+@pytest.mark.skipif(
+    not (_PG_OWNER_URL and _PG_APP_URL),
+    reason="the foreign key is enforced only on PostgreSQL: set PROVISION_PG_OWNER_URL and "
+    "PROVISION_PG_APP_URL to a cluster migrated to 0018",
+)
+def test_delete_account_detaches_on_postgres_where_the_foreign_key_is_enforced():
+    """SQLite above does not enforce `leagues.account_id -> accounts.id`; RDS
+    does, and the order of the UPDATEs and the DELETE inside one transaction is
+    what this proves, as the application role, with the tenant bound the way a
+    request binds it."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import Session
+
+    from api.models import Account, League, Team
+    from api.routers.accounts import delete_account
+
+    spec = importlib.util.spec_from_file_location(
+        "provision_user_for_delete", Path(__file__).resolve().parents[1] / "ops" / "provision_user.py"
+    )
+    pu = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pu
+    spec.loader.exec_module(pu)
+
+    owner = create_engine(_PG_OWNER_URL, future=True)
+    app_role = create_engine(_PG_APP_URL, future=True)
+    issuer = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_delete"
+    tag = os.urandom(3).hex()
+    with owner.begin() as conn:
+        person = pu.provision(conn, f"delete-{tag}@example.test", f"sub-delete-{tag}", issuer)
+
+    def tenant_session() -> Session:
+        session = Session(bind=app_role, future=True)
+
+        @event.listens_for(session, "after_begin")
+        def _bind(session_, transaction_, connection):
+            connection.execute(
+                text("SELECT set_config('app.tenant_id', :v, true)"),
+                {"v": str(person.tenant_id)},
+            )
+
+        return session
+
+    try:
+        with tenant_session() as session:
+            account = Account(
+                label="Linked", swid=f"{{PG-{tag}}}", espn_s2_encrypted="ENC", tenant_id=person.tenant_id
+            )
+            session.add(account)
+            session.flush()
+            league = League(
+                espn_league_id=f"77{tag[:4]}",
+                season=2026,
+                account_id=account.id,
+                is_public=False,
+                tenant_id=person.tenant_id,
+            )
+            session.add(league)
+            session.flush()
+            session.add(Team(league_id=league.id, espn_team_id=5, name="Kept Five", is_me=True))
+            session.commit()
+            account_id, league_id = account.id, league.id
+
+        with tenant_session() as session:
+            delete_account(account_id, session)
+
+        with tenant_session() as session:
+            assert session.get(Account, account_id) is None
+            kept = session.get(League, league_id)
+            assert (kept.account_id, kept.is_public) == (None, True)
+            assert [t.name for t in kept.teams] == ["Kept Five"]
+    finally:
+        with owner.begin() as conn:
+            counts = pu.revoke(conn, f"sub-delete-{tag}", issuer, operator_tenant_id=1)
+        owner.dispose()
+        app_role.dispose()
+    assert counts["leagues"] == 1 and counts["accounts"] == 0
 
 
 # ---- credential redaction (Security: redact account validation errors) -------

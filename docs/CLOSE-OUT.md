@@ -927,6 +927,33 @@ This was a practice project. These are the findings that are not about fantasy f
     worth keeping: an apply that touches only ECS and IAM cannot break DNS, so when the site goes
     dark on the same afternoon, separate the two stories before touching either.
 
+52. **A failure the user can see and the log cannot explain is two defects, and the second one is
+    yours.** The operator's first sign-in after gate G4 answered "sign-in could not be completed"
+    and nothing else; the callback had refused for a good reason -- the 10-minute flow cookie had
+    expired while the Cognito tab sat open, then the same code was replayed -- and logged nothing,
+    so for half an hour the question was whether the mode switch had broken the front door. It had
+    not; a fresh attempt from `/` succeeded. The fix is the reason-code line the callback now writes
+    (`sign-in failed: flow_cookie_missing_or_expired`, `state_mismatch`, the OIDC error class),
+    pinned by a test that also asserts no code, state or nonce reaches the log. The move: every
+    refusal a person can trigger logs *which* refusal, as a fixed token, never a value; a `400`
+    with a fixed body is right for the browser and wrong as the only record. Also from the same
+    evening: the limit of a flow cookie is a real number, and the runbook now says "fresh attempt
+    from the home page" before "something is wrong". And the test for the fix passed alone and
+    failed in the suite the next day: alembic's `fileConfig` defaults to
+    `disable_existing_loggers=True`, so any test that migrates in-process muted every application
+    logger created before it, `espn.auth` included, and `caplog` saw nothing. `alembic/env.py`
+    now passes `disable_existing_loggers=False`. A test that reads a log is a test of the logging
+    configuration too, and the configuration in a suite is whatever the previous test left.
+
+53. **A promise on a form is an acceptance criterion, and the test for it has to start from the
+    state a real user is in.** "Deleting the account here erases it" was pinned by literal and
+    proven by a test that deleted an account nobody had linked a league to. A user who did what
+    the site is for -- account, league, sync -- got 409 "re-point or remove them first", and no
+    route could do either; the credential could not be erased once used. Found preparing gate G5's
+    erase check, before any invitee existed. The move: for every sentence the page uses to earn
+    consent, write the test from the populated state, and read the error text of every refusal as
+    a claim about affordances that must exist -- "re-point or remove" was a promise too.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

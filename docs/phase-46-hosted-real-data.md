@@ -12,7 +12,11 @@ and a plan-first apply). The operator's "let's start the build to 100% complete"
 everything that remains. **G4 applied 2026-10-24: plan #12 read `1/1/1` against the prediction, apply #14
 approved by the operator for `production`, `Apply complete! Resources: 1 added, 1 changed, 1 destroyed`;
 `/api/health` reports `private_invited` from the edge. The hosted site is the invited site, for him alone
-until G6; nothing has touched ESPN.** Next: G5, the first live read, his own session. Each later gate is its own approval,
+until G6; nothing has touched ESPN.** Confirmed on the page the same day: his sign-in, the Portfolio board,
+the Manage page in invited mode (consent sentences, the account form, "No accounts yet", the one public
+league, the invited footer). Preparing G5's erase check found that the consent sentence could not be kept
+once a league was linked (WU-8 below; built 2026-10-24, ships in the WU-7 image). Next: G5, the first live
+read, his own session, instructions handed over 2026-10-24. Each later gate is its own approval,
 recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -201,13 +205,49 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
   secrets -- each fails it). Plan-first; predicted `1 to add, 1 to change, 1 to destroy` (the web
   task definition replaced, the web service moved; no IAM change). Verified after the apply:
   `/api/health` reports the mode; the consent copy and the form appear; `/api/accounts` is `[]`; no
-  account exists, so no provider has been constructed. README §6b.
+  account exists, so no provider has been constructed. README §6b. Confirmed on the page by the
+  operator the same day (screenshots: the Portfolio board signed in; Manage with the three consent
+  sentences, the "Add ESPN account" form, "No accounts yet", the "Add league" form, league 569446945
+  `public · 2026 · synced never`, footer "ESPN Edge · hosted for an invited group"; Caddy's 24-hour
+  histogram: 4 `/api/auth/callback` lines, one `302` in the last half hour). His first sign-in after
+  the apply had failed with "sign-in could not be completed": the 10-minute `state.nonce` flow cookie
+  had expired while the Cognito tab sat open (400), then the same code was replayed (401) -- nothing
+  mode-dependent, and the callback logged nothing to say so. `7df80b1` makes it log a reason code
+  (`flow_cookie_missing_or_expired`, `state_mismatch`, the OIDC error class), never a code, state or
+  nonce; pinned by `test_a_failed_sign_in_logs_its_reason_code_and_no_value` -- which passed alone
+  and failed in the full suite until `alembic/env.py` stopped muting existing loggers
+  (`fileConfig(..., disable_existing_loggers=False)`; the migrate task is unaffected). Lesson 52.
 - G5, after its own approval: the operator adds his own ESPN session on the live site, adds one
   league, presses Sync. Verified from the browser and the console: the league syncs; the raw cache
   row carries his tenant; the web log shows no `SWID`, no `espn_s2`, no cookie value (the filter
   that found none on 2026-10-12 is rerun); the limiter's one-second cadence is visible in the
   request timings. Then one restore-shaped check: `DELETE` the account on the page and prove the
-  ciphertext row is gone.
+  ciphertext row is gone. Instructions handed over 2026-10-24 (README §6c): the league already on
+  the page, 569446945, was added public before any account existed, so it is added again with the
+  account selected -- `add_league` re-points an existing row to the account and clears `is_public`
+  rather than duplicating it -- and the manual add is the gate's path (one host,
+  `lm-api-reads.fantasy.espn.com`), discovery (`fan.api.espn.com`, a second host) afterwards if
+  wanted. The erase check waits for the WU-8 image: on web:8 the delete answers 409.
+
+### WU-8. The erase the form promises (found preparing G5; built 2026-10-24)
+
+The form says *"Deleting the account here erases it."* On web:8 that is true only while no league
+points at the account: `DELETE /api/accounts/{id}` answered 409 "re-point or remove them before
+deleting this account", and no route ever existed to re-point a league away from an account or to
+remove one (`add_league` re-points only *towards* an account; there is no league `DELETE`). So a
+person who used the site as intended -- account, league, sync -- could not erase the credential,
+and acceptance criterion 8 held only for the empty case. Decided and built 2026-10-24: the delete
+detaches the account's leagues first (`account_id` NULL, `is_public` True -- the state a league
+added with no account has) in the same transaction, then deletes the row; the leagues and
+everything synced under them stay. A private league detached this way syncs on the public path and
+reports auth failed until it is added again with an account, which re-points it. The alternative,
+a league `DELETE` that would also take the synced data, was named to the operator and not chosen
+unless he asks for it. Proof: `test_delete_account_detaches_its_leagues_and_keeps_their_data`
+(SQLite: 204, the league listed with no account and public, its team row intact, re-pointing by a
+second add) and `test_delete_account_detaches_on_postgres_where_the_foreign_key_is_enforced`
+(the application role, tenant bound, a provisioned tenant, the foreign key enforced; revoked
+afterwards with `leagues: 1, accounts: 0`). No schema change. Ships in the WU-7 image; the G5 erase
+check runs on it.
 
 ### WU-6. Invitations (gate G6) and per-user AI (gate G7)
 
@@ -324,6 +364,7 @@ both keys and the isolation test fails. Acceptance criterion 10.
 | The site holds ESPN sessions at rest for invited people | ADR-012, C8, this file, the page copy |
 | One customer-managed key and one more secret (+$1.40/month) | ADR-012; budget untouched at $52 |
 | `is_public_synthetic` is gone | WU-1 |
+| `DELETE /api/accounts/{id}` detaches the account's leagues instead of refusing with 409 | WU-8; `api/routers/accounts.py` docstring; README §6c |
 
 ## Acceptance criteria
 
@@ -339,7 +380,8 @@ both keys and the isolation test fails. Acceptance criterion 10.
    in the web log.
 7. Two provisioned people on PostgreSQL see only their own rows; revoking one leaves the other
    intact.
-8. Deleting an account on the page erases the ciphertext row.
+8. Deleting an account on the page erases the ciphertext row -- also when leagues point at it: they
+   are detached and keep their synced data (WU-8).
 9. `ruff`, `tsc -b --noEmit`, the policy tests and the full suite pass; the plan workflow precedes
    every apply.
 10. On the invited site, a tenant's AI key is readable by that tenant alone, is never returned

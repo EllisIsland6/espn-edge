@@ -18,7 +18,15 @@ from api.db import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers` defaults to True, which silences every logger
+    # that already exists and is not named in alembic.ini -- and the imports
+    # above have already created the application's (`espn.auth`, `espn.sync`,
+    # ...). In the migrate task that is invisible: nothing of the app runs. In
+    # one process that runs a migration and then the app -- the test suite --
+    # it is a muted logger and an assertion that passes alone and fails in the
+    # suite (`test_a_failed_sign_in_logs_its_reason_code_and_no_value`,
+    # 2026-10-24, after `test_raw_cache_tenant_key.py` had migrated in-process).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Settings supply the URL, but they do not OVERRIDE one that a caller has already
 # set on this Config. The unconditional form clobbered an explicitly-provided URL

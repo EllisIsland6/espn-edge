@@ -31,8 +31,10 @@ TENANT_GUC = "app.tenant_id"
 def gaps_ms(times: Iterable[datetime]) -> list[int | None]:
     """The gap from each fetch to the one before it, None for the first.
 
-    The limiter spaces requests per key by at least a second, so consecutive
-    fetches of different views in one sync should read a thousand or more.
+    The limiter spaces requests per account (the `acct=` part of the key) by at
+    least a second, so two lines with the same `acct=` read a thousand or more
+    apart; a public-path line between them (`pro_schedule`, `acct=public`) is
+    throttled on its own key and may sit closer.
     """
     out: list[int | None] = []
     previous: datetime | None = None

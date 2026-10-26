@@ -271,6 +271,17 @@ consent sentences and the account form, and the accounts list is empty. No accou
 provider has been constructed and nothing has touched ESPN; the first live read is gate G5 and is
 yours to perform, with your own session, when you say so.
 
+If the sign-in answers `{"detail":"sign-in could not be completed"}`, make a fresh attempt from
+`https://eaedgefinder.com/` before suspecting the site: the sign-in's flow cookie lives ten
+minutes, and a Cognito tab left open past that fails with exactly that body (the replayed code
+fails the same way). It happened on 2026-10-24 and the fresh attempt succeeded. The callback logs
+the reason as a fixed token since `7df80b1` (on the image after web:8):
+
+```bash
+aws logs tail /espn-edge/web --since 30m --format short | grep 'sign-in failed'
+echo 'expect: flow_cookie_missing_or_expired, state_mismatch or the OIDC error class -- never a code, a state or a nonce'
+```
+
 ### 6c. Gate G5 -- the first live ESPN read, your own session (ADR-012)
 
 Nothing before this touches ESPN from AWS, and nobody can do it for you: on the live Manage page,
@@ -284,10 +295,21 @@ cd ~/espn-edge
 aws logs tail /espn-edge/web --since 30m --format short | grep -c -E 'espn_s2=[A-Za-z0-9%._-]{8,}|SWID=\{[0-9A-Fa-f-]{8,}'
 echo 'expect: 0 -- no cookie value in any log line (Caddy redacts Cookie; the app never logs one)'
 aws logs tail /espn-edge/web --since 30m --format short | grep -E 'league [0-9]+:|Traceback|Error' | tail -10
-echo 'expect: nothing -- the sync logs only its failures (auth failed, fetch failed, metrics); a clean sync is silent'
+echo 'expect: nothing -- an auth failure and a metrics failure are logged; a clean sync is silent; a FETCH failure is not logged at all, it lands on the league row and is read next'
 aws logs tail /espn-edge/web --since 30m --format short | grep -E '"uri":"/api/leagues/[0-9]+/sync"' | grep -o '"status":[0-9]*' | sort | uniq -c
-echo 'expect: one or more "status":200 -- the sync requests Caddy saw, and their answers'
+echo 'expect: one "status":200 per sync you pressed -- the request completed; whether ESPN answered is the next read'
+aws logs tail /espn-edge/web --since 60m --format short | grep -o '"uri":"/api/leagues[^"]*' | sort | uniq -c | sort -rn
+echo 'expect: the adds (/api/leagues), any discover calls (/api/leagues/discover/N), one sync line per league synced'
 ```
+
+A `200` on the sync route means the request ran to completion, not that ESPN answered: the
+service records a fetch failure (`EspnError` -- a refusal, a 429, a timeout) on the league row as
+`last_sync_ok = false` with a sanitized `last_sync_error`, and writes no log line for it, so the
+quiet log above cannot distinguish a clean sync from a refused one. The row can. In the browser,
+signed in, open `https://eaedgefinder.com/api/leagues`: one entry per league, each with
+`"last_sync_ok": true`, a `last_synced_at` minutes old and `"last_sync_error": null`; on Manage
+the same row reads "synced N minutes ago" with no red chip. A `false` is the phase's one unknown
+answered the other way, and its reason is in the row, never a cookie.
 
 Then, through the tunnel (section 7, Terminal 1 open; Terminal 2 with `PGPASSWORD` and
 `DATABASE_URL` set exactly as there):
@@ -295,16 +317,29 @@ Then, through the tunnel (section 7, Terminal 1 open; Terminal 2 with `PGPASSWOR
 ```bash
 cd ~/espn-edge
 .venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 60
-echo 'expect: one line per fetched view, every line tenant=1, consecutive fetches +1000 ms or more apart; the payload itself is never printed'
+echo 'expect: every line tenant=1; one line per ESPN request, its views joined with +; acct= is a short hash, not public, on the league lines; lines sharing one acct= value are +1000 ms or more apart; the payload itself is never printed'
 unset PGPASSWORD
 ```
 
-Last, the erase check: remove the league on the page, then delete the account (the delete refuses
-with 409 while a league still points at the account -- by design, so a delete can never orphan
-synced data). The accounts list empties; the ciphertext row is gone, not hidden. `cache_rows.py`
-still shows the cache rows, because the raw cache is the tenant's, not the account's, and it is
-yours to keep or clear. Add the account and the league again afterwards if you want to keep using
-the site.
+The cache key is `<league>:<season>:<views>:sp=<period>:acct=<hash>:filt=-`; `acct=` is a short
+hash of the SWID, never the SWID, and `public` for a cookie-less request. The limiter spaces
+requests per account, so two lines with the same `acct=` are at least a second apart; a
+`pro_schedule:<season>` line or another public-path line may sit closer to its neighbours, and that
+is the limiter working as designed, not a gap in it.
+
+A league already on the page as public (569446945 was added before any account existed) is
+not duplicated and needs no removing: add it again with your account selected and the row is
+re-pointed to the account and stops being public. The manual add is the gate's path -- one host,
+`lm-api-reads.fantasy.espn.com`; "Discover leagues" on the account card reads a second host,
+`fan.api.espn.com`, and can wait.
+
+Last, the erase check -- on the image that carries WU-8 (the one after web:8; on web:8 the delete
+still answers 409 while a league points at the account, which is the gap WU-8 closes). Delete the
+account on the page. The accounts list empties; the ciphertext row is gone, not hidden; the league
+stays, now labelled `public`, with everything synced under it, and its next sync reports auth
+failed until you add it again with an account, which re-points it. `cache_rows.py` still shows
+the cache rows, because the raw cache is the tenant's, not the account's, and it is yours to keep
+or clear. Add the account and re-add the league afterwards if you want to keep using the site.
 
 ### 7. Inviting a person -- gate G6, one person at a time (ADR-012)
 
