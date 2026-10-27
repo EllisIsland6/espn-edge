@@ -167,7 +167,8 @@ applies the saved plan. Then, in order (`docs/aws-deploy.md`):
 
 1. Create the application role as the owner (§2); write its URL into `espn-edge/database-url-app`.
 2. Write the owner URL into `espn-edge/database-url-owner` (the password is in the RDS-managed secret
-   the stack outputs).
+   the stack outputs). It is a copy of a password RDS rotates every seven days: refresh it before
+   every migrate task (section 8 step 4) until WU-9 removes it.
 3. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`).
 4. Provision yourself (0017's recipe). Anyone else: section 7, and not before gate G6.
 5. Upload `web/dist` to the SPA bucket; invalidate CloudFront.
@@ -397,19 +398,59 @@ image, a migration and a plan-first apply -- in that order, because the migrate 
 new image before the web task that expects the table does:
 
 1. Build, preflight and push the app image for the commit (section 4); set `APP_IMAGE_TAG` to it.
-2. **terraform plan** on the commit. Predicted: `2 to add, 2 to change, 2 to destroy` -- the web and
-   migrate task definitions replaced for the new tag, the web service and the migrate task family
-   moved to them, nothing else. (The worker's definition carries the tag too; if the plan counts it,
-   expect `3 / 2 / 3` and say so before the apply.)
+   Docker Desktop must be running, so the block checks:
+
+```bash
+cd ~/espn-edge
+docker info >/dev/null 2>&1 && echo 'docker: running' || echo 'docker: NOT running -- open Docker Desktop first'
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+ECR="${ACCT}.dkr.ecr.us-east-1.amazonaws.com"
+aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR}"
+./ops/preflight-image.sh "${ECR}/espn-edge/app:SHA"
+echo 'expect: 19 checks passed. This image is safe to push. (check 7 says public_synthetic: the preflight runs it so; the mode comes from the task definition)'
+docker push "${ECR}/espn-edge/app:SHA"
+echo 'expect: SHA: digest: sha256:... size: ...'
+```
+
+2. **terraform plan** on the commit. Predicted: `3 to add, 2 to change, 3 to destroy` -- the three
+   task definitions that carry the app image (web, worker, migrate) replaced for the new tag, the
+   web and worker services moved to them, nothing else (plan #13 on 2026-10-27 read exactly that,
+   plus the alarm-email subscription returning because its confirmation email was never clicked).
 3. **terraform apply**, approved by you. ECS rolls the web service onto the new image; until the
    migration runs the new code answers `GET /api/ai/key` with a 500 on a missing table, which is
    why step 4 follows at once.
-4. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`, as in section 5 step 3)
-   and read its log: `Running upgrade 0017 -> 0018`.
+4. **Refresh the owner URL first, every time.** `edge_owner` is the RDS-managed master user and RDS
+   rotates its password every seven days; the migrate task reads `espn-edge/database-url-owner`,
+   a copy of that password in URL form, which is therefore stale after any rotation since it was
+   written. Apply #15 (2026-10-27) hit exactly that: `FATAL: password authentication failed for
+   user "edge_owner"` (the host and the user in the log, never a value). Read the two dates, then
+   rewrite the copy from the managed secret; nothing prints it. WU-9 removes the copy altogether.
 
 ```bash
-aws logs tail /espn-edge/migrate --since 10m --format short | grep -E 'Running upgrade|ERROR|Traceback'
-echo 'expect: Running upgrade 0017 -> 0018, ai_credentials ...; no ERROR, no Traceback'
+cd ~/espn-edge
+SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+RDS=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].Endpoint.Address' --output text)
+echo "managed secret last rotated: $(aws secretsmanager describe-secret --secret-id "${SECRET_ARN}" --query LastRotatedDate --output text)"
+echo "owner URL copy last written: $(aws secretsmanager describe-secret --secret-id espn-edge/database-url-owner --query LastChangedDate --output text)"
+echo 'expect: if the rotation is later than the copy, the copy is stale and the next lines fix it; rewriting a fresh copy is harmless'
+OWNER_URL=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ARN}" --query SecretString --output text | RDS="${RDS}" .venv/bin/python -c 'import json,os,sys,urllib.parse; d=json.load(sys.stdin); print("postgresql+psycopg2://edge_owner:" + urllib.parse.quote(d["password"], safe="") + "@" + os.environ["RDS"] + ":5432/edge?sslmode=require")')
+aws secretsmanager put-secret-value --secret-id espn-edge/database-url-owner --secret-string "${OWNER_URL}" --query VersionStages --output text
+unset OWNER_URL
+echo 'expect: AWSCURRENT'
+```
+
+   Then the migrate task, which checks that the apply has landed before it starts anything:
+
+```bash
+cd ~/espn-edge
+aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text
+echo 'expect: the new revision and the image tag of this deploy; if it still shows the old tag the apply has not landed'
+MIGRATE_IMAGE=$(aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].image' --output text)
+case "${MIGRATE_IMAGE}" in *:SHA) aws ecs run-task --cluster espn-edge --task-definition espn-edge-migrate --launch-type EC2 --query 'tasks[0].[taskArn,lastStatus]' --output text ;; *) echo "migrate task definition still on ${MIGRATE_IMAGE} -- nothing started" ;; esac
+echo 'expect: a task ARN and PENDING'
+sleep 60
+aws logs tail /espn-edge/migrate --since 3m --format short | grep -E 'Running upgrade|ERROR|Traceback|Error|FATAL'
+echo 'expect: Running upgrade 0017 -> 0018, ai_credentials ...; no ERROR, no Traceback, no FATAL'
 curl -sS https://eaedgefinder.com/api/health
 echo
 echo 'expect: status ok, mode private_invited'

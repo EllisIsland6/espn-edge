@@ -966,6 +966,18 @@ This was a practice project. These are the findings that are not about fantasy f
     against the expectations, before it is called done. Also worth keeping: a dependency added to
     `pyproject.toml` reaches the image on the next build and reaches nobody's existing venv.
 
+55. **A copy of a rotating secret is stale by construction, and it fails at the worst moment.** The
+    migrate task's owner URL was a hand-written copy of the RDS-managed master password, made on
+    10-08 after the incident rotation. RDS rotates that password every seven days; the copy did
+    not know. Nineteen days later the first migration since (`0018`, the WU-7 deploy) was refused
+    with `password authentication failed for user "edge_owner"` -- after the apply, with the web
+    service already rolled onto code that expected the new table. The log carried the host and the
+    user and no value (lesson 46 held). The recovery was one `put-secret-value` from the managed
+    secret, the read of the two dates first. The move: never copy a secret something else rotates;
+    read it where it lives (WU-9: ECS injects the managed secret's `password` key, libpq takes
+    `PGPASSWORD`, the URL carries none). Until the fix lands, the runbook refreshes the copy
+    before every migration, and the block reads the rotation date before it writes.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

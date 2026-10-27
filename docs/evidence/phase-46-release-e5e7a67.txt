@@ -281,3 +281,28 @@ Tunnel    ops/cache_rows.py --tenant-id 1 --since-minutes 4320, as edge_owner th
 Verdict   acceptance criterion 6 met: the operator's leagues sync from AWS, the raw-cache rows are his tenant's, no credential
           in the web log, the limiter's cadence visible. The erase check (criterion 8) waits for the WU-8 image by design.
 Not yet   the /api/leagues row read (last_sync_ok per league) asked of the operator as confirmation; the per-URI histogram.
+
+--- WU-7 / WU-8 deployed: image app:296293b, plan #13, apply #15, migration 0018 (2026-10-27)
+Push      0b64594..296293b (6258b44, 7df80b1, 40298da, 296293b); CI #60 run 40426352143: Success 3m 23s
+Image     ./ops/preflight-image.sh .../espn-edge/app:296293b: 19 checks passed (alembic 1.20.1, psycopg2 imports, uid 10001,
+          /api/health public_synthetic under the preflight's own env); pushed, digest sha256:16d23e3f...cd840b7
+Variable  APP_IMAGE_TAG e5e7a67 -> 296293b
+Plan #13  run 40427597031 on 296293b: fmt -check, validate, policy tests, refusal step green; artifact 12701000789
+          Plan: 4 to add, 2 to change, 3 to destroy   (predicted 3/2/3)
+            -/+ aws_ecs_task_definition.web      image app:e5e7a67 -> app:296293b (+ normalisation noise, caddy-data volume re-stated)
+            -/+ aws_ecs_task_definition.worker   image app:e5e7a67 -> app:296293b
+            -/+ aws_ecs_task_definition.migrate  image app:e5e7a67 -> app:296293b
+            ~   aws_ecs_service.web / .worker    task_definition -> (known after apply)
+            +   aws_sns_topic_subscription.operator   (returning: never confirmed, dropped by SNS after 3 days; same as apply #11)
+            ~   output migrate_task_definition   :5 -> (known after apply)
+Apply #15 run 40430287187, approved by EllisIsland6 for production, 41 s:
+          Apply complete! Resources: 4 added, 2 changed, 3 destroyed.   migrate_task_definition = .../espn-edge-migrate:6
+          describe-services: PRIMARY espn-edge-web:9 1 0 COMPLETED; /api/health from the edge: private_invited
+Migrate   task 1 (31c126f5...): FATAL: password authentication failed for user "edge_owner" (host + user in the log; no value)
+          managed secret last rotated 2026-10-22T02:16 -05:00; espn-edge/database-url-owner last written 2026-10-08T12:34 -05:00
+          put-secret-value from the managed secret (URL-encoded, nothing printed): AWSCURRENT
+          task 2 (6ca01614...): INFO [alembic.runtime.migration] Running upgrade 0017 -> 0018, ai_credentials: ...; no ERROR/Traceback/FATAL
+SNS       email PendingConfirmation (the operator to click the confirmation; until then the plan re-adds it)
+Window    between the apply landing and the migration (about 9 minutes, the refused attempt included) the AI routes answered
+          500 on the missing table; everything else served. README 8 step 4 now refreshes the copy first; WU-9 removes it.
+Not yet   the WU-8 erase check on web:9; G7 (the operator's key, one report, the log read).

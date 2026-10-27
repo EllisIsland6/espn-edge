@@ -275,9 +275,20 @@ check runs on it.
 
 ### WU-7. Per-user AI key custody (gate G7; image + migration + plan-first apply)
 
-Built 2026-10-23, the same evening the design was decided; measured below. Not deployed: it
-ships as an image, migration 0018 and a plan-first apply after G5, and the gate is the first AI
-call on the hosted site (README §8).
+Built 2026-10-23, the same evening the design was decided; measured below. **Deployed 2026-10-27**
+as image `app:296293b` (preflight 19/19; carries WU-7, WU-8, the sign-in reason codes and the
+alembic logging fix), plan #13 read `4 to add, 2 to change, 3 to destroy` against a prediction of
+`3/2/3` -- the one extra line the alarm-email subscription returning, as at G2, because its
+confirmation email was never clicked -- apply #15 approved by the operator (`4 added, 2 changed,
+3 destroyed`, web:9, worker:6, migrate:6), and migration 0018 run by the migrate task on the
+second attempt: the first was refused by RDS, `password authentication failed for user
+"edge_owner"`, because the migrate task reads `espn-edge/database-url-owner`, a hand-written copy
+of the RDS-managed master password (written 2026-10-08) that RDS had since rotated (2026-10-22;
+it rotates every seven days). The copy was rewritten from the managed secret, nothing printed,
+and the task then logged `Running upgrade 0017 -> 0018, ai_credentials` and nothing else. The
+web task was never affected (`edge_app`, a static password). README §8 step 4 now refreshes the
+copy before every migration; WU-9 below removes the copy. CLOSE-OUT lesson 55. The gate itself --
+the operator's own key, one report, the log read -- is G7 and follows the WU-8 erase check.
 
 **The Question.** Where does an invited person's Anthropic key live, who can read it, and what
 else is kept with it?
@@ -362,6 +373,34 @@ for a tenant's own spend (three tests, the patched `reserve` firing); the failur
 (class only); the 422 redaction forgetting the PUT (two tests); the revoke order forgetting the
 table (the order test); and on PostgreSQL, row security switched off on the table -- tenant A reads
 both keys and the isolation test fails. Acceptance criterion 10.
+
+### WU-9. No copy of a rotating password (found at the WU-7 deploy; specified 2026-10-27)
+
+**The Question.** How does the migrate task authenticate as `edge_owner` when RDS rotates that
+password every seven days and nothing but RDS knows the new one?
+
+**The Lens.** AWS Well-Architected, Security: secrets are read where they live, never copied; a
+copy of a rotating secret is stale by construction and fails at the worst moment, which is a
+migration. Context hygiene: one fewer secret for the operator to maintain by hand.
+
+**The Selection.** ECS can inject one JSON key of a Secrets Manager secret
+(`valueFrom = "<secret-arn>:password::"`), and libpq reads `PGPASSWORD` whenever the connection
+URL carries no password. So the migrate task gets `PGPASSWORD` straight from the RDS-managed
+secret (`aws_db_instance.main.master_user_secret[0].secret_arn`) and a plain
+`DATABASE_URL = postgresql+psycopg2://edge_owner@<endpoint>:5432/edge?sslmode=require` with no
+password in it; the execution role's secrets policy gains that one ARN (the managed secret is
+encrypted with the AWS-managed `aws/secretsmanager` key, which the deploy boundary already allows
+through the service); `espn-edge/database-url-owner` is deleted from the stack. `alembic/env.py`
+is unchanged: the URL it escapes simply has no `%` left in it.
+
+**The Synthesis.** Terraform only: `containers.tf` (the migrate task's `secrets` and
+`environment`), the execution role's secrets statement, `secrets.tf` (the copy removed, its
+7-day recovery window the undo). The policy test that pins the migrate task reading the owner URL
+becomes one that pins it reading the managed secret's `password` key and carrying no password in
+`DATABASE_URL`. Plan-first: predicted `1 to add, 1 to change, 2 to destroy` -- the migrate task
+definition replaced, the execution role's policy updated in place, the old definition and the
+copy secret destroyed. Not before G7 is recorded: a stack change does not share an evening with a
+gate.
 
 ## Explicit deltas and guarantees
 
