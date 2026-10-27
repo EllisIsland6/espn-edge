@@ -954,6 +954,18 @@ This was a practice project. These are the findings that are not about fantasy f
     consent, write the test from the populated state, and read the error text of every refusal as
     a claim about affordances that must exist -- "re-point or remove" was a promise too.
 
+54. **A runbook is verified on the machine it is written for, or it has not been verified.** README
+    §7's tunnel recipe had been proven in the cloud workspace against a disposable cluster, and its
+    first real run on the operator's Mac failed twice before it read anything: `ModuleNotFoundError:
+    psycopg2` (his venv predated the day the driver became a declared dependency; the image had it,
+    his machine did not) and then `Connection refused` on 15432 (the SSM session in the other
+    terminal had idled out). Neither was the recipe's logic; both were preconditions the recipe
+    assumed. The move, the same as lesson 50's and now applied to reads as well as writes: every
+    block checks what it assumes -- `python -c 'import psycopg2' || pip install`, `nc -z 127.0.0.1
+    15432` -- and the first run of any runbook happens where it will live, with its output read
+    against the expectations, before it is called done. Also worth keeping: a dependency added to
+    `pyproject.toml` reaches the image on the next build and reaches nobody's existing venv.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

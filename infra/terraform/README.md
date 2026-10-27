@@ -316,16 +316,22 @@ Then, through the tunnel (section 7, Terminal 1 open; Terminal 2 with `PGPASSWOR
 
 ```bash
 cd ~/espn-edge
-.venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 60
-echo 'expect: every line tenant=1; one line per ESPN request, its views joined with +; acct= is a short hash, not public, on the league lines; lines sharing one acct= value are +1000 ms or more apart; the payload itself is never printed'
+.venv/bin/python -c 'import psycopg2' 2>/dev/null || .venv/bin/pip install 'psycopg2-binary>=2.9'
+echo 'expect: nothing, or one install -- the driver is a declared dependency and a venv older than that declaration lacks it (found 2026-10-26)'
+.venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 180
+echo 'expect: every line tenant=1; one line per ESPN request, its views joined with +; acct= is a short hash, not public, on the league lines; same-account gaps about a second (more after a heavy request, less for the light one that follows it); the payload itself is never printed'
 unset PGPASSWORD
 ```
 
 The cache key is `<league>:<season>:<views>:sp=<period>:acct=<hash>:filt=-`; `acct=` is a short
 hash of the SWID, never the SWID, and `public` for a cookie-less request. The limiter spaces
-requests per account, so two lines with the same `acct=` are at least a second apart; a
-`pro_schedule:<season>` line or another public-path line may sit closer to its neighbours, and that
-is the limiter working as designed, not a gap in it.
+request *starts* per account by at least a second; `fetched_at` is stamped when the answer is
+stored, so a gap reads a second plus the difference in latency: about 1000 ms between like-sized
+requests, about 1150 ms before the heavier week view, about 1330 ms before the player pool, and
+about 850 ms for the light boxscore that follows the heavy view (it started a second later and
+came back sooner). A `pro_schedule:<season>` line is the public path on its own key and may sit
+closer still. All of that is the limiter working as designed; G5 measured exactly those numbers
+across 25 leagues (`docs/evidence/phase-46-release-e5e7a67.txt`).
 
 A league already on the page as public (569446945 was added before any account existed) is
 not duplicated and needs no removing: add it again with your account selected and the row is
@@ -363,6 +369,8 @@ cd ~/espn-edge
 SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
 export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ARN}" --query SecretString --output text | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["password"])')
 export DATABASE_URL='postgresql+psycopg2://edge_owner@127.0.0.1:15432/edge?sslmode=require'
+.venv/bin/python -c 'import psycopg2' 2>/dev/null || .venv/bin/pip install 'psycopg2-binary>=2.9'
+echo 'expect: nothing, or one install -- a venv older than the driver declaration has no psycopg2'
 export OIDC_ISSUER=$(aws cognito-idp list-user-pools --max-results 10 --query 'UserPools[?Name==`espn-edge`].Id' --output text | sed 's#^#https://cognito-idp.us-east-1.amazonaws.com/#')
 echo "${OIDC_ISSUER}"
 echo 'expect: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_... -- stop if it is empty'

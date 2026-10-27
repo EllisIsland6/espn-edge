@@ -15,9 +15,12 @@ approved by the operator for `production`, `Apply complete! Resources: 1 added, 
 until G6; nothing has touched ESPN.** Confirmed on the page the same day: his sign-in, the Portfolio board,
 the Manage page in invited mode (consent sentences, the account form, "No accounts yet", the one public
 league, the invited footer). Preparing G5's erase check found that the consent sentence could not be kept
-once a league was linked (WU-8 below; built 2026-10-24, ships in the WU-7 image). Next: G5, the first live
-read, his own session, instructions handed over 2026-10-24. Each later gate is its own approval,
-recorded in `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
+once a league was linked (WU-8 below; built 2026-10-24, ships in the WU-7 image). **G5 done in deed
+2026-10-26 and proven 2026-10-27: the operator's own session on the invited site, 25 of his leagues synced from
+AWS (301 ESPN requests in 347 s, every raw-cache row his tenant's, the limiter's cadence measured, no credential
+in the log).** Next: the image carrying WU-7, WU-8 and the two fixes; migration 0018; plan-first apply; the
+erase check; then G6 and G7. Each later gate is its own approval, recorded in
+`docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
 their own ESPN account, the way it worked locally. Delivered in order: first for him alone (G2–G5),
@@ -228,6 +231,18 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
   rather than duplicating it -- and the manual add is the gate's path (one host,
   `lm-api-reads.fantasy.espn.com`), discovery (`fan.api.espn.com`, a second host) afterwards if
   wanted. The erase check waits for the WU-8 image: on web:8 the delete answers 409.
+  **Done 2026-10-26, proven 2026-10-27.** The operator added his session and used Discover → Import &
+  sync: 25 leagues (the public one re-pointed, 24 added), one at a time. Console: no cookie value in
+  any log line, no auth failure, no traceback, 25 × `200` on the sync route. The tunnel read
+  (`ops/cache_rows.py`, as the owner): 301 rows, every one `tenant=1`; 25 × 12 requests plus one
+  `pro_schedule`; one account hash on every league line, never `public`; a row for every request of
+  every league, so no fetch failed; 347 s for 301 requests, request starts never under a second apart
+  per account -- the gaps read ~1000 ms between like-sized requests, ~1150 before the heavier week
+  view, ~1330 before the player pool and ~850 for the light boxscore after the heavy view, because
+  `fetched_at` is stamped on store while the limiter spaces starts. The one unknown is answered: ESPN
+  (both hosts) answers AWS addresses. Two runbook preconditions surfaced on the way -- the Mac venv
+  predated the declared driver; the SSM tunnel had timed out -- and are guard lines in README §6c/§7
+  now (lesson 54). Figures in `docs/evidence/phase-46-release-e5e7a67.txt`.
 
 ### WU-8. The erase the form promises (found preparing G5; built 2026-10-24)
 
@@ -377,7 +392,7 @@ both keys and the isolation test fails. Acceptance criterion 10.
    is `implicitDeny`; the boundary's Allow has no `Decrypt`.
 5. `FERNET_KEY` reaches exactly the web task, from the CMK-encrypted secret, and appears in no log.
 6. The operator's own league syncs from AWS with the raw-cache row in his tenant and no credential
-   in the web log.
+   in the web log. **Met 2026-10-26/27: 25 leagues, 301 rows in tenant 1, cookie grep 0 (G5).**
 7. Two provisioned people on PostgreSQL see only their own rows; revoking one leaves the other
    intact.
 8. Deleting an account on the page erases the ciphertext row -- also when leagues point at it: they
