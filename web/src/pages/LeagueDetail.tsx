@@ -7,6 +7,7 @@ import {
   generateLeagueBrief,
   getAdvantageVerdict,
   getAiStatus,
+  getHealth,
   getDraftRecaps,
   getLeagueActivity,
   getLeagueAllPlay,
@@ -43,6 +44,7 @@ import {
   type TransactionOut,
   type WeeklyRecapContent,
 } from "../api";
+import { AI_OFF_HINT, MODES, type Mode } from "../copy";
 import { DataTable } from "../components/DataTable";
 import {
   AchievementRow,
@@ -1120,17 +1122,23 @@ function ActivityTab({ leagueId, teamName }: { leagueId: number; teamName: Map<n
 
 // --- AI Brief ---------------------------------------------------------------
 function AiKeyOff() {
-  return (
-    <EmptyState
-      title="AI analysis is off"
-      hint={
-        <>
-          Set <code className="mono">ANTHROPIC_API_KEY</code> in <code className="mono">.env</code> and
-          restart the API to enable draft recaps, league briefs, and advantage verdicts.
-        </>
-      }
-    />
-  );
+  // The cure depends on which deployment this is (WU-10): the local site wants
+  // an environment variable, the invited site wants the person's own key on
+  // Manage. Until health answers, or if it cannot, say only that AI is off.
+  const [mode, setMode] = useState<Mode | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getHealth()
+      .then((health) => {
+        if (alive) setMode(health.mode ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const hint = mode && MODES.includes(mode) ? AI_OFF_HINT[mode] : undefined;
+  return <EmptyState title="AI analysis is off" hint={hint} />;
 }
 
 function AiTab({

@@ -265,11 +265,13 @@ Driver    first tunnel read: ModuleNotFoundError psycopg2 -- the Mac venv predat
           second: Connection refused 127.0.0.1:15432 -- Terminal 1's SSM session was not open (idle timeout).
           Both now guard lines in README 6c/7 (import probe || pip install; nc -z 15432). CLOSE-OUT lesson 54.
 Tunnel    ops/cache_rows.py --tenant-id 1 --since-minutes 4320, as edge_owner through the SSM tunnel, PGPASSWORD from the RDS-managed secret:
-          301 rows, every line tenant=1; 25 leagues x 12 requests + 1 pro_schedule:2026
+          276 rows, every line tenant=1; 25 leagues x 11 requests + 1 pro_schedule:2026
+          (first recorded as 301 = 25 x 12 by a miscount of the per-league shapes; corrected 2026-10-27 after
+           count(*) as the owner read 276 and the per-shape counts were asked for)
           per league, in order: mDraftDetail+mSettings+mTeam | mMatchupScore | mMatchupScore+mRoster+mScoreboard sp=7 |
                                 mBoxscore sp=1..6 | mPendingTransactions+mTransactions2 | kona_player_info (filt=<hash>)
           acct= one short hash on all 300 league lines (never public, never the SWID); pro_schedule carries none
-          span 00:52:40.46 -> 00:58:27.35 = 346.9 s; 0.868 requests/s overall; never two starts under 1 s per account
+          span 00:52:40.46 -> 00:58:27.35 = 346.9 s; 0.796 requests/s overall; never two starts under 1 s per account
           same-account fetched_at gaps (fetched_at is stamped on store; the limiter spaces starts):
             first -> mMatchupScore      n=25  min  909  median  999  max 1031 ms
             mMatchupScore -> sp=7 view  n=25  min 1109  median 1153  max 1216 ms   (the heavier request lands later)
@@ -306,3 +308,12 @@ SNS       email PendingConfirmation (the operator to click the confirmation; unt
 Window    between the apply landing and the migration (about 9 minutes, the refused attempt included) the AI routes answered
           500 on the missing table; everything else served. README 8 step 4 now refreshes the copy first; WU-9 removes it.
 Not yet   the WU-8 erase check on web:9; G7 (the operator's key, one report, the log read).
+
+--- WU-10 built: the AI-off hint by mode (2026-10-27)
+Found     the operator's screenshot of the AI Brief tab on the invited site with no key on file: "Set ANTHROPIC_API_KEY in .env
+          and restart the API"; the same sentence on the Status page's AI card.
+Change    web/src/copy.ts AI_OFF_HINT (three modes); LeagueDetail AiKeyOff reads health and the table; Status reads the table
+Measured  tsc -b --noEmit clean; tests/test_spa_mode_copy.py + test_spa_csrf.py 12 passed; Playwright (local config) 63 passed (62 before)
+          new: test_the_ai_off_hint_names_the_cure_for_the_mode_it_is_shown_on; e2e "AI-disabled state on the invited site points at
+          the key panel, not at .env"
+Not yet   the SPA build + sync that puts it on the site (README 8 step 5)

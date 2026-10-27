@@ -17,7 +17,7 @@ the Manage page in invited mode (consent sentences, the account form, "No accoun
 league, the invited footer). Preparing G5's erase check found that the consent sentence could not be kept
 once a league was linked (WU-8 below; built 2026-10-24, ships in the WU-7 image). **G5 done in deed
 2026-10-26 and proven 2026-10-27: the operator's own session on the invited site, 25 of his leagues synced from
-AWS (301 ESPN requests in 347 s, every raw-cache row his tenant's, the limiter's cadence measured, no credential
+AWS (276 ESPN requests in 347 s, every raw-cache row his tenant's, the limiter's cadence measured, no credential
 in the log).** Next: the image carrying WU-7, WU-8 and the two fixes; migration 0018; plan-first apply; the
 erase check; then G6 and G7. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
@@ -234,9 +234,9 @@ and the consent sentences. Until G4 flips the mode the live page says "hosted on
   **Done 2026-10-26, proven 2026-10-27.** The operator added his session and used Discover → Import &
   sync: 25 leagues (the public one re-pointed, 24 added), one at a time. Console: no cookie value in
   any log line, no auth failure, no traceback, 25 × `200` on the sync route. The tunnel read
-  (`ops/cache_rows.py`, as the owner): 301 rows, every one `tenant=1`; 25 × 12 requests plus one
+  (`ops/cache_rows.py`, as the owner): 276 rows, every one `tenant=1`; 25 × 11 requests plus one
   `pro_schedule`; one account hash on every league line, never `public`; a row for every request of
-  every league, so no fetch failed; 347 s for 301 requests, request starts never under a second apart
+  every league, so no fetch failed; 347 s for 276 requests, request starts never under a second apart
   per account -- the gaps read ~1000 ms between like-sized requests, ~1150 before the heavier week
   view, ~1330 before the player pool and ~850 for the light boxscore after the heavy view, because
   `fetched_at` is stamped on store while the limiter spaces starts. The one unknown is answered: ESPN
@@ -402,6 +402,23 @@ definition replaced, the execution role's policy updated in place, the old defin
 copy secret destroyed. Not before G7 is recorded: a stack change does not share an evening with a
 gate.
 
+### WU-10. The AI-off hint names the cure for the site it is shown on (found at G7; built 2026-10-27)
+
+On the invited site with no key on file, the AI Brief tab and the Status page's AI card said
+*"Set ANTHROPIC_API_KEY in .env and restart the API"* -- the local site's instruction, written
+before there was any other site. The first G7 attempt met it. `web/src/copy.ts` now holds
+`AI_OFF_HINT`, one sentence per mode: the operator's keeps the environment-variable instruction,
+the invited one says *"Add your Anthropic API key on Manage ... Anthropic bills you directly for
+those calls"*, the synthetic one says AI is not enabled on this instance; an unknown mode (health
+not yet answered) shows no instruction, which is the honest default WU-4 set. The two pages read
+the table and carry no sentence of their own. Pinned by
+`test_the_ai_off_hint_names_the_cure_for_the_mode_it_is_shown_on` (the local sentence appears
+under the operator's mode alone and nowhere else in the SPA; both pages read the table and gate on
+a known mode; the browser suite reads the invited sentence) and by a Playwright test that mocks the
+invited mode with AI disabled and finds the Manage sentence and no `.env`. Measured: `tsc` clean,
+Playwright 63 passed (62 before), the SPA pin tests 7 passed. Static assets only: it reaches the
+site with the next SPA build and sync (README §8 step 5), not with an image.
+
 ## Explicit deltas and guarantees
 
 | Keeps holding | Held by |
@@ -431,7 +448,7 @@ gate.
    is `implicitDeny`; the boundary's Allow has no `Decrypt`.
 5. `FERNET_KEY` reaches exactly the web task, from the CMK-encrypted secret, and appears in no log.
 6. The operator's own league syncs from AWS with the raw-cache row in his tenant and no credential
-   in the web log. **Met 2026-10-26/27: 25 leagues, 301 rows in tenant 1, cookie grep 0 (G5).**
+   in the web log. **Met 2026-10-26/27: 25 leagues, 276 rows in tenant 1, cookie grep 0 (G5).**
 7. Two provisioned people on PostgreSQL see only their own rows; revoking one leaves the other
    intact.
 8. Deleting an account on the page erases the ciphertext row -- also when leagues point at it: they

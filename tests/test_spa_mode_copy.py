@@ -140,3 +140,36 @@ def test_the_ai_key_copy_is_pinned_and_the_panel_is_the_invited_sites_alone():
     assert 'getByTestId("ai-key-panel")).toHaveCount(0)' in e2e, (
         "the browser suite must assert the panel's absence off the invited site"
     )
+
+
+STATUS_TSX = ROOT / "web/src/pages/Status.tsx"
+LEAGUE_TSX = ROOT / "web/src/pages/LeagueDetail.tsx"
+LOCAL_AI_HINT = "Set ANTHROPIC_API_KEY in .env"
+INVITED_AI_HINT = "Add your Anthropic API key on Manage"
+
+
+def test_the_ai_off_hint_names_the_cure_for_the_mode_it_is_shown_on():
+    """WU-10 (2026-10-27): the first G7 attempt met "set ANTHROPIC_API_KEY in
+    .env and restart the API" on the invited site, where the cure is the key
+    panel on Manage. The hint is one table in copy.ts keyed by mode; the local
+    sentence appears under the operator's mode alone; the two pages that show
+    the hint read the table and carry no sentence of their own; an unknown
+    mode shows no instruction. The browser suite reads the invited sentence
+    under the invited mode."""
+    copy = COPY_TS.read_text(encoding="utf-8")
+    table = copy.split("export const AI_OFF_HINT: Record<Mode, string> = {")[1].split("};")[0]
+    for mode in _backend_modes():
+        assert f"{mode}:" in table, f"no AI-off hint for {mode}"
+    local = table.split("private_operator:")[1].split("public_synthetic:")[0]
+    invited = table.split("private_invited:")[1]
+    assert LOCAL_AI_HINT in local and LOCAL_AI_HINT not in invited
+    assert INVITED_AI_HINT in invited and "bills you directly" in invited
+    assert copy.count(LOCAL_AI_HINT) == 1, "the local sentence lives in the table and nowhere else"
+    for page in (STATUS_TSX, LEAGUE_TSX):
+        source = page.read_text(encoding="utf-8")
+        assert "AI_OFF_HINT[" in source, f"{page.name} does not read the table"
+        assert "ANTHROPIC_API_KEY" not in source, f"{page.name} still carries the local sentence"
+        assert "MODES.includes(" in source, f"{page.name} shows a hint for an unknown mode"
+    e2e = E2E.read_text(encoding="utf-8")
+    assert INVITED_AI_HINT in e2e, "the browser suite does not read the invited hint"
+    assert LOCAL_AI_HINT not in e2e, "the browser suite pins the local sentence somewhere"

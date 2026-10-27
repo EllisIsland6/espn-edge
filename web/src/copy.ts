@@ -39,6 +39,21 @@ export const SYNTHETIC_NOTICE =
 export const LOCAL_NOTICE =
   "Cookies are stored encrypted and never leave your machine. All ESPN traffic goes through the backend.";
 
+/**
+ * What the AI panels say when no key answers, by mode. The local site's cure
+ * is an environment variable; the invited site's is the key panel on Manage,
+ * and the sentence says who pays; the synthetic site has nothing to add. An
+ * unknown mode says only that AI is off. One place, because the first G7
+ * attempt (2026-10-27) met the local sentence on the invited site (WU-10).
+ */
+export const AI_OFF_HINT: Record<Mode, string> = {
+  private_operator:
+    "Set ANTHROPIC_API_KEY in .env and restart the API to enable draft recaps, league briefs, and advantage verdicts.",
+  public_synthetic: "AI is not enabled on this instance.",
+  private_invited:
+    "Add your Anthropic API key on Manage to enable draft recaps, league briefs, and advantage verdicts. Anthropic bills you directly for those calls.",
+};
+
 export const FOOTER_LABEL: Record<Mode, string> = {
   private_operator: "ESPN Edge · local portfolio analytics",
   public_synthetic: "ESPN Edge · hosted on synthetic data",

@@ -17,6 +17,7 @@ import {
   type RecoveryStatus,
 } from "../api";
 import { Button, EmptyState, ErrorNote, Panel, Spinner } from "../components/ui";
+import { AI_OFF_HINT, MODES } from "../copy";
 
 // System Status is read-only and secret-free: it only *composes* what the API already
 // exposes (health, AI status, accounts, portfolio). No ESPN calls, no math, no cookies.
@@ -110,11 +111,8 @@ export default function Status() {
             />
             <Row label="Standard model" value={ai.standard_model} mono />
             <Row label="Bulk model" value={ai.bulk_model} mono />
-            {!ai.enabled && (
-              <p className="mt-2 text-[11px] text-muted">
-                AI panels are optional. Set <code className="mono">ANTHROPIC_API_KEY</code> in{" "}
-                <code className="mono">.env</code> and restart the API to enable them.
-              </p>
+            {!ai.enabled && health.mode && MODES.includes(health.mode) && (
+              <p className="mt-2 text-[11px] text-muted">AI panels are optional. {AI_OFF_HINT[health.mode]}</p>
             )}
           </StatusCard>
 

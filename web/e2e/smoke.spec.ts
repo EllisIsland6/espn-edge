@@ -2399,6 +2399,16 @@ test("AI-disabled state renders the connect-a-key panel without crashing", async
   await expect(page.getByText("AI analysis is off")).toBeVisible();
 });
 
+test("AI-disabled state on the invited site points at the key panel, not at .env", async ({ page }) => {
+  await page.route("**/api/health", (r) =>
+    json(r, { status: "ok", season: 2026, db_path: "/data/edge.db", backend: "postgresql://db.internal:5432/edge", mode: "private_invited" }));
+  await page.goto("/league/1");
+  await page.getByRole("button", { name: "AI Brief" }).click();
+  await expect(page.getByText("AI analysis is off")).toBeVisible();
+  await expect(page.getByText("Add your Anthropic API key on Manage", { exact: false })).toBeVisible();
+  await expect(page.getByText(".env", { exact: false })).toHaveCount(0);
+});
+
 test("AI brief reveal fires once for each genuine generation", async ({ page }) => {
   let generation = 0;
   await page.route("**/api/ai/status", (r) =>

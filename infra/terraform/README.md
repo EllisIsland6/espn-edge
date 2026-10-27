@@ -456,7 +456,31 @@ echo
 echo 'expect: status ok, mode private_invited'
 ```
 
-5. **The gate.** Signed in, on Manage: the "AI key" panel reads its three sentences; paste your own
+5. **The page.** The image carries the backend half; the panel is in the SPA bundle, which
+   CloudFront serves from S3, so the bundle is rebuilt and synced like WU-4's (the hashes are the
+   commit's; the cloud build of `296293b` gave `index-CmTJ5Ed4.js`, `index-D_0c9WkV.css`,
+   `Analytics-JlPG1tuw.js`). Forgotten on 2026-10-27 until the gate's first step found no panel.
+
+```bash
+cd ~/espn-edge
+ACCT=$(aws sts get-caller-identity --query Account --output text)
+BUCKET="espn-edge-spa-${ACCT}"
+DIST=$(aws cloudfront list-distributions --query "DistributionList.Items[?contains(to_string(Aliases.Items), 'eaedgefinder.com')].Id | [0]" --output text)
+echo "bucket ${BUCKET}  distribution ${DIST}"
+echo 'expect: the bucket named by your account id and a distribution id starting with E; if the id is empty or None, stop here'
+cd web
+npm run build
+echo 'expect: tsc silent, then vite: 702 modules transformed'
+ls dist/assets
+echo 'expect: the three hashed assets of this commit'
+cd ..
+[ -n "${DIST}" ] && [ "${DIST}" != "None" ] && aws s3 sync web/dist "s3://${BUCKET}" --delete
+echo 'expect: upload lines for index.html and the three assets, delete lines for the previous hashed assets'
+[ -n "${DIST}" ] && [ "${DIST}" != "None" ] && aws cloudfront create-invalidation --distribution-id "${DIST}" --paths "/*" --query 'Invalidation.[Id,Status]' --output text
+echo 'expect: an invalidation id and InProgress'
+```
+
+6. **The gate.** Signed in, on Manage: the "AI key" panel reads its three sentences; paste your own
    Anthropic key; the panel then shows the provider, the key's last four characters and "last used
    never". Ask for one report on one league. Then, in your terminal, the log read that is the
    acceptance criterion:
