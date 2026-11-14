@@ -74,11 +74,14 @@ data "aws_iam_policy_document" "task_execution_secrets" {
     resources = concat(
       [
         aws_secretsmanager_secret.database_url_app.arn,
-        aws_secretsmanager_secret.database_url_owner.arn,
         aws_secretsmanager_secret.session_secret.arn,
         aws_secretsmanager_secret.anthropic_api_key.arn,
         aws_secretsmanager_secret.oidc_client_secret.arn,
         aws_secretsmanager_secret.origin_verify.arn,
+        # The RDS-managed owner password, read by the migrate task as one
+        # JSON key (WU-9). It is encrypted under the AWS-managed
+        # aws/secretsmanager key, which this role may use through the
+        # service; the custody key is never in this list.
         aws_db_instance.main.master_user_secret[0].secret_arn,
       ],
       # ADR-012: the operator's Fernet secret, once wired (custody.tf).
@@ -374,6 +377,19 @@ resource "aws_ecs_service" "worker" {
 # ----------------------------------------------------------- migrate task
 # Run on demand with the OWNER credentials, never on service start
 # (docs/aws-deploy.md s6). Same image digest as the service.
+#
+# The owner's password is RDS-managed and rotates every seven days, so the
+# task reads it where it lives (WU-9): one JSON key of the managed secret,
+# injected as PGPASSWORD -- the agent accepts `:json-key:version-stage:
+# version-id` after the ARN, and the two empty fields mean AWSCURRENT.
+# DATABASE_URL is plain environment: role, endpoint, database, sslmode and
+# NO password, and libpq takes the password from the environment whenever
+# the URL carries none. MEASURED 2026-11-13 (PostgreSQL 16, scram over TCP):
+# alembic 0001 -> 0018 with PGPASSWORD set and a password-less URL; without
+# PGPASSWORD, `fe_sendauth: no password supplied`; with a wrong one, the
+# exact refusal the stale copy produced at the WU-7 deploy. The hand-written
+# copy `espn-edge/database-url-owner` the task read until then is gone
+# (secrets.tf). tests/test_terraform_policy.py pins all of this.
 resource "aws_ecs_task_definition" "migrate" {
   family                   = "espn-edge-migrate"
   network_mode             = "bridge"
@@ -390,10 +406,13 @@ resource "aws_ecs_task_definition" "migrate" {
       command   = ["alembic", "upgrade", "head"]
       environment = concat(
         [for e in local.app_environment : e if e.name != "OIDC_ISSUER" && e.name != "OIDC_CLIENT_ID" && e.name != "OIDC_REDIRECT_URI"],
-        [{ name = "APP_DB_ROLE", value = "edge_app" }],
+        [
+          { name = "APP_DB_ROLE", value = "edge_app" },
+          { name = "DATABASE_URL", value = "postgresql+psycopg2://${aws_db_instance.main.username}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}?sslmode=require" },
+        ],
       )
       secrets = [
-        { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url_owner.arn },
+        { name = "PGPASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },
       ]
       logConfiguration = {
         logDriver = "awslogs"

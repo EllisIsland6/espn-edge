@@ -166,9 +166,10 @@ Actions → **terraform apply** → type `apply`. The job re-plans, waits for th
 applies the saved plan. Then, in order (`docs/aws-deploy.md`):
 
 1. Create the application role as the owner (§2); write its URL into `espn-edge/database-url-app`.
-2. Write the owner URL into `espn-edge/database-url-owner` (the password is in the RDS-managed secret
-   the stack outputs). It is a copy of a password RDS rotates every seven days: refresh it before
-   every migrate task (section 8 step 4) until WU-9 removes it.
+2. Nothing to write for the owner: the migrate task reads the RDS-managed password where it lives
+   (`PGPASSWORD` from the managed secret's `password` key; a password-less `DATABASE_URL` in plain
+   environment -- WU-9). Until WU-9 a hand-written copy, `espn-edge/database-url-owner`, had to be
+   refreshed before every migration because RDS rotates the password every seven days; it is gone.
 3. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`).
 4. Provision yourself (0017's recipe). Anyone else: section 7, and not before gate G6.
 5. Upload `web/dist` to the SPA bucket; invalidate CloudFront.
@@ -419,27 +420,14 @@ echo 'expect: SHA: digest: sha256:... size: ...'
 3. **terraform apply**, approved by you. ECS rolls the web service onto the new image; until the
    migration runs the new code answers `GET /api/ai/key` with a 500 on a missing table, which is
    why step 4 follows at once.
-4. **Refresh the owner URL first, every time.** `edge_owner` is the RDS-managed master user and RDS
-   rotates its password every seven days; the migrate task reads `espn-edge/database-url-owner`,
-   a copy of that password in URL form, which is therefore stale after any rotation since it was
-   written. Apply #15 (2026-10-27) hit exactly that: `FATAL: password authentication failed for
-   user "edge_owner"` (the host and the user in the log, never a value). Read the two dates, then
-   rewrite the copy from the managed secret; nothing prints it. WU-9 removes the copy altogether.
-
-```bash
-cd ~/espn-edge
-SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
-RDS=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].Endpoint.Address' --output text)
-echo "managed secret last rotated: $(aws secretsmanager describe-secret --secret-id "${SECRET_ARN}" --query LastRotatedDate --output text)"
-echo "owner URL copy last written: $(aws secretsmanager describe-secret --secret-id espn-edge/database-url-owner --query LastChangedDate --output text)"
-echo 'expect: if the rotation is later than the copy, the copy is stale and the next lines fix it; rewriting a fresh copy is harmless'
-OWNER_URL=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ARN}" --query SecretString --output text | RDS="${RDS}" .venv/bin/python -c 'import json,os,sys,urllib.parse; d=json.load(sys.stdin); print("postgresql+psycopg2://edge_owner:" + urllib.parse.quote(d["password"], safe="") + "@" + os.environ["RDS"] + ":5432/edge?sslmode=require")')
-aws secretsmanager put-secret-value --secret-id espn-edge/database-url-owner --secret-string "${OWNER_URL}" --query VersionStages --output text
-unset OWNER_URL
-echo 'expect: AWSCURRENT'
-```
-
-   Then the migrate task, which checks that the apply has landed before it starts anything:
+4. **The migrate task.** `edge_owner` is the RDS-managed master user and RDS rotates its password
+   every seven days. Until WU-9 (section 9) the task read `espn-edge/database-url-owner`, a
+   hand-written copy of that password in URL form, stale after any rotation since it was written;
+   apply #15 (2026-10-27) hit exactly that, `FATAL: password authentication failed for user
+   "edge_owner"` (the host and the user in the log, never a value), and the copy had to be
+   rewritten from the managed secret before every migration. Since WU-9 the task reads the managed
+   secret's `password` key itself, as `PGPASSWORD`, and there is nothing to refresh. The block
+   checks that the apply has landed before it starts anything:
 
 ```bash
 cd ~/espn-edge
@@ -449,8 +437,8 @@ MIGRATE_IMAGE=$(aws ecs describe-task-definition --task-definition espn-edge-mig
 case "${MIGRATE_IMAGE}" in *:SHA) aws ecs run-task --cluster espn-edge --task-definition espn-edge-migrate --launch-type EC2 --query 'tasks[0].[taskArn,lastStatus]' --output text ;; *) echo "migrate task definition still on ${MIGRATE_IMAGE} -- nothing started" ;; esac
 echo 'expect: a task ARN and PENDING'
 sleep 60
-aws logs tail /espn-edge/migrate --since 3m --format short | grep -E 'Running upgrade|ERROR|Traceback|Error|FATAL'
-echo 'expect: Running upgrade 0017 -> 0018, ai_credentials ...; no ERROR, no Traceback, no FATAL'
+aws logs tail /espn-edge/migrate --since 3m --format short | grep -E 'Context impl|Will assume|Running upgrade|ERROR|Traceback|Error|FATAL|fe_sendauth'
+echo 'expect: Context impl PostgresqlImpl and Will assume transactional DDL (the owner authenticated), then one Running upgrade line per revision this image adds (0017 -> 0018 for WU-7; none when the schema is already at head); no ERROR, no Traceback, no FATAL, no fe_sendauth'
 curl -sS https://eaedgefinder.com/api/health
 echo
 echo 'expect: status ok, mode private_invited'
@@ -497,6 +485,44 @@ Delete the key on the panel to prove the erase, and paste it again if you want t
 Everyone you invite does the same on their own Manage page; their key is theirs, their bill is
 theirs, and revoking them (section 7) takes the row with them.
 
+### 9. No copy of a rotating password -- WU-9, a stack change on its own evening
+
+Found at the WU-7 deploy (section 8 step 4): the migrate task read a hand-written copy of the
+RDS-managed owner password, and a copy of a password that rotates every seven days is stale by
+construction. Now the task reads the managed secret's `password` key as `PGPASSWORD` -- the ECS
+agent injects one JSON key of a secret when the `valueFrom` carries `:password::` after the ARN,
+the empty stage and version meaning `AWSCURRENT` (agent 1.37.0 or later on EC2; the AL2023 ECS AMI
+is far past it) -- and a `DATABASE_URL` in plain environment with the role, the endpoint, the
+database and `sslmode=require` and no password, which libpq completes from the environment. The
+copy secret leaves the stack (its 7-day recovery window is the undo). Measured in the cloud
+workspace against PostgreSQL 16 with scram over TCP: alembic `0001 -> 0018` with `PGPASSWORD` set
+and nothing in the URL; `fe_sendauth: no password supplied` without it; the exact 2026-10-27
+refusal with a wrong one. A side effect worth having: the task's URL can no longer carry a
+password into a traceback, which is how the 2026-10-08 incident happened.
+
+Terraform only, so: plan-first on the commit, apply, then one run of the migrate task at head as
+the proof. Predicted plan: `1 to add, 1 to change, 2 to destroy` -- the migrate task definition
+replaced, the execution role's secrets policy updated in place (the copy's ARN leaves the list;
+the managed secret's was already there), the old definition and the copy secret destroyed. Not
+on the evening of a gate.
+
+```bash
+cd ~/espn-edge
+aws ecs describe-container-instances --cluster espn-edge --container-instances $(aws ecs list-container-instances --cluster espn-edge --query 'containerInstanceArns[0]' --output text) --query 'containerInstances[0].versionInfo.agentVersion' --output text
+echo 'expect: an agent version of 1.37.0 or later -- the JSON-key form of valueFrom needs it; AL2023 ECS AMIs ship far later versions'
+aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].[secrets[0].name,secrets[0].valueFrom]' --output text | sed -E 's|secret:[^:]+:password::|secret:<managed>:password::|'
+echo 'expect: after the apply, PGPASSWORD and the managed secret ARN ending in :password:: ; before it, DATABASE_URL and the copy'
+aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].environment[?name==`DATABASE_URL`].value' --output text
+echo 'expect: after the apply, postgresql+psycopg2://edge_owner@<endpoint>:5432/edge?sslmode=require -- a URL with no password in it; before it, nothing (the URL was the secret)'
+aws ecs run-task --cluster espn-edge --task-definition espn-edge-migrate --launch-type EC2 --query 'tasks[0].[taskArn,lastStatus]' --output text
+echo 'expect: a task ARN and PENDING'
+sleep 60
+aws logs tail /espn-edge/migrate --since 3m --format short | grep -E 'Context impl|Will assume|Running upgrade|ERROR|Traceback|Error|FATAL|fe_sendauth'
+echo 'expect: Context impl PostgresqlImpl and Will assume transactional DDL, nothing else -- the owner authenticated with the password read where it lives, and the schema is already at head'
+aws secretsmanager describe-secret --secret-id espn-edge/database-url-owner --query '[Name,DeletedDate]' --output text
+echo 'expect: the name and a deletion date -- scheduled, recoverable for seven days; after that, ResourceNotFoundException is the answer and the right one'
+```
+
 ## Guarantees, and where each is held
 
 | Guarantee (Phase 42; ADR-012 rows marked) | Held by |
@@ -506,6 +532,7 @@ theirs, and revoking them (section 7) takes the row with them.
 | Private subnets have no route out | `test_private_route_table_has_no_route_out` |
 | Host answers CloudFront only, on 443, no SSH | `test_the_host_admits_only_cloudfront_on_443`, `test_no_ssh_and_no_key_pair` |
 | Database private, single-AZ, encrypted, password never in state | `test_the_database_is_private_single_az_encrypted` |
+| The owner's password is read where RDS keeps it: the migrate task takes the managed secret's `password` key as `PGPASSWORD`, its URL carries none, and no copy of it exists in the stack to go stale (WU-9) | `test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives` |
 | The web task is `private_invited` since G4 (2026-10-23); migrate and the worker stay `public_synthetic`; no host AI key; `FERNET_KEY` reaches the web task only, and only once wired; every variable read | `test_the_web_task_is_the_invited_site_and_the_other_tasks_stay_synthetic`, `test_the_fernet_secret_reaches_exactly_the_web_task_once_wired`, `test_every_variable_the_stack_sets_is_one_the_application_reads` |
 | Each tenant's AI key: one row per tenant, ciphertext through the custody chokepoint, readable by that tenant alone, never returned after saving, never the host's key on the invited site, never in a backup bundle (ADR-012 G7) | `tests/test_ai_key_custody.py` (the PostgreSQL half for the isolation), `test_a_tenants_ai_key_never_travels`, `test_every_table_is_classified`; this file's section 8 log read at the gate |
 | No long-lived GitHub key; plan cannot deploy | `test_roles_trust_only_this_repository_via_oidc`, `test_the_plan_role_cannot_write` |

@@ -1,22 +1,21 @@
 # Secrets Manager holds what the tasks read at start. Nothing here is a real
 # ESPN credential or a custody key: there is no FERNET_KEY in a synthetic
 # deployment (docs/aws-deploy.md s0a), and the RDS master password is managed
-# by RDS itself. Values are generated here or written by the operator after
-# apply; none passes through a terminal or a repository.
+# by RDS itself -- and read where it lives: the migrate task takes it as one
+# JSON key of the RDS-managed secret (containers.tf, WU-9). A hand-written
+# copy of it, `espn-edge/database-url-owner`, lived here from 2026-10-08 to
+# WU-9 and was stale by its second week, since RDS rotates the password every
+# seven days and nothing refreshed the copy; the first migration after a
+# rotation was refused (2026-10-27). Its 7-day recovery window is the undo.
+# Values here are generated or written by the operator after apply; none
+# passes through a terminal or a repository.
 
 # The application role's connection string. The role and its password are
 # created by the operator as the owner (docs/aws-deploy.md s2) and the URL
 # written into this secret by hand -- a password is not something to plan.
+# This one is static (edge_app is not RDS-managed), so a copy is not stale.
 resource "aws_secretsmanager_secret" "database_url_app" {
   name                    = "espn-edge/database-url-app"
-  recovery_window_in_days = 7
-}
-
-# The owner's connection string, built from the RDS-managed master secret
-# at task start by the migrate wrapper; this secret holds only the pieces
-# that are not the password.
-resource "aws_secretsmanager_secret" "database_url_owner" {
-  name                    = "espn-edge/database-url-owner"
   recovery_window_in_days = 7
 }
 

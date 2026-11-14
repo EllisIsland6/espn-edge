@@ -469,19 +469,49 @@ def test_the_missing_entrypoint_register_does_not_outlive_its_truth():
     )
 
 
-def test_the_migrate_task_runs_alembic_with_the_owner_url(stack):
+def test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives(stack):
+    """WU-9. The owner's password is RDS-managed and rotates every seven days;
+    the first migration after a rotation was refused on 2026-10-27 because the
+    task read a hand-written copy. Now the task reads the managed secret's
+    `password` key as PGPASSWORD and a DATABASE_URL that carries no password
+    -- libpq takes it from the environment when the URL has none (measured:
+    alembic 0001 -> 0018 on PostgreSQL 16 with scram over TCP; without
+    PGPASSWORD `fe_sendauth: no password supplied`). No copy of the password
+    exists anywhere in the stack to go stale."""
     task = _resources(stack, "aws_ecs_task_definition")["migrate"]
     (container,) = _container_definitions(task)
     assert container["command"] == ["alembic", "upgrade", "head"]
-    secrets = {s["name"]: s["valueFrom"] for s in container["secrets"]}
-    assert "database_url_owner" in secrets["DATABASE_URL"]
+    # Exactly one secret, and it is the one JSON key of the managed secret:
+    # `:password::` -- key, then the empty stage and version that mean
+    # AWSCURRENT (agent 1.37.0+ on EC2; the AL2023 ECS AMI is far past it).
+    assert container["secrets"] == [
+        {"name": "PGPASSWORD", "valueFrom": "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::"}
+    ], container["secrets"]
     # The environment is a `concat(...)` expression over the shared local;
-    # the two facts that matter are readable from its text: the role name
-    # revision 0016 grants, and that the OIDC settings are stripped (a
-    # migration has no front door).
+    # the facts that matter are readable from its text: the role name revision
+    # 0016 grants, the OIDC settings stripped (a migration has no front door),
+    # and the owner URL assembled from the instance's own attributes with
+    # NOTHING between `://` and the role but the role -- no password, no
+    # `:`, nothing that could be one.
     environment = str(container["environment"])
     assert 'APP_DB_ROLE' in environment and '"edge_app"' in environment, environment
     assert 'e.name != "OIDC_ISSUER"' in environment, environment
+    (url,) = re.findall(r'name = "DATABASE_URL", value = "([^"]*)"', environment)
+    assert url.startswith("postgresql+psycopg2://${aws_db_instance.main.username}@${aws_db_instance.main.address}:"), url
+    assert url.endswith("/${aws_db_instance.main.db_name}?sslmode=require"), url
+    assert "password" not in url.lower() and "secret" not in url.lower(), url
+    # The copy is gone -- the resource, and every reference to it. The
+    # execution role still reads the managed secret, and only that one of
+    # the RDS secrets.
+    assert "database_url_owner" not in _resources(stack, "aws_secretsmanager_secret")
+    for path in sorted(STACK.glob("*.tf")):
+        text = path.read_text(encoding="utf-8")
+        assert "aws_secretsmanager_secret.database_url_owner" not in text, path.name
+    execution = stack["data"]["aws_iam_policy_document"]["task_execution_secrets"]
+    (stmt,) = execution["statement"]
+    resources = str(stmt["resources"])
+    assert "aws_db_instance.main.master_user_secret[0].secret_arn" in resources, resources
+    assert "database_url_owner" not in resources, resources
 
 
 # ------------------------------------------------------------- the alarms

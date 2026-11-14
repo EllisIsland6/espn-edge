@@ -317,3 +317,54 @@ Measured  tsc -b --noEmit clean; tests/test_spa_mode_copy.py + test_spa_csrf.py 
           new: test_the_ai_off_hint_names_the_cure_for_the_mode_it_is_shown_on; e2e "AI-disabled state on the invited site points at
           the key panel, not at .env"
 Not yet   the SPA build + sync that puts it on the site (README 8 step 5)
+
+--- WU-9 built: the migrate task reads the owner password where RDS keeps it; the copy leaves the stack (2026-11-13; not applied)
+Change    containers.tf: migrate secrets = [PGPASSWORD <- "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::"];
+          DATABASE_URL moved to plain environment, "postgresql+psycopg2://${username}@${address}:${port}/${db_name}?sslmode=require"
+          (no password, assembled from the instance's attributes); execution role's secrets list drops the copy's ARN (the managed
+          secret's was already in it). secrets.tf: aws_secretsmanager_secret.database_url_owner removed (7-day recovery = undo).
+          alembic/env.py unchanged. infra/app.py (CDK draft, unselected) left as the artefact it is.
+Vendor    ECS: "To inject a secret using a specific JSON key or version of a secret, your container instance must have version
+          1.37.0 or later of the container agent" (docs.aws.amazon.com .../secrets-envvar-secrets-manager.html, read 2026-11-13);
+          the host runs the recommended AL2023 arm64 ECS AMI. README 9 reads the agent version before the run.
+Measured  cloud workspace, fresh PostgreSQL 16.x cluster, pg_hba host scram-sha-256, edge_owner LOGIN NOSUPERUSER NOBYPASSRLS,
+          DATABASE_URL=postgresql+psycopg2://edge_owner@127.0.0.1:5433/edge (no password), the migrate task's environment:
+            PGPASSWORD set (from a 0600 file, never printed):  alembic upgrade head -> Running upgrade -> 0001 ... 0017 -> 0018;
+                                                              alembic_version 0018; 31 public tables; exit 0
+            at head again, PGPASSWORD set:                    INFO Context impl PostgresqlImpl. / INFO Will assume transactional DDL.
+                                                              and nothing else; exit 0   (= the runbook's proof lines)
+            PGPASSWORD unset:      psycopg2.OperationalError ... fe_sendauth: no password supplied; exit 1
+            PGPASSWORD wrong:      password authentication failed for user "edge_owner"   (the 2026-10-27 refusal, reproduced)
+Tests     tests/test_terraform_policy.py: test_the_migrate_task_runs_alembic_with_the_owner_url replaced by
+          test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives (exact secrets list; URL shape
+          "://${aws_db_instance.main.username}@" ... "/${db_name}?sslmode=require", no "password"/"secret" in it; the copy absent
+          from every stack .tf; the execution role lists the managed secret and not the copy). Suite 35 passed; ruff clean.
+Control   the new test against the previous Terraform (git stash of the .tf edits): 1 failed at the secrets assertion --
+          [{'name': 'DATABASE_URL', 'valueFrom': '${aws_secretsmanager_secret.database_url_owner.arn}'}]; stash popped.
+Predicted plan: 1 to add, 1 to change, 2 to destroy (-/+ aws_ecs_task_definition.migrate; ~ aws_iam_role_policy.task_execution_secrets;
+          - aws_secretsmanager_secret.database_url_owner; output migrate_task_definition ~). terraform fmt/validate not runnable
+          here (no binary reaches this workspace); the plan workflow runs both first, as always.
+Not yet   the plan and apply (after G7 is recorded); the proof run of the migrate task at head (README 9).
+
+--- Found by the full suite in the rebuilt workspace: pytest 9.2.0 (released 2026-10-27) vs one global os.fstat stub (2026-11-13)
+Run       full offline suite, PG gates on (fresh cluster): 1 failed, 1697 passed, 19 skipped in 232 s
+Failure   tests/test_recovery.py::test_parent_path_authority_consumes_worker_metadata_without_fstat -- the test stubbed os.fstat
+          for its whole body; the body passed; pytest 9.2's capture plugin then read os.fstat on its own buffer at the end of the
+          test (_pytest/capture.py snap(): "Avoid seek/read/truncate in the common case of no output", changelog #14687) and hit
+          the stub. --tb=native shows the frame; -s (no capture) passes. CI installs pytest>=8.3 unpinned, so every CI run after
+          2026-10-27 would fail on this test for any commit; CI #60 (green, the same day) evidently resolved the previous release.
+Fix       the stub is scoped with monkeypatch.context() to the _bounded_path_authority call it guards; restored before pytest's
+          teardown. Control: a parent fstat inside the context (a leaky wrapper) still trips the scoped stub.
+Rerun     tests/test_recovery.py 263 passed, 17 skipped; ruff clean.
+
+--- WU-9 landed on the operator's main; the rebuilt tree proved identical (2026-11-14)
+Bridge    the Mac linked again. Device main = bcabf8c, tree clean, no stale locks.
+Bundle    git bundle 296293b..main (14,995 bytes) staged to the cloud and fetched: f9c7c6e, bcabf8c -- the real commits.
+Tree      bcabf8c^{tree} on the device 94f50b1ba782ca5f52fdc2978594b1179e1bbcaf = the tree rebuilt on 11-13 from GitHub 296293b plus
+          the mirrored files (same hash): WU-9 was built and measured on exactly the operator's tree.
+Hand-off  the first attempt was a terminal block for the operator built on .venv/g.sh, the agent's wrapper for the sandbox on his
+          machine: `cd "$HOME/mnt/espn-edge" || exit 1` -- the path exists only in the sandbox, so each call exited before git ran
+          (two runs, nothing changed; rev-parse on the device afterwards: bcabf8c, clean). Same block: the patch was not in
+          ~/Downloads; the Mac venv has no python-hcl2 (pytest: ModuleNotFoundError: No module named 'hcl2'). CLOSE-OUT lesson 57.
+Landed    the commit re-created on bcabf8c in the cloud (author and committer the operator, fixed stamp) and reproduced on the
+          device through the linked folder with the same stamp and message file (msg75); SHAs equal.

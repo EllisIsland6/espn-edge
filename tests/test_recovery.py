@@ -1366,12 +1366,19 @@ def test_parent_path_authority_consumes_worker_metadata_without_fstat(
     def forbidden_parent_fstat(_fd):
         raise AssertionError("parent must not read external descriptor metadata")
 
-    monkeypatch.setattr(recovery_module.os, "fstat", forbidden_parent_fstat)
-    with recovery_module._bounded_path_authority(
-        target, require_directory=True
-    ) as authority:
-        assert authority.object_token
-        assert authority.fd >= 0
+    # Scoped to the call under test. `os.fstat` is the process's, not the
+    # module's, and pytest 9.2's capture plugin reads it on its own buffer
+    # when the test ends -- so a stub left in place for the whole test tripped
+    # THERE, after the assertion it guards had already held (found 2026-11-13
+    # with pytest 9.2.0; CI installs the latest 8.3+, so it would have failed
+    # the next run on every commit).
+    with monkeypatch.context() as scoped:
+        scoped.setattr(recovery_module.os, "fstat", forbidden_parent_fstat)
+        with recovery_module._bounded_path_authority(
+            target, require_directory=True
+        ) as authority:
+            assert authority.object_token
+            assert authority.fd >= 0
 
 
 def _mark_mount_devices(monkeypatch, mounts: dict[Path, int]) -> None:

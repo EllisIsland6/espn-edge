@@ -402,6 +402,31 @@ definition replaced, the execution role's policy updated in place, the old defin
 copy secret destroyed. Not before G7 is recorded: a stack change does not share an evening with a
 gate.
 
+**As built and measured (2026-11-13; not yet applied).** `containers.tf`: the migrate task's one
+secret is `PGPASSWORD`, `valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::"`
+(the agent's JSON-key form, empty stage and version meaning `AWSCURRENT`; needs agent 1.37.0+ on
+EC2, which the AL2023 ECS AMI is far past -- the runbook reads the version first); its
+`DATABASE_URL` moved from `secrets` to plain `environment`, assembled from the instance's own
+attributes (`username`, `address`, `port`, `db_name`) with `sslmode=require` and no password, so
+the URL is readable, correct by construction, and cannot carry a password into a traceback -- the
+shape of the 2026-10-08 incident is structurally gone for this task. The execution role's
+statement drops the copy's ARN (the managed secret's was already there). `secrets.tf` drops
+`aws_secretsmanager_secret.database_url_owner`; the CDK draft (`infra/app.py`, the unselected
+topology) still names the copy and is left as the artefact it is. `alembic/env.py` unchanged.
+Measured in the cloud workspace against a fresh PostgreSQL 16 cluster with `scram-sha-256` over
+TCP and `edge_owner` as `NOSUPERUSER NOBYPASSRLS`: with `PGPASSWORD` set and a password-less URL,
+`alembic upgrade head` ran `0001 -> 0018` (31 tables, `alembic_version` 0018); run again at head
+it logged exactly `Context impl PostgresqlImpl.` and `Will assume transactional DDL.` (the
+runbook's proof lines); without `PGPASSWORD`, `fe_sendauth: no password supplied`, exit 1; with a
+wrong one, `password authentication failed for user "edge_owner"` -- the refusal the stale copy
+produced on 2026-10-27, now reproduced on purpose. The policy test
+`test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives` pins the
+secret's exact `valueFrom`, the URL's shape (`://${username}@` -- nothing between the scheme and
+the role), the absence of the copy from every `.tf`, and the execution role's list; against the
+previous Terraform it fails at the secrets assertion (control run). Policy suite 35 passed, `ruff`
+clean. README §5 step 2, §8 step 4 (the refresh block gone) and the new §9 carry the deploy order
+and the reads; CLOSE-OUT lesson 56. Applies after G7 is recorded.
+
 ### WU-10. The AI-off hint names the cure for the site it is shown on (found at G7; built 2026-10-27)
 
 On the invited site with no key on file, the AI Brief tab and the Status page's AI card said
@@ -436,6 +461,7 @@ site with the next SPA build and sync (README §8 step 5), not with an image.
 | One customer-managed key and one more secret (+$1.40/month) | ADR-012; budget untouched at $52 |
 | `is_public_synthetic` is gone | WU-1 |
 | `DELETE /api/accounts/{id}` detaches the account's leagues instead of refusing with 409 | WU-8; `api/routers/accounts.py` docstring; README §6c |
+| The migrate task reads the RDS-managed owner password where it lives (`PGPASSWORD` from the managed secret's `password` key; a password-less URL); the copy secret `espn-edge/database-url-owner` leaves the stack | WU-9; `containers.tf`, `secrets.tf`; README §9; `test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives` |
 
 ## Acceptance criteria
 

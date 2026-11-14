@@ -978,6 +978,39 @@ This was a practice project. These are the findings that are not about fantasy f
     `PGPASSWORD`, the URL carries none). Until the fix lands, the runbook refreshes the copy
     before every migration, and the block reads the rotation date before it writes.
 
+56. **Measure the mechanism before you plan the stack change, and measure its two failures too.**
+    WU-9 rests on two facts from two different vendors: that the ECS agent will inject one JSON
+    key of a secret when the `valueFrom` ends in `:password::`, and that libpq will take
+    `PGPASSWORD` when the URL has no password. Neither is in this repository's code, so no unit
+    test could hold them. The first came from the service's own page (agent 1.37.0 or later on
+    EC2 -- and the runbook now reads the agent version before the run, rather than trusting the
+    AMI's age). The second was run, not read: a fresh PostgreSQL 16 with `scram-sha-256` over TCP,
+    `alembic upgrade head` as a password-less `edge_owner` with `PGPASSWORD` set -- `0001 -> 0018`
+    -- and then the two controls that make the pass mean something: no `PGPASSWORD` gives
+    `fe_sendauth: no password supplied`, a wrong one gives the exact 2026-10-27 refusal. The same
+    run also produced the proof lines the runbook will look for in CloudWatch (`Context impl
+    PostgresqlImpl.`, `Will assume transactional DDL.`, nothing else at head), so the acceptance
+    read was written from an observation and not from a guess. The policy test was then run
+    against the previous Terraform as a control and failed where it should. A Terraform change
+    that touches authentication is a change you cannot try twice cheaply; the evening's measurement
+    is what makes the plan's `1/1/2` a prediction and not a hope.
+
+57. **Two shells on one machine are two machines; a block for the operator must be made of the
+    operator's commands.** The agent's commits reach the Mac through a sandbox on it, where the
+    repository is mounted at another path and git cannot unlink its own lock files; `.venv/g.sh`
+    is the wrapper written for exactly that place. On 2026-11-13, with the sandbox unreachable,
+    Agent 1 handed the operator a block for his own terminal built on that wrapper. It `cd`s to
+    the sandbox's path and exits when the path is not there, so every line that mattered did
+    nothing -- twice -- and the lines around it reported a file that was never downloaded and a
+    test module missing from a venv older than its declaration (lesson 54's shape again). The
+    reason it cost an evening and not a repository is one token in the wrapper: `cd ... || exit
+    1`. Without it, git would have run in whatever directory the shell happened to be in. The
+    moves: a tool written for one environment says so in its first line and fails closed
+    outside it; a block for a person uses only what that person's shell has (`git`, not the
+    agent's wrapper) and checks its own inputs before it uses them (lesson 50); and when the
+    usual path is down, waiting for it is a legitimate plan -- the commit landed the next day
+    through the linked folder, as every one before it, with the SHA reproduced.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
