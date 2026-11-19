@@ -1011,6 +1011,26 @@ This was a practice project. These are the findings that are not about fantasy f
     usual path is down, waiting for it is a legitimate plan -- the commit landed the next day
     through the linked folder, as every one before it, with the SHA reproduced.
 
+58. **A guard that only prints is not a guard, and a measurement that spans a human act must not
+    assume its connection survives it.** The erase check (2026-11-19) was a before/after read
+    through an SSM tunnel with a delete on the page in between. Three things went wrong in a row,
+    all in the reads and none in the system. The first block's tunnel check printed `tunnel:
+    CLOSED` and then ran the query anyway, into a sixty-line traceback. The "after" read met a
+    tunnel SSM had closed after twenty idle minutes -- this time the block stopped itself, twice,
+    and the moment between the delete and the re-add went unread. And lesson 54 had named the
+    tunnel check as a runbook line the README never carried: it lived in chat. The proof could
+    still be taken, because the fact was written in durable places as well as the transient one:
+    the access log held the request and its status (`DELETE /api/accounts/2 204`); surrogate ids
+    are never reused (accounts 1 and 3 where 1 and 2 had been; leagues 26-50, the same ids, under
+    no account); timestamps separated what was touched from what was kept (463 cache rows
+    untouched for more than a day, and 651 = 463 + 188 refreshed); and the foreign key made the
+    inference sound -- PostgreSQL would not have deleted the account while a league referenced
+    it. The moves: a precondition is an `if` around the command, never a line before it; a read
+    that depends on a session with an idle timeout opens the session immediately before the
+    read; a read is designed around invariants (ids, min and max, created_at, the access log)
+    and not only counts, so that it can still be taken late; and a check a lesson names is in
+    the runbook, or the lesson is not true yet.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

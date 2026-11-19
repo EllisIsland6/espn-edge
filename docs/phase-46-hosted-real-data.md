@@ -18,8 +18,11 @@ league, the invited footer). Preparing G5's erase check found that the consent s
 once a league was linked (WU-8 below; built 2026-10-24, ships in the WU-7 image). **G5 done in deed
 2026-10-26 and proven 2026-10-27: the operator's own session on the invited site, 25 of his leagues synced from
 AWS (276 ESPN requests in 347 s, every raw-cache row his tenant's, the limiter's cadence measured, no credential
-in the log).** Next: the image carrying WU-7, WU-8 and the two fixes; migration 0018; plan-first apply; the
-erase check; then G6 and G7. Each later gate is its own approval, recorded in
+in the log).** The image carrying WU-7, WU-8 and the two fixes was deployed 2026-10-27 (apply #15, migration
+0018). **The erase check was proven on the site 2026-11-19: the operator deleted an account that 25 leagues
+pointed at -- `DELETE /api/accounts/2` answered 204, the row is gone, the 25 leagues stayed, detached and
+public, and no cache row was lost (acceptance 8).** Remaining: G7's one report, the WU-10 page sync, WU-9's
+apply, then G6. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -264,6 +267,23 @@ second add) and `test_delete_account_detaches_on_postgres_where_the_foreign_key_
 afterwards with `leagues: 1, accounts: 0`). No schema change. Ships in the WU-7 image; the G5 erase
 check runs on it.
 
+**Proven on the site 2026-11-19** (web:9, `app:296293b`), the operator's own act on Manage, read by
+him as the owner through the tunnel with the tenant bound, and in the web log. Before: 2 accounts,
+50 leagues, none detached, 651 cache rows, 25 leagues on each account. The act: `2026-11-19T18:16:44
+DELETE /api/accounts/2 204` -- the request the previous image answered with 409. After: the account
+ids are 1 and 3 (id 2 is gone, not hidden; 3 is the same ESPN session added again two minutes
+later, `POST /api/accounts 201`); leagues 26-50 are all still there, under no account, all 25
+`is_public`; account 1 still holds leagues 1-25, none public; 50 leagues, none with a failed last
+sync; 719 cache rows, of which 463 untouched for more than a day -- and 651 = 463 untouched + 188
+refreshed, so every row that existed before the delete exists after it (the other 68 are new
+scoring-period keys from syncs run in the same quarter hour). The first attempt at the "after"
+read met a closed tunnel (SSM drops an idle port-forward after about twenty minutes) and read
+nothing; the proof was taken a few minutes later from what durably holds it -- the access log's
+request line, surrogate ids that are never reused, and timestamps -- while the detached state
+still existed (CLOSE-OUT lesson 58). Not yet done at the time of the read: re-pointing the 25
+detached leagues to the re-added account (Discover, then Import & sync on its card); until then
+they are public rows that report auth failed on a sync, as designed.
+
 ### WU-6. Invitations (gate G6) and per-user AI (gate G7)
 
 - G6, one person at a time: Cognito user by the operator (console, invitation email); WU-3 script;
@@ -478,7 +498,9 @@ site with the next SPA build and sync (README §8 step 5), not with an image.
 7. Two provisioned people on PostgreSQL see only their own rows; revoking one leaves the other
    intact.
 8. Deleting an account on the page erases the ciphertext row -- also when leagues point at it: they
-   are detached and keep their synced data (WU-8).
+   are detached and keep their synced data (WU-8). **Met 2026-11-19: `DELETE /api/accounts/2` 204
+   with 25 leagues on it; the row gone; leagues 26-50 detached, public and intact; 651 cache rows
+   before, all present after.**
 9. `ruff`, `tsc -b --noEmit`, the policy tests and the full suite pass; the plan workflow precedes
    every apply.
 10. On the invited site, a tenant's AI key is readable by that tenant alone, is never returned

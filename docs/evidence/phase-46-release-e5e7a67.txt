@@ -368,3 +368,37 @@ Hand-off  the first attempt was a terminal block for the operator built on .venv
           ~/Downloads; the Mac venv has no python-hcl2 (pytest: ModuleNotFoundError: No module named 'hcl2'). CLOSE-OUT lesson 57.
 Landed    the commit re-created on bcabf8c in the cloud (author and committer the operator, fixed stamp) and reproduced on the
           device through the linked folder with the same stamp and message file (msg75); SHAs equal.
+
+--- c6ded53 pushed, CI #61 green (2026-11-15); the WU-8 erase check proven on the site -- acceptance criterion 8 (2026-11-19)
+Push      296293b..c6ded53 (f9c7c6e, bcabf8c, c6ded53) by the operator, plain git in his own terminal
+CI #61    run 43735577295 on c6ded53: Success, 5m 27s -- backend (pytest + ruff) 5m 23s, frontend (lint + build + e2e) 1m 30s; read
+          on the run page (step logs need a GitHub sign-in the browser pane did not have). The first run since pytest 9.2.0.
+Before    owner read through the tunnel, tenant bound, 2026-11-19 before the act:
+            accounts: 2 leagues: 50 detached: 0 cache rows: 651 leagues per account: [('1', 25), ('2', 25)]
+Act       the operator deleted one account on Manage. Web log:  2026-11-19T18:16:44 DELETE /api/accounts/2 204
+After     owner read, state at or after 18:26 UTC:
+            accounts (id, created): [('1', '2026-10-26 00:52'), ('3', '2026-11-19 18:18')]
+            leagues by account (account, n, min id, max id, public): [('None', '25', '26', '50', '25'), ('1', '25', '1', '25', '0')]
+            leagues (n, last sync failed, oldest sync, newest sync): [('50', '0', '2026-10-29 15:57', '2026-11-19 18:26')]
+            cache rows (n, older than a day, oldest, newest): [('719', '463', '2026-10-26 00:52', '2026-11-19 18:26')]
+Reads     account id 2 is gone -- not hidden: this is the owner's read under the tenant binding -- and id 3 is the same ESPN session
+          added again (POST /api/accounts 201). Leagues 26-50 are present, account NULL, all 25 public: WU-8's detached state.
+          Account 1 and its leagues 1-25 untouched. 50 leagues, none with a failed last sync.
+          Cache: 719 - 651 = 68 new keys; 719 - 463 = 256 fetched within a day; 256 - 68 = 188 refreshed; 651 - 188 = 463 = the
+          measured "older than a day". Every row that existed before the delete exists after it.
+          The figures fit 17 league syncs at scoring period 11 (15 requests each + pro_schedule = 256; 4 new keys each = 68) under
+          an account hash already in the cache; the web log, read a few minutes later, counts 25.
+          The same model reproduces the history: 276 (G5) + 275 (second account) + 100 (50 leagues x 2 new keys on 10-29) = 651.
+Web log   3 days, /api/accounts and /api/leagues by method, uri (ids as N) and status:
+            25 POST leagues/N/sync 200 | 3 GET leagues 200 | 3 GET accounts 200 | 2 GET leagues/discover/N 200 | 1 POST accounts 201
+            1 each GET leagues/N/teams/N, overview, my-edge, league-softness, edge-index 200
+            1 GET leagues 401 and 1 GET accounts 401 -- a request without a session, refused
+          no POST /api/leagues: the Import that re-points the detached leagues had not been run.
+Missed    the planned "after" count. The tunnel had closed (SSM drops an idle port-forward after about twenty minutes) and the gated
+          block read nothing, twice; the block before it had printed "tunnel: CLOSED" and run the query anyway (Connection refused,
+          a sixty-line traceback). The proof above was taken minutes later from the access log, the ids and the timestamps, while
+          the detached state still existed. README 6c and 7 now gate every tunnel-dependent command; lesson 54 had named that check
+          and the README had never carried it. CLOSE-OUT lesson 58.
+Verdict   acceptance criterion 8 met.
+Not yet   the 25 detached leagues re-pointed to account 3 (Discover, then Import & sync on its card) and the read after it;
+          G7's one report with the operator's key on file.

@@ -320,7 +320,7 @@ Then, through the tunnel (section 7, Terminal 1 open; Terminal 2 with `PGPASSWOR
 cd ~/espn-edge
 .venv/bin/python -c 'import psycopg2' 2>/dev/null || .venv/bin/pip install 'psycopg2-binary>=2.9'
 echo 'expect: nothing, or one install -- the driver is a declared dependency and a venv older than that declaration lacks it (found 2026-10-26)'
-.venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 180
+if nc -z 127.0.0.1 15432; then .venv/bin/python ops/cache_rows.py --tenant-id 1 --since-minutes 180; else echo 'tunnel: CLOSED -- nothing was read; open it in Terminal 1 (section 7) and run this block again'; fi
 echo 'expect: every line tenant=1; one line per ESPN request, its views joined with +; acct= is a short hash, not public, on the league lines; same-account gaps about a second (more after a heavy request, less for the light one that follows it); the payload itself is never printed'
 unset PGPASSWORD
 ```
@@ -342,25 +342,54 @@ re-pointed to the account and stops being public. The manual add is the gate's p
 `fan.api.espn.com`, and can wait.
 
 Last, the erase check -- on the image that carries WU-8 (the one after web:8; on web:8 the delete
-still answers 409 while a league points at the account, which is the gap WU-8 closes). Delete the
-account on the page. The accounts list empties; the ciphertext row is gone, not hidden; the league
-stays, now labelled `public`, with everything synced under it, and its next sync reports auth
-failed until you add it again with an account, which re-points it. `cache_rows.py` still shows
-the cache rows, because the raw cache is the tenant's, not the account's, and it is yours to keep
-or clear. Add the account and re-add the league afterwards if you want to keep using the site.
+still answers 409 while a league points at the account, which is the gap WU-8 closes). Proven on
+web:9 on 2026-11-19. The tunnel does not outlive the act: SSM closes an idle port-forward after
+about twenty minutes, so open it (section 7, Terminal 1) immediately before each read, not once
+for the whole check -- the first attempt lost its "after" read exactly that way.
+
+1. Before: the read below. Note which account id holds which league ids, and the cache row count.
+2. Delete the account on the page. The accounts list loses it; its leagues stay, labelled `public`.
+3. After, before adding anything back: the read again; its last line is the request in the web log.
+
+```bash
+cd ~/espn-edge
+SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "${SECRET_ARN}" --query SecretString --output text | .venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["password"])')
+export DATABASE_URL='postgresql+psycopg2://edge_owner@127.0.0.1:15432/edge?sslmode=require'
+STATE='import os; from sqlalchemy import create_engine, text; e = create_engine(os.environ["DATABASE_URL"], future=True); c = e.connect(); c.execute(text("SELECT set_config(:n, :v, true)"), {"n": "app.tenant_id", "v": "1"}); r = lambda s: [tuple(str(x)[:16] for x in row) for row in c.execute(text(s))]; print("accounts (id, created):", r("SELECT id, created_at FROM accounts ORDER BY id")); print("leagues by account (account, n, min id, max id, public):", r("SELECT account_id, count(*), min(id), max(id), count(*) FILTER (WHERE is_public) FROM leagues GROUP BY account_id ORDER BY account_id NULLS FIRST")); print("leagues (n, last sync failed, oldest sync, newest sync):", r("SELECT count(*), count(*) FILTER (WHERE last_sync_ok IS FALSE), min(last_synced_at), max(last_synced_at) FROM leagues")); print("cache rows (n, older than a day, oldest, newest):", r("SELECT count(*), count(*) FILTER (WHERE fetched_at < now() - make_interval(days => 1)), min(fetched_at), max(fetched_at) FROM raw_cache")); c.rollback()'
+if nc -z 127.0.0.1 15432; then .venv/bin/python -c "${STATE}"; else echo 'tunnel: CLOSED -- nothing was read; open it in Terminal 1 (section 7) and run this block again'; fi
+unset PGPASSWORD
+echo 'expect before: every account id with its leagues, no None row'
+echo 'expect after: the deleted id gone from the accounts line; its leagues, the same ids, under None and all public; the league total unchanged; cache rows not fewer than before'
+aws logs tail /espn-edge/web --since 1h --format short | grep -E '"uri":"/api/accounts/[0-9]+"' | grep '"method":"DELETE"' | sed -E 's/^([0-9T:-]{19}).*"uri":"([^"]*)".*"status":([0-9]+).*/\1 DELETE \2 \3/'
+echo 'expect after: one line -- the time in UTC, DELETE /api/accounts/<id> and 204'
+```
+
+The read prints ids, counts and timestamps -- never a label, a cookie or a payload -- and it
+proves the erase from what durably holds it: the access log has the request and its status; a
+surrogate id is never reused, so a missing id is a deleted row and the same league ids under
+`None` are the same leagues, detached; and PostgreSQL would have refused to delete the account row
+while any league still referenced it. The raw cache is the tenant's, not the account's, and is
+yours to keep or clear: its count only grows. On 2026-11-19 that read: `DELETE /api/accounts/2
+204`; accounts 1 and 3 where 1 and 2 had been; leagues 26-50 under `None`, all public; 651 cache
+rows before, 719 after with 463 untouched for more than a day (`docs/evidence/`). Afterwards add
+the account again and use Discover, then Import & sync, on its card: the rows read "Relink" and
+are re-pointed; until then a detached private league reports auth failed on a sync.
 
 ### 7. Inviting a person -- gate G6, one person at a time (ADR-012)
 
 The person signs up in Cognito (invitation-only there); you read their `sub` from the pool; the
 script makes them their own tenant. It runs as the owner through an SSM tunnel to the host, the
 password from the RDS-managed secret into `PGPASSWORD` and nowhere else. Terminal 1 holds the
-tunnel open:
+tunnel open -- for about twenty minutes of idleness, after which SSM closes it without a word in
+the other terminal; every block that needs it checks it first and runs nothing if it is closed:
 
 ```bash
 HOST=$(aws ec2 describe-instances --filters Name=tag:Name,Values=espn-edge-host Name=instance-state-name,Values=running --query 'Reservations[].Instances[].InstanceId' --output text)
 RDS=$(aws rds describe-db-instances --db-instance-identifier espn-edge --query 'DBInstances[0].Endpoint.Address' --output text)
 echo "tunnel to ${RDS} through ${HOST}"
-aws ssm start-session --target "${HOST}" --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters "host=${RDS},portNumber=5432,localPortNumber=15432"
+echo 'expect: an RDS endpoint name and an instance id starting with i- ; then Port 15432 opened ... Waiting for connections -- leave this terminal open'
+if [ -n "${HOST}" ] && [ -n "${RDS}" ]; then aws ssm start-session --target "${HOST}" --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters "host=${RDS},portNumber=5432,localPortNumber=15432"; else echo 'host or database not found -- nothing started'; fi
 ```
 
 Terminal 2, from the repo root, with the person's email and `sub` typed in place of the two
@@ -373,15 +402,15 @@ export PGPASSWORD=$(aws secretsmanager get-secret-value --secret-id "${SECRET_AR
 export DATABASE_URL='postgresql+psycopg2://edge_owner@127.0.0.1:15432/edge?sslmode=require'
 .venv/bin/python -c 'import psycopg2' 2>/dev/null || .venv/bin/pip install 'psycopg2-binary>=2.9'
 echo 'expect: nothing, or one install -- a venv older than the driver declaration has no psycopg2'
-export OIDC_ISSUER=$(aws cognito-idp list-user-pools --max-results 10 --query 'UserPools[?Name==`espn-edge`].Id' --output text | sed 's#^#https://cognito-idp.us-east-1.amazonaws.com/#')
+export OIDC_ISSUER=$(aws cognito-idp list-user-pools --max-results 10 --query 'UserPools[?Name==`espn-edge`].Id' --output text | sed 's|^|https://cognito-idp.us-east-1.amazonaws.com/|')
 echo "${OIDC_ISSUER}"
 echo 'expect: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_... -- stop if it is empty'
-.venv/bin/python ops/provision_user.py provision PERSON_EMAIL PERSON_SUB
+if nc -z 127.0.0.1 15432; then .venv/bin/python ops/provision_user.py provision PERSON_EMAIL PERSON_SUB; else echo 'tunnel: CLOSED -- nothing was run; open it in Terminal 1 and run this block again'; fi
 echo 'expect: tenant_id=N user_id=N membership_id=N, one line, nothing else'
 unset PGPASSWORD
 ```
 
-`revoke PERSON_SUB` in place of the provision line undoes one person and prints a count per table;
+`revoke PERSON_SUB` in place of `provision PERSON_EMAIL PERSON_SUB` undoes one person and prints a count per table;
 it refuses your own tenant, a user with more than one membership and a tenant with more than one
 member. The script never prints an email or a subject, in success or failure -- the terminal is a
 log. Its PostgreSQL proof is `tests/test_provision_user.py`, run against a migrated cluster as a
