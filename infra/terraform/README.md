@@ -478,7 +478,9 @@ echo 'expect: status ok, mode private_invited'
    commit's; the cloud build of `296293b` gave `index-CmTJ5Ed4.js`, `index-D_0c9WkV.css`,
    `Analytics-JlPG1tuw.js`, and the build that carries WU-10 and WU-11 gives `index-CF3VDN2j.js`,
    the same `index-D_0c9WkV.css` and `Analytics-Cpy1g6U2.js`). Forgotten on 2026-10-27 until the
-   gate's first step found no panel.
+   gate's first step found no panel. The sync is gated on the build: `vite build` empties
+   `dist` before it writes, so a build that fails part-way leaves an empty or partial folder, and
+   `sync --delete` on that would delete the site -- the block syncs only when the build said yes.
 
 ```bash
 cd ~/espn-edge
@@ -486,16 +488,17 @@ ACCT=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="espn-edge-spa-${ACCT}"
 DIST=$(aws cloudfront list-distributions --query "DistributionList.Items[?contains(to_string(Aliases.Items), 'eaedgefinder.com')].Id | [0]" --output text)
 echo "bucket ${BUCKET}  distribution ${DIST}"
-echo 'expect: the bucket named by your account id and a distribution id starting with E; if the id is empty or None, stop here'
-cd web
-npm run build
-echo 'expect: tsc silent, then vite: 702 modules transformed'
+echo 'expect: the bucket named by your account id and a distribution id starting with E'
+cd ~/espn-edge/web
+if npm run build; then BUILD_OK=yes; else BUILD_OK=no; fi
+echo "build ok: ${BUILD_OK}"
+echo 'expect: tsc silent, then vite: 702 modules transformed, then build ok: yes'
 ls dist/assets
 echo 'expect: the three hashed assets of this commit'
-cd ..
-[ -n "${DIST}" ] && [ "${DIST}" != "None" ] && aws s3 sync web/dist "s3://${BUCKET}" --delete
-echo 'expect: upload lines for index.html and the three assets, delete lines for the previous hashed assets'
-[ -n "${DIST}" ] && [ "${DIST}" != "None" ] && aws cloudfront create-invalidation --distribution-id "${DIST}" --paths "/*" --query 'Invalidation.[Id,Status]' --output text
+cd ~/espn-edge
+if [ "${BUILD_OK}" = "yes" ] && [ -f web/dist/index.html ] && [ -n "${DIST}" ] && [ "${DIST}" != "None" ]; then aws s3 sync web/dist "s3://${BUCKET}" --delete; SYNCED=yes; else SYNCED=no; echo 'NOT synced -- the build failed or the distribution id is missing; the site is unchanged'; fi
+echo 'expect: upload lines for index.html and the changed assets, delete lines for the hashed assets they replace'
+if [ "${SYNCED}" = "yes" ]; then aws cloudfront create-invalidation --distribution-id "${DIST}" --paths "/*" --query 'Invalidation.[Id,Status]' --output text; else echo 'no invalidation -- nothing was synced'; fi
 echo 'expect: an invalidation id and InProgress'
 ```
 

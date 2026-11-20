@@ -22,8 +22,9 @@ in the log).** The image carrying WU-7, WU-8 and the two fixes was deployed 2026
 0018). **The erase check was proven on the site 2026-11-19: the operator deleted an account that 25 leagues
 pointed at -- `DELETE /api/accounts/2` answered 204, the row is gone, the 25 leagues stayed, detached and
 public, and no cache row was lost (acceptance 8).** **G7 done 2026-11-20: the operator's own Anthropic key on
-file, one report generated with it on the hosted site, the key in no log line (acceptance 10).** Remaining:
-the page sync that carries WU-10 and WU-11, WU-9's apply, then G6. Each later gate is its own approval, recorded in
+file, one report generated with it on the hosted site, the key in no log line (acceptance 10).** The page
+bundle carrying WU-10 and WU-11 was built from `d80c761`, synced and read back from the edge the same day.
+Remaining: WU-9's apply, then G6. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -483,6 +484,7 @@ a known mode; the browser suite reads the invited sentence) and by a Playwright 
 invited mode with AI disabled and finds the Manage sentence and no `.env`. Measured: `tsc` clean,
 Playwright 63 passed (62 before), the SPA pin tests 7 passed. Static assets only: it reaches the
 site with the next SPA build and sync (README §8 step 5), not with an image.
+**On the site 2026-11-20**, in the bundle `index-CF3VDN2j.js`, read back from the edge.
 
 ### WU-11. A refused AI key is reported beside the field, with what to check (found at G7; built 2026-11-20)
 
@@ -511,6 +513,15 @@ on the unmodified commit there (the workspace's browser is a different release f
 Playwright) and passed in CI #61, which is its gate. Static assets only: it ships with WU-10 in the
 next SPA build and sync (README §8 step 5); the cloud build gives `index-CF3VDN2j.js`,
 `index-D_0c9WkV.css`, `Analytics-Cpy1g6U2.js`.
+
+**On the site 2026-11-20.** CI #62 on `d80c761` (run 44813552132) passed all 64 browser tests with the
+project's own browser, this one included. The operator built the bundle from that commit -- the three
+asset names the cloud build had predicted -- and synced it (the two superseded scripts deleted,
+invalidation `IAHVOUBHEUNHYH57AVOZS8SDOJ`). Read back from the edge by Agent 1: `index.html` names
+`index-CF3VDN2j.js`; that file carries the invited AI-off hint, the refusal sentence, the hint that
+follows it and the panel's alert; the local `.env` instruction appears in it once, in the table,
+under the operator's mode; the superseded script answers 403. The sync block is now gated on the
+build's exit status (README §8 step 5; CLOSE-OUT lesson 60).
 
 ## Explicit deltas and guarantees
 

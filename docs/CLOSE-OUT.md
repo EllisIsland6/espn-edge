@@ -1050,6 +1050,20 @@ This was a practice project. These are the findings that are not about fantasy f
     past its earliest retirement date, and their successor rejects a parameter this code sends on
     every call -- none of which a green suite would ever have said.
 
+60. **A destructive flag inherits every failure upstream of it.** The page is deployed by building
+    a folder and running `aws s3 sync --delete` on it, and for three deploys the runbook ran the
+    two as consecutive lines of a pasted block: whatever the build did, the sync followed. `vite
+    build` empties its output folder before it writes. A build that failed after that point --
+    a full disk, a killed process, a dependency that would not resolve -- would have handed the
+    sync an empty folder, and `--delete` would have faithfully made the bucket match it: the
+    site gone, by a command that succeeded. It never happened; it was found on 2026-11-20 by
+    reading the block with lesson 58's eye for guards that are lines instead of conditions. The
+    fix is two `if`s: sync only when the build exited zero and its `index.html` exists,
+    invalidate only when the sync ran. The general form: any step that removes what it does not
+    find (`--delete`, `--prune`, `rm` of a computed list, a replace-all) must be conditional on
+    the success of whatever produced the thing it compares against -- and the block was tried
+    with a build stubbed to fail after emptying the folder, to see it do nothing.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 
