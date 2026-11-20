@@ -1031,6 +1031,25 @@ This was a practice project. These are the findings that are not about fantasy f
     and not only counts, so that it can still be taken late; and a check a lesson names is in
     the runbook, or the lesson is not true yet.
 
+59. **A check can pass vacuously, and a refusal can be right and still be a defect.** Gate G7
+    (2026-11-20) produced both. The acceptance read counts log lines carrying the key's last
+    four characters and expects zero. Run with its placeholder still in place it counted lines
+    containing `xxxx` and printed `0` -- the expected answer, from a read that had looked for
+    nothing. What kept that from being recorded as a pass was one line written for exactly this:
+    a test on the placeholder that says the variable was never set. A read whose passing answer
+    is "nothing found" needs that line more than any other kind, because its failure and its
+    non-execution print the same thing; and once the real value is known and is not a secret,
+    the block is handed over with it filled in. The other half: the operator's first two saves
+    were refused by Anthropic, correctly -- 31 characters, not a key -- and the server did all it
+    should: verified, stored nothing, answered 400 with a fixed sentence. The defect was
+    downstream of every test: the sentence was shown at the top of the page, a screen from the
+    field, and said what happened without saying what to check. The offline suite had pinned the
+    status and the words; only a person at the page could find that the words were in the wrong
+    place (WU-11). And a gate is the moment to read the vendor's page for what the tests assume
+    is permanent: the model the report used that day is already marked legacy, the cheaper one is
+    past its earliest retirement date, and their successor rejects a parameter this code sends on
+    every call -- none of which a green suite would ever have said.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

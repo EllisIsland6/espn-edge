@@ -21,8 +21,9 @@ AWS (276 ESPN requests in 347 s, every raw-cache row his tenant's, the limiter's
 in the log).** The image carrying WU-7, WU-8 and the two fixes was deployed 2026-10-27 (apply #15, migration
 0018). **The erase check was proven on the site 2026-11-19: the operator deleted an account that 25 leagues
 pointed at -- `DELETE /api/accounts/2` answered 204, the row is gone, the 25 leagues stayed, detached and
-public, and no cache row was lost (acceptance 8).** Remaining: G7's one report, the WU-10 page sync, WU-9's
-apply, then G6. Each later gate is its own approval, recorded in
+public, and no cache row was lost (acceptance 8).** **G7 done 2026-11-20: the operator's own Anthropic key on
+file, one report generated with it on the hosted site, the key in no log line (acceptance 10).** Remaining:
+the page sync that carries WU-10 and WU-11, WU-9's apply, then G6. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -310,6 +311,25 @@ web task was never affected (`edge_app`, a static password). README §8 step 4 n
 copy before every migration; WU-9 below removes the copy. CLOSE-OUT lesson 55. The gate itself --
 the operator's own key, one report, the log read -- is G7 and follows the WU-8 erase check.
 
+**Gate G7 done, in deed and in the reads (2026-10-27 and 2026-11-20).** The operator's own acts on
+Manage and one league's AI Brief tab, the reads in his terminal. *The key's round trip* (10-27): `PUT
+/api/ai/key` 200 -- the key verified against Anthropic's model listing from inside AWS before it was
+stored -- five `GET` 200, then `DELETE` 204, the erase; the tail of that key in no log line. *Two
+refusals* (11-20): a 31-character paste that was not a key, `PUT` 400 twice, nothing stored, the fixed
+sentence on the page (and WU-11 below for where the page put it). *The key on file* (11-20): `PUT`
+200; the panel shows the provider, the last four characters and "last used never"; no response and
+no page ever carries the key. *The report* (11-20): on league 50's AI Brief tab, "League difficulty
+brief", Generate -- the tier chip, the narrative and the exploit plan rendered, labelled
+`claude-sonnet-5`; the log has exactly one `POST` 200 and one `GET` 200 on the league-brief route in
+that half hour. *After it:* the panel reads "last used just now" with no failure class; the key's tail appears
+in zero log lines across the half hour that holds the save and the report; no line names the
+provider, an `AiError` or an `APIError`. The first real model call from the hosted site therefore
+answers three things no offline test could: Anthropic accepts calls from this host with a tenant's
+own key, `claude-sonnet-5` accepts the request as `api/services/ai.py` builds it (structured output,
+thinking disabled), and the report's whole path -- key decrypted for the call, grounded facts, parsed
+output, stored report, `last_used_at` -- works on PostgreSQL under row security. The report's text is
+the operator's private data and is recorded nowhere. Figures in the evidence file; acceptance 10.
+
 **The Question.** Where does an invited person's Anthropic key live, who can read it, and what
 else is kept with it?
 
@@ -533,7 +553,11 @@ next SPA build and sync (README §8 step 5); the cloud build gives `index-CF3VDN
    every apply.
 10. On the invited site, a tenant's AI key is readable by that tenant alone, is never returned
     after it is saved, appears in no log, and leaves with the tenant; a tenant without a key gets
-    the no-key answers; the host key is never used there.
+    the no-key answers; the host key is never used there. **Met on the site 2026-11-20 (G7), as far
+    as one tenant can show it: saved after verification, only its last four characters ever shown,
+    its tail in zero log lines on both keys, erased by `DELETE` 204 (10-27), the no-key answers seen
+    before the save, one report generated with it and no host key in the stack. "That tenant alone"
+    is held by the two-tenant PostgreSQL test and meets a second real tenant at G6.**
 
 ## Non-goals
 

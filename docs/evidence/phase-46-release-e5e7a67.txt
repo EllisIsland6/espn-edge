@@ -435,3 +435,28 @@ Read ahead  the report's call, against the vendor's pages (2026-11-20), since G7
           SDK: anthropic 2.8.0 Messages.parse accepts output_format, output_config and thinking; the call's keywords are valid.
 Not yet   the one report (League difficulty brief), the "last used" line, and the three reads with KEY_TAIL=BgAA.
 
+--- Gate G7 done: the operator's own key, one report on the hosted site, the key in no log line (2026-11-20)
+Act       his own, on the invited site: the key saved on Manage (after the two refusals above), then league 50, AI Brief tab,
+          "League difficulty brief", Generate.
+Page      3:25 PM local: the brief rendered -- tier chip, narrative, exploit plan -- labelled "claude-sonnet-5 - just now".
+          3:26 PM local: "On file: anthropic key ending in ...BgAA, saved 4m ago, last used just now." -- no failure class.
+          The report's text is the operator's private data and is not recorded here or anywhere.
+Reads     his terminal, 30-minute window holding the save and the report, KEY_TAIL=BgAA:
+            grep -c -- "${KEY_TAIL}"                                   0
+            grep -i -E 'anthropic|ai key|AiError|APIError'             (nothing)
+            league-brief route, method and status                      1 GET 200 | 1 POST 200
+          earlier the same day, 3-hour window, /api/ai/key:            2 GET 200 | 1 PUT 200 | 2 PUT 400
+          and on 2026-10-27, the first key (tail lQAA):                1 PUT 200 | 5 GET 200 | 1 DELETE 204; grep -c 0; no provider line
+Vacuous   the first run of the block on 11-20 still had KEY_TAIL=xxxx and printed 0 -- the expected answer, proving nothing. The
+          block's own guard line said so ("KEY_TAIL is still xxxx"); the rerun carried the panel's tail. CLOSE-OUT lesson 59.
+Answers   what no offline test could: Anthropic accepts calls from this host with a tenant's own key (the listing on save, the
+          message call on the report); claude-sonnet-5 accepts the request as api/services/ai.py builds it -- structured output,
+          thinking {"type": "disabled"}; and the whole path works on PostgreSQL under row security: the key decrypted for the
+          call, grounded facts, parsed output, the stored report, last_used_at.
+Side read the league's header carries the re-added account's label and "synced 1d ago": league 50, one of the 25 detached on
+          11-19, is attached to an account again. The owner read of all 25 (accounts 1 and 3, no None row) is still to be taken,
+          at the next tunnel session.
+Verdict   G7 done. Acceptance criterion 10 met on the site as far as one tenant can show it; "readable by that tenant alone" is
+          held by the two-tenant PostgreSQL test and meets a second real tenant at G6.
+Not yet   the SPA build and sync carrying WU-10 and WU-11; WU-9's plan and apply; G6.
+

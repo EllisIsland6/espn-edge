@@ -499,17 +499,26 @@ echo 'expect: upload lines for index.html and the three assets, delete lines for
 echo 'expect: an invalidation id and InProgress'
 ```
 
-6. **The gate.** Signed in, on Manage: the "AI key" panel reads its three sentences; paste your own
-   Anthropic key; the panel then shows the provider, the key's last four characters and "last used
-   never". Ask for one report on one league. Then, in your terminal, the log read that is the
+6. **The gate** (done by the operator 2026-11-20). Signed in, on Manage: the "AI key" panel reads
+   its three sentences; paste your own Anthropic key -- the whole key, which starts with `sk-ant-`
+   and which the Console shows only once, when it is created; the panel then shows the provider, the
+   key's last four characters and "last used never". A value that is not a key is refused by
+   Anthropic, nothing is stored, and the panel says so under the field. Ask for one report on one
+   league (AI Brief, "League difficulty brief", Generate), reload Manage -- "last used" now reads
+   seconds ago, with no failure class -- and then, in your terminal, the reads that are the
    acceptance criterion:
 
 ```bash
 KEY_TAIL=xxxx
-aws logs tail /espn-edge/web --since 15m --format short | grep -c -- "${KEY_TAIL}"
-echo 'expect: 0 -- set KEY_TAIL to the last four characters the panel shows; the count of log lines carrying them must be zero'
-aws logs tail /espn-edge/web --since 15m --format short | grep -i -E 'anthropic|ai key|AiError|APIError' | tail -5
-echo 'expect: at most an exception CLASS name on a failure; never a message carrying a value'
+[ "${KEY_TAIL}" = "xxxx" ] && echo 'KEY_TAIL is still xxxx -- set it to the four characters on the panel and run the block again'
+aws logs tail /espn-edge/web --since 30m --format short | grep -c -- "${KEY_TAIL}"
+echo 'expect: 0 -- no log line carries the key tail (a 0 with KEY_TAIL still xxxx proves nothing: the line above says so)'
+aws logs tail /espn-edge/web --since 30m --format short | grep -i -E 'anthropic|ai key|AiError|APIError' | tail -5
+echo 'expect: nothing -- on a failure, at most an exception CLASS name; never a message carrying a value'
+aws logs tail /espn-edge/web --since 30m --format short | grep '"uri":"/api/leagues/[0-9]*/ai/league-brief' | grep -o -E '"method":"[A-Z]+"|"status":[0-9]+' | paste - - | sort | uniq -c
+echo 'expect: one "method":"POST" "status":200 -- the report; the GET 200s are the tab reading it'
+aws logs tail /espn-edge/web --since 3h --format short | grep '"uri":"/api/ai/key"' | grep -o -E '"method":"[A-Z]+"|"status":[0-9]+' | paste - - | sort | uniq -c
+echo 'expect: one PUT 200 for the save, a PUT 400 for each refused attempt, GET 200s for the panel'
 ```
 
 Delete the key on the panel to prove the erase, and paste it again if you want to keep using it.
