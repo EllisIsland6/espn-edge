@@ -464,6 +464,34 @@ invited mode with AI disabled and finds the Manage sentence and no `.env`. Measu
 Playwright 63 passed (62 before), the SPA pin tests 7 passed. Static assets only: it reaches the
 site with the next SPA build and sync (README §8 step 5), not with an image.
 
+### WU-11. A refused AI key is reported beside the field, with what to check (found at G7; built 2026-11-20)
+
+The operator's first two attempts to save a key on 2026-11-20 were refused -- `PUT /api/ai/key` 400
+twice, nothing stored, then 200 with a whole key -- and the refusals were right: the value in the
+field was 31 characters long (counted from his screenshot), the length of a key's ID and nowhere
+near a key's. What the page did with the refusal was the defect. The server's fixed sentence, *the
+key was refused by Anthropic*, went to the page's error line at the top of Manage, a screen away
+from the panel under two account cards, and said nothing about what to check. The Console shows a
+key's full value once, at creation; anyone who copies what its list shows afterwards meets this.
+
+Now the panel reports its own failed saves and deletes as an alert under the field (a failed load
+is still the page's), and a refusal is followed by one sentence from `web/src/copy.ts`
+(`AI_KEY_REFUSED_HINT`): *Nothing was stored. Paste the whole key: it starts with sk-ant- and is
+much longer than its name or ID. The Claude Console shows it only once, when the key is created; if
+it is lost, create a new one.* The sentence it follows is the server's (`AI_KEY_REFUSED`, matched
+exactly; a pin test holds the two together). No server change: the 400, the fixed message and
+"nothing stored" were already right. Pinned by
+`test_a_refused_ai_key_is_reported_beside_the_field_with_what_to_check` and the Playwright test "a
+refused AI key says so beside the field, with what to check, and a good one clears it" (the refusal
+shown once, in the panel and not in the page line; nothing on file; the draft kept and never
+rendered; a whole key then accepted and the alert gone). Control: with the save failure handed back
+to the page line, both fail. Measured: `tsc` clean; the SPA pin tests 13 passed; Playwright 63 of 64
+in the cloud workspace -- the one failure, the draft board's team-logo assertion, fails identically
+on the unmodified commit there (the workspace's browser is a different release from the project's
+Playwright) and passed in CI #61, which is its gate. Static assets only: it ships with WU-10 in the
+next SPA build and sync (README §8 step 5); the cloud build gives `index-CF3VDN2j.js`,
+`index-D_0c9WkV.css`, `Analytics-Cpy1g6U2.js`.
+
 ## Explicit deltas and guarantees
 
 | Keeps holding | Held by |

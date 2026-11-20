@@ -33,6 +33,19 @@ export const AI_KEY_CONSENT = {
   erase: "Deleting the key here erases it.",
 } as const;
 
+/**
+ * What the AI key panel says when a save is refused. `AI_KEY_REFUSED` is the
+ * server's fixed sentence (api/services/ai_keys.py), matched exactly so the
+ * hint can follow it and nothing else; a pin test holds the two together. The
+ * hint says what to check, because the commonest refusal is a paste that is
+ * not the whole key: the first one on the invited site (2026-11-20) was 31
+ * characters long, and the server's sentence alone -- shown at the top of the
+ * page, away from the field -- did not say what to do about it (WU-11).
+ */
+export const AI_KEY_REFUSED = "the key was refused by Anthropic";
+export const AI_KEY_REFUSED_HINT =
+  "Nothing was stored. Paste the whole key: it starts with sk-ant- and is much longer than its name or ID. The Claude Console shows it only once, when the key is created; if it is lost, create a new one.";
+
 export const SYNTHETIC_NOTICE =
   "This hosted instance runs on synthetic data. It does not hold ESPN accounts and does not talk to ESPN, so there is nothing to add here and nothing to sync.";
 

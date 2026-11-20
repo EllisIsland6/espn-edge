@@ -24,6 +24,8 @@ import { TeamIdentity } from "../components/TeamIdentity";
 import { Button, EmptyState, ErrorNote, LifecycleBadge, Panel, Spinner } from "../components/ui";
 import {
   AI_KEY_CONSENT,
+  AI_KEY_REFUSED,
+  AI_KEY_REFUSED_HINT,
   INVITED_CONSENT,
   LOCAL_NOTICE,
   SYNTHETIC_NOTICE,
@@ -238,6 +240,11 @@ function AiKeyPanel({ onError }: { onError: (e: string) => void }) {
   const [key, setKey] = useState<AiKeyOut | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  // A failed save or delete is this panel's to report, beside the field it
+  // concerns: the page's own error line sits at the top, a screen away from
+  // here, which is where the first refused key on the invited site went
+  // unread (WU-11). Loading failures stay the page's.
+  const [problem, setProblem] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -254,11 +261,12 @@ function AiKeyPanel({ onError }: { onError: (e: string) => void }) {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setProblem(null);
     try {
       setKey(await putAiKey(draft));
       setDraft("");
     } catch (err) {
-      onError(String(err));
+      setProblem(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -266,11 +274,12 @@ function AiKeyPanel({ onError }: { onError: (e: string) => void }) {
 
   async function remove() {
     setBusy(true);
+    setProblem(null);
     try {
       await deleteAiKey();
       setKey(null);
     } catch (err) {
-      onError(String(err));
+      setProblem(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -309,6 +318,12 @@ function AiKeyPanel({ onError }: { onError: (e: string) => void }) {
               </Button>
             )}
           </form>
+          {problem && (
+            <p className="mt-2 text-xs text-red" role="alert" data-testid="ai-key-error">
+              {problem.charAt(0).toUpperCase() + problem.slice(1)}.
+              {problem === AI_KEY_REFUSED ? ` ${AI_KEY_REFUSED_HINT}` : ""}
+            </p>
+          )}
         </>
       )}
     </Panel>

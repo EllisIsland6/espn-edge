@@ -402,3 +402,36 @@ Missed    the planned "after" count. The tunnel had closed (SSM drops an idle po
 Verdict   acceptance criterion 8 met.
 Not yet   the 25 detached leagues re-pointed to account 3 (Discover, then Import & sync on its card) and the read after it;
           G7's one report with the operator's key on file.
+
+--- G7 in progress: two refused saves, then a key on file; WU-11 built; the report path read ahead (2026-11-20)
+Refused   the operator's screenshot, 3:17 PM local: "Error: the key was refused by Anthropic" in the page's error line at the top of
+          Manage; no "On file" line. The password field holds 31 bullets (counted from the image: 31 evenly spaced marks, 12-13 px
+          apart) -- 31 characters, the length of a key ID, not of a key. Server as designed: strip, GET /v1/models, 401/403 ->
+          AiKeyRefused -> 400, nothing stored.
+Saved     screenshot 3:22 PM local: "On file: anthropic key ending in ...BgAA, saved just now, last used never."
+Web log   /api/ai/key, 3 h, method and status:  2 GET 200 | 1 PUT 200 | 2 PUT 400
+          provider grep (anthropic|ai key|AiError|APIError), 30 min: nothing.  league-brief read, 30 min: nothing -- no report yet.
+          (the KEY_TAIL read in that paste ran with the placeholder still in it and proves nothing; rerun with the panel's tail.)
+Vendor    platform.claude.com/docs/en/get-api-key, read 2026-11-20: the Console shows the full key "only once, at creation";
+          a lost key cannot be viewed again; create a new one.
+WU-11     web/src/copy.ts AI_KEY_REFUSED (the server's sentence) + AI_KEY_REFUSED_HINT; Manage's AiKeyPanel reports its own failed
+          saves and deletes as an alert under the field and follows a refusal with the hint; no server change.
+          tests/test_spa_mode_copy.py::test_a_refused_ai_key_is_reported_beside_the_field_with_what_to_check; Playwright "a refused
+          AI key says so beside the field, with what to check, and a good one clears it".
+Measured  tsc -b --noEmit clean; SPA pin tests (test_spa_mode_copy + test_spa_csrf) 13 passed; ruff clean.
+          Playwright, cloud workspace, project @playwright/test 1.61.1 driving the pre-installed chromium-1243 (global 1.63.0):
+          63 passed, 1 failed of 64. The failure, "draft board shows player name, position, and ADP" (the last My Team avatar still
+          shows its initials), fails identically on the unmodified commit 56e6c73 in this workspace and passed in CI #61 on c6ded53:
+          an artefact of the mismatched browser here, and CI's to gate.
+Control   the panel's save failure handed back to the page line: the Playwright test fails at panel.getByRole("alert") (not found)
+          and the pin test at "save and delete failures belong to the panel"; restored.
+Build     npm run build: 702 modules; dist/assets index-CF3VDN2j.js, index-D_0c9WkV.css (unchanged), Analytics-Cpy1g6U2.js
+Read ahead  the report's call, against the vendor's pages (2026-11-20), since G7 is the first real model call on the hosted site:
+          STANDARD_MODEL claude-sonnet-5: Active, marked legacy; retirement "not sooner than June 30, 2027".
+          BULK_MODEL claude-haiku-4-5: alias of claude-haiku-4-5-20251001; Active, marked legacy; its "not sooner than" date,
+          October 15, 2026, has passed. Draft recaps depend on it.
+          The successors are not a constant change: the models page says Sonnet 5.5 rejects thinking {"type": "disabled"} with a
+          400, and api/services/ai.py passes exactly that on every call.
+          SDK: anthropic 2.8.0 Messages.parse accepts output_format, output_config and thinking; the call's keywords are valid.
+Not yet   the one report (League difficulty brief), the "last used" line, and the three reads with KEY_TAIL=BgAA.
+

@@ -173,3 +173,32 @@ def test_the_ai_off_hint_names_the_cure_for_the_mode_it_is_shown_on():
     e2e = E2E.read_text(encoding="utf-8")
     assert INVITED_AI_HINT in e2e, "the browser suite does not read the invited hint"
     assert LOCAL_AI_HINT not in e2e, "the browser suite pins the local sentence somewhere"
+
+
+def test_a_refused_ai_key_is_reported_beside_the_field_with_what_to_check():
+    """WU-11. The first refused key on the invited site (2026-11-20) was a
+    31-character paste. The server's sentence was accurate and unhelpful, and it
+    appeared in the page's error line at the top, a screen away from the field.
+    Now the panel reports its own failures, and a refusal carries a hint. The
+    sentence the hint follows is the server's, held together with it here so the
+    two cannot drift; the hint lives in copy.ts and the page has no sentence of
+    its own."""
+    copy = COPY_TS.read_text(encoding="utf-8")
+    server = (ROOT / "api/services/ai_keys.py").read_text(encoding="utf-8")
+    refused = re.search(r'export const AI_KEY_REFUSED = "([^"]+)";', copy)
+    assert refused, "copy.ts no longer names the server's refusal sentence"
+    assert f'super().__init__("{refused.group(1)}")' in server, refused.group(1)
+    hint = re.search(r'export const AI_KEY_REFUSED_HINT =\s*"([^"]+)";', copy)
+    assert hint, "copy.ts no longer carries the refusal hint"
+    for words in ("Nothing was stored.", "starts with sk-ant-", "only once", "create a new one"):
+        assert words in hint.group(1), words
+    manage = MANAGE_TSX.read_text(encoding="utf-8")
+    assert hint.group(1) not in manage and refused.group(1) not in manage, "the page reads the table"
+    start = manage.index("function AiKeyPanel(")
+    panel = manage[start : manage.index("\n}\n", start)]
+    # The panel reports a failed save or delete itself, as an alert beside the
+    # field; only a failed load is still the page's to report.
+    assert 'role="alert"' in panel and 'data-testid="ai-key-error"' in panel
+    assert "AI_KEY_REFUSED ?" in panel and "AI_KEY_REFUSED_HINT" in panel
+    assert panel.count("onError(") == 1, "save and delete failures belong to the panel"
+    assert "a refused AI key says so beside the field" in E2E.read_text(encoding="utf-8")

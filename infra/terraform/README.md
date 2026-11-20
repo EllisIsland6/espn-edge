@@ -476,7 +476,9 @@ echo 'expect: status ok, mode private_invited'
 5. **The page.** The image carries the backend half; the panel is in the SPA bundle, which
    CloudFront serves from S3, so the bundle is rebuilt and synced like WU-4's (the hashes are the
    commit's; the cloud build of `296293b` gave `index-CmTJ5Ed4.js`, `index-D_0c9WkV.css`,
-   `Analytics-JlPG1tuw.js`). Forgotten on 2026-10-27 until the gate's first step found no panel.
+   `Analytics-JlPG1tuw.js`, and the build that carries WU-10 and WU-11 gives `index-CF3VDN2j.js`,
+   the same `index-D_0c9WkV.css` and `Analytics-Cpy1g6U2.js`). Forgotten on 2026-10-27 until the
+   gate's first step found no panel.
 
 ```bash
 cd ~/espn-edge

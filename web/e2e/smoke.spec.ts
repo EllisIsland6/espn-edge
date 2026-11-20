@@ -2810,3 +2810,61 @@ test("saving an AI key sends it once, shows only its tail, and deleting it erase
   expect(methods.filter((m) => m === "PUT")).toHaveLength(1);
   expect(methods.filter((m) => m === "DELETE")).toHaveLength(1);
 });
+
+test("a refused AI key says so beside the field, with what to check, and a good one clears it", async ({ page }) => {
+  // WU-11. The first refused key on the invited site (2026-11-20) was a
+  // 31-character paste; the server's sentence appeared at the top of the page,
+  // a screen away from the field, and did not say what to check.
+  const NOT_A_KEY = "apikey_01BrowserTestNotAKey0000";
+  const KEY = "sk-ant-api03-browser-test-value-nothing-real-wxyz";
+  const ON_FILE = {
+    provider: "anthropic",
+    hint: "wxyz",
+    created_at: "2026-11-20T20:00:00Z",
+    updated_at: "2026-11-20T20:00:00Z",
+    last_used_at: null,
+    last_error: null,
+  };
+  let stored = false;
+  const puts: string[] = [];
+  await page.route("**/api/health", (r) => json(r, { ...HEALTH, mode: "private_invited" }));
+  await page.route("**/api/accounts", (r) => json(r, []));
+  await page.route("**/api/ai/key", async (route) => {
+    if (route.request().method() !== "PUT") return json(route, stored ? ON_FILE : null);
+    const body = route.request().postData() ?? "";
+    puts.push(body);
+    if (body.includes("sk-ant-")) {
+      stored = true;
+      return json(route, ON_FILE);
+    }
+    return route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "the key was refused by Anthropic" }),
+    });
+  });
+  await page.goto("/manage");
+  const panel = page.getByTestId("ai-key-panel");
+  const field = page.getByPlaceholder("Anthropic API key", { exact: true });
+  await field.fill(NOT_A_KEY);
+  await page.getByRole("button", { name: "Save" }).click();
+  // Said inside the panel, as an alert: what happened, that nothing was kept,
+  // and what to check.
+  const problem = panel.getByRole("alert");
+  await expect(problem).toContainText("The key was refused by Anthropic.");
+  await expect(problem).toContainText("Nothing was stored.");
+  await expect(problem).toContainText("starts with sk-ant-");
+  await expect(problem).toContainText("only once");
+  // Nothing on file; the draft is kept for another try and never rendered.
+  await expect(page.getByTestId("ai-key-on-file")).toHaveCount(0);
+  await expect(field).toHaveValue(NOT_A_KEY);
+  expect(await page.locator("body").innerText()).not.toContain(NOT_A_KEY);
+  // The sentence is the panel's alone -- not also the page's line at the top.
+  await expect(page.getByText("refused by Anthropic")).toHaveCount(1);
+  // A whole key afterwards is accepted and the message goes.
+  await field.fill(KEY);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByTestId("ai-key-on-file")).toContainText("ending in …wxyz");
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  expect(puts).toEqual([JSON.stringify({ api_key: NOT_A_KEY }), JSON.stringify({ api_key: KEY })]);
+});
