@@ -2625,6 +2625,19 @@ def test_trusted_prompt_select_readiness_waits_for_delayed_real_pty_input():
     ids=("empty", "invalid-utf8", "nul", "ctrl-c"),
 )
 def test_trusted_prompt_failures_are_stable_hidden_and_single_shot(payload):
+    if payload == b"\x03" and signal.getsignal(signal.SIGINT) == signal.SIG_IGN:
+        # The prompt takes over SIGHUP, SIGQUIT, SIGTERM and SIGTSTP and leaves SIGINT to the
+        # interpreter, and an interpreter that inherits SIGINT ignored installs no handler for
+        # it. The terminal then consumes the ^C this case writes, nothing reaches the child, and
+        # it waits at the prompt until the deadline kills it. A shell without job control
+        # starts every background job that way (`pytest ... &`), which is what made this case
+        # look intermittent (docs/CLOSE-OUT.md lesson 62). Say so rather than time out.
+        pytest.fail(
+            "pytest was started with SIGINT ignored, as a shell without job control starts a "
+            "background job. The break-glass prompt leaves ^C to the interpreter's default "
+            "handler, which is not installed then, so this case cannot pass. Run the suite in "
+            "the foreground, or under `env --default-signal=INT`. docs/CLOSE-OUT.md lesson 62."
+        )
     transcript = _prompt_in_pty(payload)
     assert transcript.count(recovery_module._BREAK_GLASS_PROMPT) == 1
     visible_payload = payload.rstrip(b"\n\x03\x04")

@@ -485,3 +485,123 @@ Gate      the sync block until today ran `aws s3 sync --delete` on any outcome o
           stubs: a good build syncs and invalidates; a build that fails after emptying dist does neither. CLOSE-OUT lesson 60.
 Not yet   WU-9's plan, apply and proof run (README 9), on an evening of its own; G6; the owner read of the 25 re-pointed leagues.
 
+--- WU-9 applied and proven: plan #14, apply #16, the migrate task's proof run (2026-11-20)
+Push      d80c761..b27ade9 by the operator; CI #63 run 44815464912: Success, 4m 57s (backend 4m 54s, frontend 1m 50s)
+Agent     the host's ECS agent, read before the apply: 1.107.0 (the JSON-key valueFrom needs 1.37.0); gate line "agent ok"
+Plan #14  run 44818121080 on b27ade9, dispatched by the operator: Success, 1m 28s; policy tests (offline) 41s; terraform plan 40s
+          Terraform 1.15.1; fmt -check -recursive -diff: no output; "Success! The configuration is valid."; init against the S3
+          backend, plan -lock=false; "plan creates nothing the architecture rejects"; artifact terraform-plan-44818121080
+          (ID 14671285486, 72 KB, sha256:c7949c6b849ab2692a44b347d323051e835f5da52919c66e9e895994c67af7ab).
+          The first time Terraform itself read WU-9's HCL.
+          Plan: 2 to add, 1 to change, 2 to destroy.     (predicted 1/1/2, or 2/1/2 with the alarm subscription unconfirmed)
+            -/+ aws_ecs_task_definition.migrate            environment + DATABASE_URL = postgresql+psycopg2://edge_owner@<endpoint>:5432/
+                                                           edge?sslmode=require (shape checked: nothing between the scheme and the role
+                                                           but the role); secrets[0] name DATABASE_URL -> PGPASSWORD, valueFrom
+                                                           ...secret:espn-edge/database-url-owner-... -> ...secret:rds!db-...:password::
+                                                           image unchanged; mountPoints/portMappings/systemControls/volumesFrom = [] and
+                                                           tags = {} normalisation noise; forces replacement
+            ~   aws_iam_role_policy.task_execution_secrets one line removed (the copy's ARN), none added
+            -   aws_secretsmanager_secret.database_url_owner  name espn-edge/database-url-owner, recovery_window_in_days 7
+            +   aws_sns_topic_subscription.operator        email, topic espn-edge-alarms -- returning, never confirmed
+            ~   output migrate_task_definition             ...espn-edge-migrate:6 -> (known after apply)
+          read by Agent 1 from the raw job log (the browser pane signed in to GitHub by the operator for it) before the apply.
+Apply #16 run 44822401087 on b27ade9, approved by EllisIsland6 for production; job 26 s, 2m 34s with the wait for the review;
+          Terraform 1.15.1; the job log runs 21:42:35Z to 21:42:59Z
+          re-plan: Plan: 2 to add, 1 to change, 2 to destroy (21:42:55Z) -- the same four resources
+          aws_ecs_task_definition.migrate destroyed and created; aws_sns_topic_subscription.operator created;
+          aws_secretsmanager_secret.database_url_owner destroyed (Destroying 21:42:58.204Z, complete 21:42:58.477Z);
+          aws_iam_role_policy.task_execution_secrets modified
+          Apply complete! Resources: 2 added, 1 changed, 2 destroyed. (21:42:59Z)    migrate_task_definition = .../espn-edge-migrate:7
+          /api/health from the edge afterwards: status ok, mode private_invited
+Proof     the operator's terminal, after the apply:
+            task definition      7  PGPASSWORD;  valueFrom arn:aws:secretsmanager:us-east-1:<account>:secret:<managed>:password::
+            DATABASE_URL         postgresql+psycopg2://edge_owner@<endpoint>:5432/edge?sslmode=require
+            run-task             task f98b1a49680b49a1ab4ff2ab32140f7c (gated on the secret's name)
+            describe-tasks       STOPPED  EssentialContainerExited  0  Essential container in task exited
+            /espn-edge/migrate   2026-11-20T21:47:26 INFO [alembic.runtime.migration] Context impl PostgresqlImpl.
+                                 2026-11-20T21:47:26 INFO [alembic.runtime.migration] Will assume transactional DDL.
+                                 and nothing else -- no Running upgrade (the schema is at head), no ERROR, FATAL or fe_sendauth
+            describe-secret      espn-edge/database-url-owner  DeletedDate 2026-11-20T16:42:58.349 -05:00
+          The two log lines are the ones the 2026-11-13 measurement recorded for an authenticated run at head.
+          Cross-check: DeletedDate is 21:42:58.349Z, inside the apply log's Destroying (.204Z) and complete (.477Z) lines -- the
+          operator's terminal and the CI log name the same third of a second. So DeletedDate is the moment of the delete
+          call; the secret is recoverable for seven days from it and gone after.
+Shown     an authenticated alembic run on revision 7, whose one source of a password is the key the agent injects from the
+          managed secret (the URL carries none; without PGPASSWORD the measured answer is fe_sendauth, with a wrong one a
+          refusal). The proof block starts a task only when the registered definition's secret is PGPASSWORD, so an exit 0
+          cannot be the old revision's.
+Not shown a run on either side of a rotation. That the next rotation cannot strand a migration is by construction -- the
+          agent resolves AWSCURRENT at each task start -- and the first migrate run after one will be its observation.
+          The managed secret's LastRotatedDate was not read.
+Re-read   after the proof run, by Agent 1 from the browser pane: the three run pages (CI #63, plan #14, apply #16) and the
+          apply job's raw log; every duration, count and timestamp in this block is from those reads or the operator's paste.
+Same day  the contract said a stack change does not share an evening with a gate; this one did, by the operator's choice, after
+          G7 and the page sync had been recorded, pushed and read back from the edge, so that it was the only thing moving.
+Gate      found while writing this record: the proof block gated the task's start on the secret's name, and the describe on
+          a task having started, but waited and read the migrate log whatever had happened. With nothing started it would
+          have printed any earlier run's lines from the last four minutes above the proof's own expectation, and a failed
+          placement printed "task started: None". Neither occurred: the task started. README 9 now holds the wait, the
+          describe and the log read inside one gate on a real task ARN. Exercised against a stub aws whose log always holds
+          an earlier run's two lines: the block as run printed them with nothing started (the control); the block as it
+          stands prints "no task, so no log to read". Ten states -- agent 1.107.0 and 1.37.0 go; 1.36.9, 1.9.0, None and
+          empty stop; applied (one task, one wait, one describe, one log read); before the apply, no task placed, run-task
+          refused (no wait, no describe, no log read) -- each in bash 5.2, in zsh 5.9 as a script and in zsh 5.9 interactive
+          reading the block from stdin, the way a paste arrives (control for that mode: a "!event" line and a "#" line both
+          fail in it). The same output in all three. CLOSE-OUT lesson 61.
+Verdict   WU-9 deployed. No copy of the owner's password exists in the stack; the migrate task reads it where RDS keeps it.
+Alarm     aws_sns_topic_subscription.operator was created again by this apply (21:42:58Z) and is pending. AWS's pages, read
+          2026-11-20 (SNS API reference, Subscribe; SNS developer guide, deleting a subscription): a confirmation link is
+          valid for two days, and SNS deletes an unconfirmed subscription after 48 hours -- which is how state loses it and
+          why plan #13 (4/2/3 against 3/2/3) and plan #14 (2/1/2 against 1/1/2), each weeks after the apply before it, showed
+          it coming back.
+          The email this apply sent can be confirmed until 2026-11-22 21:42Z (16:42 Eastern); README 9 now says so.
+Not yet   G6 (invitations, the first also the revocation drill; the owner read of the 25 re-pointed leagues in that tunnel
+          session); the alarm subscription's confirmation, the operator's click; close-out.
+
+--- Found while verifying that record: the open [ctrl-c] "intermittent" is how the run was started (2026-11-20)
+Symptom   two full-suite runs for the WU-9 record each failed one test,
+          tests/test_recovery.py::test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]
+          ("synthetic credential prompt did not terminate") -- the failure this repository's records call intermittent and
+          unexplained (CLOSE-OUT 28 and 38; six hypotheses eliminated in ORCHESTRATION_STATE).
+            run 1   1 failed, 1691 passed, 26 skipped   264.50s
+            run 2   1 failed, 1698 passed, 19 skipped   261.16s   (PostgreSQL gates on: the seven extra skips of run 1)
+            tests/test_recovery.py alone, straight after run 1: 263 passed, 17 skipped, 134.38s
+          The tree differed from b27ade9 in documents only; the suite had passed here earlier the same day (1699, 19).
+Variable  runs 1 and 2 were started as background jobs of a non-interactive shell:  ( nohup python -m pytest ... & )
+Workspace ext4 on /dev/vda, 2 CPUs, load 0.5; Python 3.13.18, pytest 9.2.0, bash 5.2.21, coreutils 9.4
+Measured  one test, four ways of starting pytest, three times each; SIGINT's disposition read by a Python started the same way
+            A  foreground                                    default_int_handler   passed  passed  passed
+            B  parent ignores SIGINT (trap '' INT; exec)     SIG_IGN               failed  failed  failed
+            C  background job (cmd &)                        SIG_IGN               failed  failed  failed
+            D  background job under env --default-signal=INT default_int_handler   passed  passed  passed
+          the three sibling cases ([empty], [invalid-utf8], [nul]) under B: 3 passed; all four under B: 1 failed, 3 passed
+          full scale, run 3: started as run 2 was, with env --default-signal=INT added: 1699 passed, 19 skipped, 255.88s
+Path      read from the code, then measured apart from it. The prompt takes over SIGHUP, SIGQUIT, SIGTERM and SIGTSTP
+          (_BREAK_GLASS_LIFETIME_SIGNALS) and leaves SIGINT to the interpreter; it clears ECHO and ICANON and disables VQUIT,
+          VSUSP and VDSUSP, leaving ISIG on and VINTR alone. The test writes one 0x03 byte to the terminal. A scratch child
+          (not committed) that sets its terminal the same way and polls for two seconds, the parent writing 0x03:
+            SIGINT default   KeyboardInterrupt, 0 bytes read
+            SIGINT handled   handler called once, 0 bytes read
+            SIGINT ignored   no call, no interrupt, 0 bytes read
+          The terminal consumes the key as the interrupt character in every case. With SIGINT ignored nothing is left of
+          it, and the prompt waits for a line that is not coming (its own limit is 300 s; the test's is 5).
+Fits      every observation CLOSE-OUT 28 recorded: the signal sent and resent with no effect (ignored, not lost); the prompt
+          seen and nothing after it; a sixfold deadline no help; no disposition changed during the file (it was SIG_IGN
+          from the first instruction); six consecutive full runs failing "while the machine was loaded with other work"
+          and three on a quiet machine passing.
+Inference that the development VM's failures were background starts: how each of those runs was started was not
+          recorded. Checkable there with rows B and D. The six hangs are the mount's (CLOSE-OUT 38); this explains none.
+Product   started by a parent that ignores SIGINT, the break-glass prompt cannot be abandoned with ^C: the key is consumed
+          and the prompt waits for Enter or its timeout. A terminal's own shell starts a foreground command with the
+          default, so the runbook's use is unaffected. Not changed here.
+Specified not built -- recovery code changes under its own accepted contract: the prompt takes SIGINT over with the other
+          four for its duration and restores what it found; the [ctrl-c] case runs under both dispositions; the control
+          exists already (rows B and C on today's code).
+Changed   tests/test_recovery.py only: started with SIGINT ignored, the [ctrl-c] case now fails at once and says why, where
+          it failed after five seconds saying a child did not terminate. Same four launches after the change:
+            A  4 passed 1.12s     B  1 failed (the new message), 3 passed 0.84s     C  1 failed 0.63s     D  4 passed 0.74s
+          It is red in exactly the launches it was red in before; only the reason is new. ruff clean.
+Until     run the suite in the foreground, or under env --default-signal=INT when it has to be a background job. CI has
+          never shown it: its step runs pytest in the foreground and the case passes there on every run (#61 to #63 today).
+          CLOSE-OUT lesson 62.
+

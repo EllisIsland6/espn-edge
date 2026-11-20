@@ -24,7 +24,8 @@ pointed at -- `DELETE /api/accounts/2` answered 204, the row is gone, the 25 lea
 public, and no cache row was lost (acceptance 8).** **G7 done 2026-11-20: the operator's own Anthropic key on
 file, one report generated with it on the hosted site, the key in no log line (acceptance 10).** The page
 bundle carrying WU-10 and WU-11 was built from `d80c761`, synced and read back from the edge the same day.
-Remaining: WU-9's apply, then G6. Each later gate is its own approval, recorded in
+**WU-9 applied and proven the same evening (plan #14 `2/1/2` as predicted, apply #16, the migrate task's proof
+run exit 0).** Remaining: G6. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -415,7 +416,7 @@ for a tenant's own spend (three tests, the patched `reserve` firing); the failur
 table (the order test); and on PostgreSQL, row security switched off on the table -- tenant A reads
 both keys and the isolation test fails. Acceptance criterion 10.
 
-### WU-9. No copy of a rotating password (found at the WU-7 deploy; specified 2026-10-27)
+### WU-9. No copy of a rotating password (found at the WU-7 deploy; specified 2026-10-27; applied 2026-11-20)
 
 **The Question.** How does the migrate task authenticate as `edge_owner` when RDS rotates that
 password every seven days and nothing but RDS knows the new one?
@@ -467,6 +468,38 @@ the role), the absence of the copy from every `.tf`, and the execution role's li
 previous Terraform it fails at the secrets assertion (control run). Policy suite 35 passed, `ruff`
 clean. README §5 step 2, §8 step 4 (the refresh block gone) and the new §9 carry the deploy order
 and the reads; CLOSE-OUT lesson 56. Applies after G7 is recorded.
+
+**Applied and proven 2026-11-20.** The contract's own caution was that a stack change does not share
+an evening with a gate. It shared one, by the operator's choice, after G7 and the page sync had been
+recorded, pushed and read back from the edge -- so that it was the only thing moving. *The
+precondition no plan shows:* the host's ECS agent is `1.107.0` (1.37.0 needed). *Plan #14* (run
+44818121080 on `b27ade9`, Terraform 1.15.1): `fmt -check` silent and `validate` clean -- the first
+time Terraform itself read this HCL, which the cloud workspace could only check with the policy
+tests and by eye -- and `Plan: 2 to add, 1 to change, 2 to destroy`, the predicted `1/1/2` plus the
+alarm-email subscription returning because it was still unconfirmed, the variant named before the
+plan existed. Read line by line before the apply: the migrate task definition replaced, its
+environment gaining a `DATABASE_URL` of exactly `postgresql+psycopg2://edge_owner@<endpoint>:5432/
+edge?sslmode=require` and its one secret changing from `DATABASE_URL` at the copy's ARN to
+`PGPASSWORD` at the managed secret's ARN with `:password::`, the image untouched; the execution
+role's policy losing one line and gaining none; the copy secret destroyed; the subscription created.
+*Apply #16* (run 44822401087), approved by the operator for `production`: `Apply complete!
+Resources: 2 added, 1 changed, 2 destroyed`, `migrate_task_definition` now revision 7; `/api/health`
+ok and `private_invited` after it. *The proof run*, his: the task definition reads back revision 7,
+`PGPASSWORD`, the managed ARN with `:password::` and the password-less URL; one task started on it
+stopped with `EssentialContainerExited`, exit code 0; the migrate log holds exactly `Context impl
+PostgresqlImpl.` and `Will assume transactional DDL.` -- the two lines the cloud measurement had
+predicted for an authenticated run at head; the copy secret reads back deleted at 21:42:58.349Z,
+inside the third of a second between the apply log's `Destroying` and `Destruction complete` lines
+for it. The owner's password is now read where RDS keeps it, at the moment the task starts. *Shown
+and not shown:* the run authenticated on a definition whose only source of a password is the
+injected key, and the proof block starts nothing unless the registered definition's secret is
+`PGPASSWORD`, so the exit 0 cannot be the old revision's; that the next rotation cannot strand a
+migration is by construction -- the agent resolves `AWSCURRENT` at each start -- and the first
+migrate run after one will be its observation. README §9 carries the two blocks as run, with one
+repair found while writing this record: the proof block waited and read the migrate log whether or
+not a task had started, so with none it would have shown an earlier run's lines under the proof's
+expectation. The wait, the describe and the log read now sit inside one gate on a real task ARN
+(stub-exercised in ten states, in bash and in zsh as a paste arrives; CLOSE-OUT lesson 61).
 
 ### WU-10. The AI-off hint names the cure for the site it is shown on (found at G7; built 2026-10-27)
 

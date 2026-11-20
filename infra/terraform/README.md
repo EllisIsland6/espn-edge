@@ -528,42 +528,70 @@ Delete the key on the panel to prove the erase, and paste it again if you want t
 Everyone you invite does the same on their own Manage page; their key is theirs, their bill is
 theirs, and revoking them (section 7) takes the row with them.
 
-### 9. No copy of a rotating password -- WU-9, a stack change on its own evening
+### 9. No copy of a rotating password -- WU-9 (applied 2026-11-20)
 
 Found at the WU-7 deploy (section 8 step 4): the migrate task read a hand-written copy of the
 RDS-managed owner password, and a copy of a password that rotates every seven days is stale by
 construction. Now the task reads the managed secret's `password` key as `PGPASSWORD` -- the ECS
 agent injects one JSON key of a secret when the `valueFrom` carries `:password::` after the ARN,
-the empty stage and version meaning `AWSCURRENT` (agent 1.37.0 or later on EC2; the AL2023 ECS AMI
-is far past it) -- and a `DATABASE_URL` in plain environment with the role, the endpoint, the
-database and `sslmode=require` and no password, which libpq completes from the environment. The
-copy secret leaves the stack (its 7-day recovery window is the undo). Measured in the cloud
-workspace against PostgreSQL 16 with scram over TCP: alembic `0001 -> 0018` with `PGPASSWORD` set
-and nothing in the URL; `fe_sendauth: no password supplied` without it; the exact 2026-10-27
-refusal with a wrong one. A side effect worth having: the task's URL can no longer carry a
-password into a traceback, which is how the 2026-10-08 incident happened.
+the empty stage and version meaning `AWSCURRENT` (agent 1.37.0 or later on EC2) -- and a
+`DATABASE_URL` in plain environment with the role, the endpoint, the database and `sslmode=require`
+and no password, which libpq completes from the environment. The copy secret left the stack (its
+7-day recovery window is the undo). Measured beforehand in the cloud workspace against PostgreSQL
+16 with scram over TCP: alembic `0001 -> 0018` with `PGPASSWORD` set and nothing in the URL;
+`fe_sendauth: no password supplied` without it; the exact 2026-10-27 refusal with a wrong one. A
+side effect worth having: the task's URL can no longer carry a password into a traceback, which is
+how the 2026-10-08 incident happened.
 
-Terraform only, so: plan-first on the commit, apply, then one run of the migrate task at head as
-the proof. Predicted plan: `1 to add, 1 to change, 2 to destroy` -- the migrate task definition
-replaced, the execution role's secrets policy updated in place (the copy's ARN leaves the list;
-the managed secret's was already there), the old definition and the copy secret destroyed. Not
-on the evening of a gate.
+Applied on 2026-11-20: plan #14 read `2 to add, 1 to change, 2 to destroy` against a prediction of
+`1/1/2` plus the alarm-email subscription should it still be unconfirmed (it was) -- the migrate
+task definition replaced, the execution role's secrets policy losing one line (the copy's ARN; the
+managed secret's was already there), the old definition and the copy secret destroyed; apply #16
+`2 added, 1 changed, 2 destroyed`; then one run of the migrate task at head as the proof: exit
+code 0 and exactly two log lines. The same order serves any later change to this task: the agent
+check, the plan read against a prediction, the apply, the proof run.
+
+The alarm-email subscription is why a plan here reads one more `to add` than its change explains.
+SNS deletes a subscription nobody confirmed after 48 hours, and the link in its email works for two
+days (AWS's pages, read 2026-11-20), so a plan made more than two days after the last apply finds
+it gone, and the apply creates it again and sends another email. Click "Confirm subscription" in
+the newest one -- within two days of the apply that sent it -- and the next plan reads one resource
+fewer. Nothing else waits on it: the ten alarms sit in ALARM until the metrics sink exists (see the
+list at the top of this file).
+
+Before the apply -- the one precondition no plan can show:
 
 ```bash
 cd ~/espn-edge
-aws ecs describe-container-instances --cluster espn-edge --container-instances $(aws ecs list-container-instances --cluster espn-edge --query 'containerInstanceArns[0]' --output text) --query 'containerInstances[0].versionInfo.agentVersion' --output text
-echo 'expect: an agent version of 1.37.0 or later -- the JSON-key form of valueFrom needs it; AL2023 ECS AMIs ship far later versions'
-aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].[secrets[0].name,secrets[0].valueFrom]' --output text | sed -E 's|secret:[^:]+:password::|secret:<managed>:password::|'
-echo 'expect: after the apply, PGPASSWORD and the managed secret ARN ending in :password:: ; before it, DATABASE_URL and the copy'
+AGENT=$(aws ecs describe-container-instances --cluster espn-edge --container-instances $(aws ecs list-container-instances --cluster espn-edge --query 'containerInstanceArns[0]' --output text) --query 'containerInstances[0].versionInfo.agentVersion' --output text)
+echo "agent ${AGENT}"
+case "${AGENT}" in [0-9]*.[0-9]*.[0-9]*) .venv/bin/python -c 'import sys; v = tuple(int(x) for x in sys.argv[1].split(".")[:3]); print("agent ok -- go ahead with the apply" if v >= (1, 37, 0) else "STOP -- agent older than 1.37.0; do not apply")' "${AGENT}" ;; *) echo 'STOP -- could not read the agent version' ;; esac
+echo 'expect: a version at or above 1.37.0 (1.107.0 on 2026-11-20) and the line: agent ok -- go ahead with the apply'
+```
+
+After the apply -- the proof run. It starts nothing unless the apply has landed on the task, and
+it waits for, describes and reads nothing unless a task started (as run on 2026-11-20 the wait and
+the log read were outside that gate; with no task they would have shown whatever an earlier run
+had left in the last four minutes, under the proof's own expectation):
+
+```bash
+cd ~/espn-edge
+aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.[revision,containerDefinitions[0].secrets[0].name]' --output text
+echo 'expect: the new revision (7 on 2026-11-20) and PGPASSWORD'
+aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].secrets[0].valueFrom' --output text | sed -E 's|secret:[^:]+:password::|secret:<managed>:password::|'
+echo 'expect: arn:aws:secretsmanager:us-east-1:<account>:secret:<managed>:password::'
 aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].environment[?name==`DATABASE_URL`].value' --output text
-echo 'expect: after the apply, postgresql+psycopg2://edge_owner@<endpoint>:5432/edge?sslmode=require -- a URL with no password in it; before it, nothing (the URL was the secret)'
-aws ecs run-task --cluster espn-edge --task-definition espn-edge-migrate --launch-type EC2 --query 'tasks[0].[taskArn,lastStatus]' --output text
-echo 'expect: a task ARN and PENDING'
-sleep 60
-aws logs tail /espn-edge/migrate --since 3m --format short | grep -E 'Context impl|Will assume|Running upgrade|ERROR|Traceback|Error|FATAL|fe_sendauth'
-echo 'expect: Context impl PostgresqlImpl and Will assume transactional DDL, nothing else -- the owner authenticated with the password read where it lives, and the schema is already at head'
+echo 'expect: postgresql+psycopg2://edge_owner@<endpoint>:5432/edge?sslmode=require -- no password in it'
+SECRET_NAME=$(aws ecs describe-task-definition --task-definition espn-edge-migrate --query 'taskDefinition.containerDefinitions[0].secrets[0].name' --output text)
+if [ "${SECRET_NAME}" = "PGPASSWORD" ]; then TASK_ARN=$(aws ecs run-task --cluster espn-edge --task-definition espn-edge-migrate --launch-type EC2 --query 'tasks[0].taskArn' --output text); else TASK_ARN=""; echo 'the apply has not landed on the migrate task (its secret is not PGPASSWORD) -- nothing started'; fi
+case "${TASK_ARN}" in arn:aws:ecs:*) TASK_OK=yes; echo "task started: ${TASK_ARN##*/}" ;; *) TASK_OK=no; echo 'no task was started -- nothing below this line is a proof' ;; esac
+echo 'expect: task started: and a task id'
+if [ "${TASK_OK}" = "yes" ]; then sleep 75; aws ecs describe-tasks --cluster espn-edge --tasks "${TASK_ARN}" --query 'tasks[0].[lastStatus,stopCode,containers[0].exitCode,stoppedReason]' --output text; else echo 'no task to describe'; fi
+echo 'expect: STOPPED EssentialContainerExited 0 Essential container in task exited -- a stoppedReason naming secrets means the agent could not read the key (it names an ARN, never a value)'
+if [ "${TASK_OK}" = "yes" ]; then aws logs tail /espn-edge/migrate --since 4m --format short | grep -E 'Context impl|Will assume|Running upgrade|ERROR|Traceback|Error|FATAL|fe_sendauth'; else echo 'no task, so no log to read'; fi
+echo 'expect: Context impl PostgresqlImpl. and Will assume transactional DDL. and nothing else -- the owner authenticated with the password read where it lives, and the schema is at head'
 aws secretsmanager describe-secret --secret-id espn-edge/database-url-owner --query '[Name,DeletedDate]' --output text
-echo 'expect: the name and a deletion date -- scheduled, recoverable for seven days; after that, ResourceNotFoundException is the answer and the right one'
+echo 'expect: the name and DeletedDate, the moment the apply deleted it (16:42:58 -05:00 on 2026-11-20, the second the apply log shows) -- recoverable for seven days from then; after that, ResourceNotFoundException is the answer and the right one'
 ```
 
 ## Guarantees, and where each is held

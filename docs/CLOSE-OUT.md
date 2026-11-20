@@ -544,6 +544,10 @@ This was a practice project. These are the findings that are not about fantasy f
     deterministic reproducer and there is none. It is to instrument that window in the child, where
     the transcript already carries anything it writes.
 
+    *Resolved 2026-11-20, lesson 62. There was a deterministic reproducer: start pytest with
+    SIGINT ignored. The measurements above stand; the reading of them did not -- `^C` never
+    reaches the prompt's flag handler, because the prompt does not take SIGINT over.*
+
     A procedural note from the bisect that failed: the first harness printed a confident trigger
     (`[nul]`) from a search whose **invariant never held** -- both ends passed, so every step moved
     the same way and the final value was an artefact of the loop, not a measurement. The second
@@ -1063,6 +1067,89 @@ This was a practice project. These are the findings that are not about fantasy f
     find (`--delete`, `--prune`, `rm` of a computed list, a replace-all) must be conditional on
     the success of whatever produced the thing it compares against -- and the block was tried
     with a build stubbed to fail after emptying the folder, to see it do nothing.
+
+61. **A proof belongs to the act it proves, and a record says what the proof did not show.** WU-9
+    reached the stack on 2026-11-20 in the order lesson 56 had prepared: the one precondition no
+    plan shows read first (the host's agent, `1.107.0`); plan #14 read against a prediction that
+    had named its own noise in advance (`1/1/2`, or `2/1/2` if the alarm subscription was still
+    unconfirmed -- it was, and a count that differed from the headline surprised nobody); apply
+    #16; then one run of the migrate task -- exit code 0 and exactly the two log lines the cloud
+    measurement had produced a week earlier. Two things in the proof were looser than the result.
+    The block started a task only when the registered definition carried the new secret, and
+    described a task only when one had started, but it waited and read the migrate log whatever
+    had happened. With nothing started, that read would have printed whatever an earlier run had
+    left in the last four minutes, directly above the expectation that names the proof. It did
+    not bite -- the task started -- and it was found on re-reading the block for the record, in a
+    block written the day after lesson 58 by the hand that wrote lesson 58. A stub `aws` whose
+    log always holds an earlier run's lines showed the block as run printing them with nothing
+    started, and the repaired one -- the wait, the describe and the log read inside one gate on a
+    real task ARN -- printing `no task, so no log to read`: ten states, in bash, in zsh, and fed
+    to an interactive zsh the way a paste arrives. The other looseness was in the sentence, not
+    the shell. "The next rotation cannot strand a migration" is what the change was made for, and
+    it is true by construction -- the agent resolves the current version at each start -- but it
+    was not observed: the run came four and a half minutes after the apply, and the secret's
+    rotation date was not read. The record says so under *Shown* and *Not shown* rather than
+    letting one green run stand for the property. And one departure, recorded as one: the
+    contract said a stack change does not share an evening with a gate; this one did, by the
+    operator's choice, after the gate and the page sync were recorded, pushed and read back, so
+    that it was the only thing moving. The moves: a read that proves an act runs inside the same
+    condition as the act; a prediction carries its known noise, so that a different count is
+    still an expected one; a record separates what was observed from what follows from the
+    design; and when a rule you wrote is set aside, the record names the rule, who set it aside,
+    and what made that safe.
+
+62. **An intermittent is a deterministic failure whose variable has not been named, and the
+    variable can be how the run was started.** Lessons 28 and 38, and six hypotheses measured
+    and eliminated in the orchestration record, left
+    `test_trusted_prompt_failures_are_stable_hidden_and_single_shot[ctrl-c]` intermittent and
+    unexplained, with load as the hypothesis that fitted. It is neither intermittent nor about
+    load. On 2026-11-20 two full-suite runs started for the WU-9 record
+    each failed it, in a workspace where the suite had passed earlier the same day; the file
+    alone, run straight after, passed. The tree differed in documents only. What differed was
+    that both failing runs had been started as background jobs, so that other work could go on.
+
+    A shell without job control starts a background job with SIGINT ignored. An interpreter that
+    inherits SIGINT ignored installs no handler for it. And the prompt takes over four signals --
+    HUP, QUIT, TERM, TSTP -- and leaves SIGINT to the interpreter. So the `^C` the test writes is
+    consumed by the terminal as the interrupt key, the signal it becomes is ignored, and the
+    child waits at a prompt nobody is typing at until the test's deadline kills it. One test,
+    four ways of starting pytest, three times each: in the foreground, passed, passed, passed;
+    with a parent that ignores SIGINT, failed three times; as a background job, failed three
+    times; as the same background job under `env --default-signal=INT`, passed three times. The
+    three sibling cases, which send no `^C`, pass with SIGINT ignored. Then at full scale: a
+    third run, started as the second failing one had been with the default put back -- 1699
+    passed. And apart from the test, a child that sets its terminal the way the prompt does:
+    with SIGINT ignored it reads no byte and gets no signal. The key is simply gone.
+
+    Every observation lesson 28 recorded fits, which is the uncomfortable part. The signal was
+    sent, and resent every quarter second, and nothing changed: ignored, not lost. The prompt
+    was seen and nothing followed it. A sixfold deadline did not help: the child was waiting out
+    a five-minute prompt. No disposition *changed* during the file: it was wrong from the first
+    instruction, and the teardown hook was looking for a difference. "Six consecutive full-suite
+    runs failed it while the machine was loaded with other work; three later runs on a quiet
+    machine did not" -- *other work going on* is what a background job looks like from the
+    chair. Load was the hypothesis that got written down; the launch was the variable, and it
+    appears in no record, because it was never thought of as part of the experiment. Lesson 38
+    found the interpreter confounded with the filesystem. A third thing was moving with both,
+    and it was the one nearest to hand. For the development VM's failures this is an inference
+    -- how each run was started was not recorded -- and it can be checked there with the second
+    and fourth of the four launches. The six hangs are still the mount's.
+
+    It is also a small fact about the product, found by a test for the wrong reason: started by
+    anything that ignores SIGINT, the break-glass prompt cannot be abandoned with `^C`, and
+    waits for Enter or its timeout. A terminal's own shell does not start a command that way,
+    so nothing is broken in the runbook's use. The repair is specified and not built, because
+    recovery code changes under its own accepted contract: the prompt takes SIGINT over with
+    the other four for its duration, and the `^C` case runs under both dispositions. What did
+    change is the test's voice: started that way it now fails at once and says why, where it
+    used to fail after five seconds and say only that a child did not terminate (lesson 52).
+
+    The moves: when a failure comes and goes, write down how the run was started -- the shell,
+    foreground or background, the wrapper -- before forming a hypothesis about the code; a
+    hypothesis is eliminated only for the conditions it was tested under; a check for "did
+    anything change" cannot see a thing that was wrong before it started looking; and run the
+    suite in the foreground, or under `env --default-signal=INT` when it has to be in the
+    background.
 
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
