@@ -334,9 +334,14 @@ def deploy(
     changes = run(["git", "status", "--porcelain"], cwd=root)
     if changes.returncode != 0:
         raise Refused("could not read the working tree's state")
-    if changes.stdout.strip() and not args.allow_dirty:
+    dirty = [line.strip() for line in changes.stdout.splitlines() if line.strip()]
+    if dirty and not args.allow_dirty:
+        # Name what is in the way: tracked edits and untracked files both count, and a
+        # refusal that does not say which sends the operator looking (CLOSE-OUT lesson 52).
+        more = f"; and {len(dirty) - 5} more" if len(dirty) > 5 else ""
         raise Refused(
-            "the working tree has uncommitted changes -- what goes on the site is a commit"
+            "the working tree is not clean -- what goes on the site is a commit: "
+            f"{'; '.join(dirty[:5])}{more}"
         )
 
     # Where it goes: read, never assumed.

@@ -51,3 +51,9 @@ __pycache__/
 infra/terraform/stack/plan.txt
 infra/terraform/stack/plan.json
 tfplan
+
+# The Claude desktop app saves files an assistant session delivers into this folder of
+# whichever directory the session is connected to. They are deliveries, not sources: on
+# 2026-11-27 a bundle delivered here made the tree "not clean" for the very block that was
+# meant to land it (WU-12's record).
+Claude outputs/

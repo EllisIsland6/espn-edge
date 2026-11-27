@@ -684,3 +684,26 @@ Suite     full offline suite on this tree, PostgreSQL gates on, a background job
 Not yet   the push, CI and the deploy with the script (the operator's). The script's own read of the live site is the
           measurement that meets acceptance 11. Then G6.
 
+--- The land-and-push block met the desktop app's own folder; abe16e0 landed by the mirror (2026-11-27)
+Handed    at 19:30Z, with the Mac unreachable from the workspace (the bridge down, two tries): the commit as a git bundle
+          delivered into the chat, and a block for the operator's terminal that looked for the bundle in ~/Downloads,
+          fast-forwarded to it, and pushed only if HEAD was abe16e0 on a clean tree. Tried beforehand against four scratch
+          clones with real git, as a paste into zsh: bundle present, absent, already landed, tree dirty.
+Ran       the operator's paste, about 19:50Z:  ?? "Claude outputs/"  /  HEAD fc65da9  /  "not pushed". Nothing changed: the
+          guard held.
+Cause     read on his machine once the bridge was back: the desktop app had saved the delivered bundle to
+          ~/espn-edge/Claude outputs/espn-edge-fc65da9-abe16e0.bundle (37,516 bytes, 19:45Z) -- inside the repository, not
+          in ~/Downloads. The block found no bundle where it looked, and the bundle's own presence made the tree "not
+          clean" for the guard. Until that day the folder had been empty, which git does not report.
+          The scratch clones had neither the app nor its folder. CLOSE-OUT 54 again (a runbook is verified on the machine
+          it is written for), in the shape of CLOSE-OUT 57 (the agent's own channel is part of the operator's machine).
+Landed    by the usual mirror instead: the Mac's eight changed files equal fc65da9's and the four new ones were absent;
+          written with their mtime guards; committed there with the cloud's stamp --
+          abe16e0c362d977b9f111a859c453049d3078119, the same hash; one ahead of origin/main.
+Fixed     .gitignore ignores "Claude outputs/" (deliveries, not sources; checked with git check-ignore on a file in such a
+          folder). ops/deploy_spa.py's refusal of an unclean tree now names what is in the way -- up to five paths, then a
+          count: it would have refused the deploy over the same folder and said only "uncommitted changes" (CLOSE-OUT 52).
+          tests/test_deploy_spa.py 46 passed; nineteen one-line breakages of the script each caught.
+Suite     full offline suite on this tree, PostgreSQL gates on, a background job with SIGINT's default put back: 1745 passed,
+          19 skipped in 298.57s; ruff check api tests ops/deploy_spa.py: clean. The page is untouched: its file names are abe16e0's.
+

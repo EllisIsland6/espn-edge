@@ -548,13 +548,34 @@ def test_a_dry_run_builds_reads_and_changes_nothing(tmp_path):
 def test_uncommitted_changes_are_refused_before_anything_is_built(tmp_path):
     make_dist(tmp_path)
     site = Site(tmp_path, dirty=" M web/src/App.tsx\n")
-    with pytest.raises(ds.Refused, match="uncommitted changes"):
+    with pytest.raises(ds.Refused, match="not clean") as refusal:
         deploy(site)
+    assert "M web/src/App.tsx" in str(refusal.value), "the refusal names what is in the way"
     assert not any(c[0] in ("npm", "aws") for c in site.calls)
     # Said out loud, it is allowed: the flag is the operator's sentence, not a default.
     allowed = Site(tmp_path, dirty=" M web/src/App.tsx\n")
     deploy(allowed, "--allow-dirty")
     assert allowed.bucket["index.html"]["cache"] == "no-cache"
+
+
+def test_an_untracked_file_refuses_too_and_is_named(tmp_path):
+    """2026-11-27: a file the desktop app had saved into the repository folder made the
+    tree "not clean". Untracked counts -- but the refusal has to say which file, and a long
+    list is cut short."""
+    make_dist(tmp_path)
+    site = Site(tmp_path, dirty='?? "Claude outputs/"\n')
+    with pytest.raises(ds.Refused, match='not clean .*: \\?\\? "Claude outputs/"$'):
+        deploy(site)
+    assert site.changes() == []
+    many = Site(tmp_path, dirty="".join(f"?? stray-{n}.txt\n" for n in range(8)))
+    with pytest.raises(ds.Refused, match="stray-4.txt; and 3 more$") as refusal:
+        deploy(many)
+    assert "stray-5.txt" not in str(refusal.value)
+
+
+def test_the_folder_the_desktop_app_delivers_into_is_ignored():
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "Claude outputs/" in ignore
 
 
 @pytest.mark.parametrize(
