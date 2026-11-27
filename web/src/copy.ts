@@ -80,3 +80,24 @@ export const FOOTER_LABEL: Record<Mode, string> = {
 export function holdsCredentials(mode: Mode | null | undefined): mode is Mode {
   return mode === "private_operator" || mode === "private_invited";
 }
+
+/**
+ * What a screen says when it cannot be shown (WU-12). The router's own fallback is a
+ * developer's page -- "Unexpected Application Error!" over the raw exception -- and on
+ * 2026-11-20 that is what the hosted site showed for a file a deploy had removed. A missing
+ * on-demand file is first cured without a word, by one reload (lib/chunk.ts); these
+ * sentences are for when that did not work, and for any other failure of a screen. No
+ * exception text reaches the page: the sentence is for the person, the exception is for the
+ * console.
+ */
+export const ROUTE_ERROR = {
+  chunk: {
+    title: "This screen could not be loaded.",
+    body: "The site may have just been updated, or the connection dropped. Reload to try again.",
+  },
+  other: {
+    title: "Something went wrong on this screen.",
+    body: "Reload to try again.",
+  },
+  reload: "Reload",
+} as const;

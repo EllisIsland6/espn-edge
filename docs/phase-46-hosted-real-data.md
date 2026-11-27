@@ -25,7 +25,10 @@ public, and no cache row was lost (acceptance 8).** **G7 done 2026-11-20: the op
 file, one report generated with it on the hosted site, the key in no log line (acceptance 10).** The page
 bundle carrying WU-10 and WU-11 was built from `d80c761`, synced and read back from the edge the same day.
 **WU-9 applied and proven the same evening (plan #14 `2/1/2` as predicted, apply #16, the migrate task's proof
-run exit 0).** Remaining: G6. Each later gate is its own approval, recorded in
+run exit 0).** **Found that evening in the operator's own browser: that day's page deploy had stranded pages
+already open -- Analytics answered with the router's raw error screen (WU-12, built 2026-11-27; a deploy
+script that keeps the previous build's files and sets cache headers, and a page that reloads once).**
+Remaining: WU-12's deploy, then G6. Each later gate is its own approval, recorded in
 `docs/agent-handoffs/ORCHESTRATION_STATE.md` before the work it admits begins.**
 
 Operator's scope, 2026-10-12: the site should work for him and about ten invited people, each with
@@ -556,6 +559,88 @@ follows it and the panel's alert; the local `.env` instruction appears in it onc
 under the operator's mode; the superseded script answers 403. The sync block is now gated on the
 build's exit status (README §8 step 5; CLOSE-OUT lesson 60).
 
+### WU-12. A deploy that does not strand open pages (found on the site 2026-11-20; built 2026-11-27)
+
+At 23:21 UTC on 2026-11-20, two and a half hours after that day's page deploy, the operator opened
+Analytics and the hosted site showed the router's fallback -- *Unexpected Application Error!* over
+`Failed to fetch dynamically imported module: .../assets/Analytics-JlPG1tuw.js`. Read from the edge
+by Agent 1 a minute later: the shell 200, naming the new script, **with no `Cache-Control` at all**;
+the new Analytics file 200 and a CloudFront miss (nobody had asked that edge for it yet); the two
+superseded scripts 403. His browser was still running the previous build, and the previous build's
+on-demand screen was gone.
+
+Three causes, none of them in the application's logic. The deploy ran `aws s3 sync --delete`, which
+removes the previous build's hash-named files in the same breath as it uploads the new ones -- and
+the 2026-11-20 record lists "the superseded script answers 403" among the reads that *proved* that
+deploy. The shell was uploaded with no caching header, and a cache may then choose a freshness
+lifetime for itself (RFC 9111 §4.2.2; the customary heuristic is a tenth of the time since
+`Last-Modified`): the shell it replaced was 24 days old, so a browser that had fetched it was
+entitled to reuse it for more than two days without asking. And the page had no answer of its own
+to a failed on-demand import. Which of the two his browser was doing -- an old tab still in memory,
+or a new tab given the old shell from cache -- was not measured; both end in the same request.
+
+**The Question.** What does a deploy of static, hash-named files owe a page that was loaded before
+it?
+
+**The Lens.** Availability across a release -- a deploy is not an outage for whoever is already
+there; HTTP caching as specified, not as hoped; what an invited person sees when something does go
+wrong; cost (three small objects a build).
+
+**The Selection.** For the files: keep everything for ever; keep by age; or a prefix per build
+with the shell pointing at one. For the shell's freshness: object metadata set at upload, or a
+response-headers policy on the distribution. For the page: Vite's `vite:preloadError` event, or
+the import's own promise. For the procedure: a better paste block, or a program with tests.
+
+**The Synthesis.**
+
+- *The deploy is `ops/deploy_spa.py`*, not a block in a runbook; that block held two defects in
+  one day (the other is lesson 60). In order: refuse a dirty tree; read the account and the
+  distribution; build, and stop if the build failed; read the build and refuse one that is not a
+  whole page (no shell, a shell naming no script, a shell naming a file that is not there); upload
+  every other file, then the shell **last**; read the stored headers back; invalidate and wait for
+  it; **read the live site** with `curl` and require that the shell names this build's files and
+  arrives `no-cache` with its files `immutable`; only then prune. Its exit status says whether the
+  site changed: 0 the live site serves the build, 2 refused and nothing changed, 1 something
+  changed and a later step failed.
+- *Superseded files are kept thirty days and pruned by age* -- under `assets/`, not in the build
+  just uploaded, older than the window; all three, and absence from the new build is never a
+  reason on its own. No command the script runs means "make the bucket match the folder".
+- *The shell is `Cache-Control: no-cache`* (stored, and revalidated on every use); *the hashed
+  files are `public, max-age=31536000, immutable`*. Set as object metadata at upload: no stack
+  change, no apply. The guarantee is therefore the script's -- its tests and its own read of the
+  live site -- and not Terraform's; a response-headers policy would make it the distribution's,
+  and is deferred with the other stack items.
+- *The page reloads once.* `web/src/lib/chunk.ts`: every `lazy()` goes through `loadChunk`; a
+  failed import reloads the page, which revalidates the shell whatever the browser held; a second
+  failure within a minute is not staleness and goes to the route's error screen instead of looping.
+  The import's own promise, not Vite's event: this build wraps no preload helper around the import,
+  so the event would never have fired (measured on the bundle).
+- *The router has its own error screen* (`RouteError`, twice: inside the layout so the menu stands,
+  and on the layout itself): two sentences from `copy.ts` and a reload, no exception text.
+
+**Measured (cloud workspace, 2026-11-27).** `tsc` clean; the build 704 modules, `index-B_2AyGOt.js`,
+`index-BUROI4IF.css`, `Analytics-DlnsaUFA.js`. Two browser tests -- the screen's file refused once:
+one reload, then the screen; refused always: one reload, the error screen in the layout, no third
+load, the menu working, the person's Reload curing it once the file is back -- pass against the dev
+server and against the built bundle served by `vite preview`. Controls, each failing the test that
+names it: the screen imported directly (no reload; the wrong sentence), the routes without an error
+screen (the router's fallback), the loader forgetting that it reloaded (it loops until the test
+times out). The deploy script: 44 tests against a stand-in for `git`, `npm`, `aws` and `curl` that
+keeps a bucket in memory, two of them running the script as a program; 17 single-line breakages of
+the script, each caught (the shell first; pruning by absence -- the 2026-11-20 behaviour; the
+headers swapped; a failed build, upload, invalidation or wait ignored; "done" whatever the live
+site says; a dirty tree allowed; a dry run that uploads). The runbook's block tried as a paste
+into zsh in five states. Browser suite 65 of 66 here (the draft-board logo test fails on any commit
+in this workspace; CI is its gate).
+
+**What this does not do.** A tab still running the build from before 2026-11-20 asks for a file
+that deploy already removed; it shows the old fallback once, and a reload cures it. The header's
+guarantee is procedural, as above. And the heuristic that kept the old shell is the standard's
+customary one, not a reading of this browser.
+
+**Deploy.** Static assets and a script: no image, no migration, no apply. Push, CI, then README
+§8 step 5. Acceptance criterion 11.
+
 ## Explicit deltas and guarantees
 
 | Keeps holding | Held by |
@@ -566,6 +651,7 @@ build's exit status (README §8 step 5; CLOSE-OUT lesson 60).
 | No secret in logs | the console filter rerun at G5; `_redact_account_validation_errors` unchanged |
 | The deploy role cannot decrypt the custody key | boundary test + README probe |
 | Every apply read as a plan first | the procedure; the orchestration row for each gate names the plan run |
+| A deploy of the page does not break a page already open | `tests/test_deploy_spa.py` (the previous build's files outlive the deploy; the shell last and `no-cache`); the two WU-12 browser tests |
 
 | Changes | Stated where |
 | --- | --- |
@@ -574,6 +660,7 @@ build's exit status (README §8 step 5; CLOSE-OUT lesson 60).
 | `is_public_synthetic` is gone | WU-1 |
 | `DELETE /api/accounts/{id}` detaches the account's leagues instead of refusing with 409 | WU-8; `api/routers/accounts.py` docstring; README §6c |
 | The migrate task reads the RDS-managed owner password where it lives (`PGPASSWORD` from the managed secret's `password` key; a password-less URL); the copy secret `espn-edge/database-url-owner` leaves the stack | WU-9; `containers.tf`, `secrets.tf`; README §9; `test_the_migrate_task_runs_alembic_as_the_owner_with_the_password_read_where_it_lives` |
+| The page is deployed by `ops/deploy_spa.py`, not `aws s3 sync --delete`: superseded files kept thirty days; `index.html` `no-cache`, hashed files `immutable`; an on-demand screen that fails to load reloads the page once; the router has its own error screen | WU-12; README §8 step 5; `web/src/lib/chunk.ts`, `web/src/components/RouteError.tsx` |
 
 ## Acceptance criteria
 
@@ -602,6 +689,10 @@ build's exit status (README §8 step 5; CLOSE-OUT lesson 60).
     its tail in zero log lines on both keys, erased by `DELETE` 204 (10-27), the no-key answers seen
     before the save, one report generated with it and no host key in the stack. "That tenant alone"
     is held by the two-tenant PostgreSQL test and meets a second real tenant at G6.**
+11. A page opened before a deploy still loads its on-demand screens after it; the shell is
+    revalidated on every use and the hash-named files never; a screen whose file is missing reloads
+    the page once and otherwise says so in the page's own words. **Built 2026-11-27 (WU-12); met on
+    the site when the deploy's own read of the live site says so.**
 
 ## Non-goals
 

@@ -172,7 +172,8 @@ applies the saved plan. Then, in order (`docs/aws-deploy.md`):
    refreshed before every migration because RDS rotates the password every seven days; it is gone.
 3. Run the migrate task (`aws ecs run-task` with `migrate_task_definition`).
 4. Provision yourself (0017's recipe). Anyone else: section 7, and not before gate G6.
-5. Upload `web/dist` to the SPA bucket; invalidate CloudFront.
+5. Deploy the page: `.venv/bin/python ops/deploy_spa.py` (section 8 step 5 has the block and the
+   reads).
 6. Restart the web service; watch `/espn-edge/web` for Caddy obtaining the origin certificate
    (DNS-01 against `_acme-challenge.origin.eaedgefinder.com`, the only record its role may write).
 7. `https://eaedgefinder.com/api/health`, then sign in.
@@ -474,33 +475,48 @@ echo 'expect: status ok, mode private_invited'
 ```
 
 5. **The page.** The image carries the backend half; the panel is in the SPA bundle, which
-   CloudFront serves from S3, so the bundle is rebuilt and synced like WU-4's (the hashes are the
-   commit's; the cloud build of `296293b` gave `index-CmTJ5Ed4.js`, `index-D_0c9WkV.css`,
-   `Analytics-JlPG1tuw.js`, and the build that carries WU-10 and WU-11 gives `index-CF3VDN2j.js`,
-   the same `index-D_0c9WkV.css` and `Analytics-Cpy1g6U2.js`). Forgotten on 2026-10-27 until the
-   gate's first step found no panel. The sync is gated on the build: `vite build` empties
-   `dist` before it writes, so a build that fails part-way leaves an empty or partial folder, and
-   `sync --delete` on that would delete the site -- the block syncs only when the build said yes.
+   CloudFront serves from S3, so the bundle is rebuilt and put there -- by `ops/deploy_spa.py`
+   (WU-12), not by a block pasted from here. Forgotten on 2026-10-27 until the gate's first step
+   found no panel. The script holds three things this step taught, each found on the site:
+
+   - *Nothing changes unless the build succeeded.* `vite build` empties `dist` before it writes;
+     a build that fails after that must not be handed to anything that makes the bucket match
+     the folder (CLOSE-OUT lesson 60).
+   - *The previous build's files stay.* A page already open runs the old script and asks for its
+     on-demand screens by their old names. The 2026-11-20 deploy removed those names as it
+     uploaded the new ones, and two and a half hours later the operator's own browser met `Failed
+     to fetch dynamically imported module` on Analytics. Superseded files are kept thirty days and pruned
+     by age, never because the new build lacks them.
+   - *The shell says how long it may be reused: not at all without asking.* With no
+     `Cache-Control` a browser may reuse a response for a tenth of its age -- for a shell built
+     three weeks earlier, more than two days. `index.html` goes up last and `no-cache`; the
+     hashed files go up `immutable` (lesson 63).
+
+   The page has its own half: a tab that still meets a missing file reloads once, and if that
+   does not help says so in two sentences (`web/src/lib/chunk.ts`). The script's "done" is a
+   reading, not an inference: it waits for the invalidation, fetches the shell from the live site
+   with `curl`, and checks that it names this build's files and arrives `no-cache` with its files
+   `immutable`; only after that does it prune. `--dry-run` builds and prints the plan without
+   touching the site. Exit status 0: the live site serves the build; 2: refused, nothing changed;
+   1: something changed and a later step failed, and the line says which. The file names are the
+   commit's: `296293b` gave `index-CmTJ5Ed4.js`, `index-D_0c9WkV.css`, `Analytics-JlPG1tuw.js`;
+   the build with WU-10 and WU-11 `index-CF3VDN2j.js`, the same stylesheet and
+   `Analytics-Cpy1g6U2.js`; the one with WU-12 `index-B_2AyGOt.js`, `index-BUROI4IF.css` and
+   `Analytics-DlnsaUFA.js`.
 
 ```bash
 cd ~/espn-edge
-ACCT=$(aws sts get-caller-identity --query Account --output text)
-BUCKET="espn-edge-spa-${ACCT}"
-DIST=$(aws cloudfront list-distributions --query "DistributionList.Items[?contains(to_string(Aliases.Items), 'eaedgefinder.com')].Id | [0]" --output text)
-echo "bucket ${BUCKET}  distribution ${DIST}"
-echo 'expect: the bucket named by your account id and a distribution id starting with E'
-cd ~/espn-edge/web
-if npm run build; then BUILD_OK=yes; else BUILD_OK=no; fi
-echo "build ok: ${BUILD_OK}"
-echo 'expect: tsc silent, then vite: 702 modules transformed, then build ok: yes'
-ls dist/assets
-echo 'expect: the three hashed assets of this commit'
-cd ~/espn-edge
-if [ "${BUILD_OK}" = "yes" ] && [ -f web/dist/index.html ] && [ -n "${DIST}" ] && [ "${DIST}" != "None" ]; then aws s3 sync web/dist "s3://${BUCKET}" --delete; SYNCED=yes; else SYNCED=no; echo 'NOT synced -- the build failed or the distribution id is missing; the site is unchanged'; fi
-echo 'expect: upload lines for index.html and the changed assets, delete lines for the hashed assets they replace'
-if [ "${SYNCED}" = "yes" ]; then aws cloudfront create-invalidation --distribution-id "${DIST}" --paths "/*" --query 'Invalidation.[Id,Status]' --output text; else echo 'no invalidation -- nothing was synced'; fi
-echo 'expect: an invalidation id and InProgress'
+git status --short
+echo 'expect: nothing printed'
+if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ -z "$(git status --porcelain)" ]; then .venv/bin/python ops/deploy_spa.py; DEPLOY_EXIT=$?; else DEPLOY_EXIT=not-run; echo 'not deployed -- this is not the pushed commit, or the tree is not clean'; fi
+echo "deploy exit: ${DEPLOY_EXIT}"
+echo 'expect: deploying <commit> to the bucket named by your account id; the build (tsc silent, vite: modules transformed); one upload line per file with its Cache-Control, index.html last; stored; invalidation <id>; about a minute of waiting; edge https://eaedgefinder.com/ serves this build; a kept line for each superseded file; done the site serves <commit>; deploy exit: 0'
+if [ "${DEPLOY_EXIT}" = "0" ]; then curl -sI https://eaedgefinder.com/index.html | grep -i -E '^(HTTP/|cache-control:|last-modified:)'; else echo 'no read -- the deploy did not report done; its last line says why'; fi
+echo 'expect: HTTP/2 200, cache-control: no-cache, and a last-modified of a minute or two ago -- your own look at what the script has already read'
 ```
+
+   Then, in a browser that had the site open before the deploy: go to Analytics. It loads -- the
+   old file is still there. Reload once and the page is the new build.
 
 6. **The gate** (done by the operator 2026-11-20). Signed in, on Manage: the "AI key" panel reads
    its three sentences; paste your own Anthropic key -- the whole key, which starts with `sk-ant-`

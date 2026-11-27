@@ -1151,6 +1151,44 @@ This was a practice project. These are the findings that are not about fantasy f
     suite in the foreground, or under `env --default-signal=INT` when it has to be in the
     background.
 
+63. **A release happens to people who are already on the site, and the instrument that checks
+    it has to be one of them.** The page deploy of 2026-11-20 was checked the way every deploy
+    before it had been: a fetch of the shell from the edge with caching switched off, the new
+    script named in it, the new sentences found in that script -- and, on the list of reads that
+    proved it, *the superseded script answers 403*. Two and a half hours later the operator
+    opened Analytics and got the router's developer fallback over a failed import of that
+    script's sibling. The 403 recorded as proof was the cause.
+
+    Two defects in the deploy and one in the page. `sync --delete` removes the previous build's
+    hash-named files as it uploads the new ones, and a page loaded before the deploy fetches its
+    on-demand screens by the old names for as long as it stays open. The shell went up with no
+    `Cache-Control`, and a cache that is told nothing may choose for itself -- customarily a
+    tenth of the response's age, which for a three-week-old shell is more than two days of
+    running the old page without asking. And the page had nothing to say about a failed import
+    but the framework's stack trace. None of it was visible to the check, for a structural
+    reason: a client with no history and caching disabled is the one client that cannot be
+    stale. Lesson 43 said the verification environment is part of the claim; this is the same
+    sentence about a browser. The claim was "the site serves the new build", and it was true --
+    to a visitor arriving for the first time.
+
+    The repair has three layers, each sufficient for most of it and none trusted alone:
+    superseded files stay thirty days and are pruned by age, never by absence; the shell is
+    `no-cache` and the hashed files `immutable`; and a page that still meets a missing file
+    reloads once, then says so in its own words. The fourth change is where the first two live.
+    The deploy had been a block pasted from a runbook, and that block held two defects in a
+    single day (lesson 60 is the other). It is a program now, with a stand-in for the cloud and
+    a test named for the incident, and its last word is a reading: it fetches the shell from the
+    live site and will neither say "done" nor remove anything until that shell names this
+    build's files and arrives with the headers it was sent with (lesson 61, applied before the
+    fact for once).
+
+    The moves: whatever a change removes, ask who may still be holding a reference to it -- an
+    open page, a cached response, a running task, a client on the old schema; say how long each
+    thing a browser fetches may be reused, because silence is a policy too and not the one you
+    would choose; verify a release with a client that carries state from before it; when the
+    same procedure fails twice, stop improving its instructions and make it a program; and
+    reread the list of things a check proved for an item that is really a thing it destroyed.
+
 The single most useful habit, across all of it: after something passes, break it on purpose and
 check that it fails for the reason you expect. Most of the findings above came from that one move.
 

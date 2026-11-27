@@ -605,3 +605,82 @@ Until     run the suite in the foreground, or under env --default-signal=INT whe
           never shown it: its step runs pytest in the foreground and the case passes there on every run (#61 to #63 today).
           CLOSE-OUT lesson 62.
 
+--- fc65da9 pushed; CI #64 green; and the state a week on (2026-11-20 / 2026-11-27)
+Push      b27ade9..fc65da9 by the operator, 2026-11-20
+CI #64    run 44833068487 on fc65da9: Success, 5m 6s (backend 5m 2s, frontend 1m 33s). Backend job 136622589568, from its raw
+          log: Python 3.12, pytest 9.2.0, ruff "All checks passed!", "1692 passed, 26 skipped in 272.25s".
+          That is run 1 of the [ctrl-c] record above (a background job, PostgreSQL gates off: 1 failed, 1691 passed, 26
+          skipped) with the one case passing -- the same tree and the same gates, started in the foreground. Lesson 62's
+          variable, seen from CI's side.
+G6        step 1 (the drill person's Cognito user, then a read of the pool that shows no address) handed to the operator
+          2026-11-20 23:20Z; not yet done. The drill's three terminal blocks were tried as pastes into zsh against a
+          stand-in aws that runs their own JMESPath queries (jmespath 1.1.0): no address and no subject reaches the screen
+          in any state; the provision and the revoke each run once, and only when the pool holds exactly two people and
+          the tunnel is open.
+A week on 2026-11-27 18:41Z: GitHub main = the Mac's main = fc65da9, trees clean; /api/health ok, private_invited; the shell
+          still the 2026-11-20 build, still with no Cache-Control.
+
+--- WU-12: the 2026-11-20 page deploy stranded pages already open; built 2026-11-27, not yet deployed
+Seen      2026-11-20 23:21Z (18:21 Eastern), the operator's Chrome at https://eaedgefinder.com/analytics, his screenshot:
+          "Unexpected Application Error!" over "Failed to fetch dynamically imported module:
+          https://eaedgefinder.com/assets/Analytics-JlPG1tuw.js" -- the previous build's on-demand screen.
+Edge      read by Agent 1 at 23:22:45Z from the browser pane (same origin, cache: no-store):
+            /index.html                     200  Hit from cloudfront, age 9123 s, last-modified Fri, 20 Nov 2026 20:50:19 GMT,
+                                                 naming assets/index-CF3VDN2j.js and assets/index-D_0c9WkV.css; NO cache-control
+            /analytics                      200  the same shell (the viewer-request rewrite)
+            /assets/Analytics-Cpy1g6U2.js   200  Miss from cloudfront -- nobody had asked this edge for the new screen yet
+            /assets/index-CF3VDN2j.js       200  Hit; no cache-control
+            /assets/Analytics-JlPG1tuw.js   403  AccessDenied (removed by the deploy)
+            /assets/index-CmTJ5Ed4.js       403  AccessDenied (removed by the deploy)
+          The deploy was 2 h 31 min old. Read again 2026-11-27 18:42Z: the shell unchanged, still no cache-control.
+Cause     1. the deploy ran aws s3 sync --delete: the previous build's files left as the new ones arrived. This file's own
+             record of that deploy lists "the superseded script answers 403" among the reads that proved it.
+          2. no Cache-Control on the shell. A cache may then choose a freshness lifetime for itself (RFC 9111 4.2.2; the
+             customary heuristic is a tenth of the time since Last-Modified -- read 2026-11-27, the section's opening
+             verbatim, the figure from the reader's summary of a truncated page). The shell that deploy replaced was last
+             modified 2026-10-27, 24 days earlier: about 2.4 days of permitted reuse without asking.
+          3. the page had no answer of its own to a failed on-demand import: the router's default error boundary.
+Not measured  whether his browser held an old tab in memory or was given the old shell from its cache (both make the same
+          request); which heuristic his Chrome applied. Agent 1's "read back from the edge" on 2026-11-20 used no-store
+          fetches from a client with no history -- the one kind of client that cannot be stale.
+Built     web/src/lib/chunk.ts (loadChunk: one reload, then ChunkLoadError); web/src/components/RouteError.tsx; the routes
+          in web/src/App.tsx (the error screen inside the layout, and on it); three sentences in web/src/copy.ts;
+          ops/deploy_spa.py; README 8 step 5 (the paste block replaced by the script behind a guard on the pushed commit,
+          the operator's own curl read gated on the script's exit status) and README 5.
+Workspace cloud, 2026-11-27: ext4, 2 CPUs; Python 3.13.18, pytest 9.2.0; Node 22.23.4, vite 6.4.3, react-router 8.3.0,
+          @playwright/test 1.61.1 driving the workspace's own Chromium (a different release); bash 5.2, zsh 5.9.
+Page      tsc -b --noEmit: clean.  vite build: 704 modules; index-B_2AyGOt.js 470.50 kB, index-BUROI4IF.css 53.08 kB,
+          Analytics-DlnsaUFA.js 479.47 kB. The shell script carries the marker and the sentence, and no preload helper
+          (__vitePreload / __vite__mapDeps: 0 occurrences), so Vite's vite:preloadError would never have fired in this
+          build -- the import's own promise is what is caught.
+          Browser tests, the screen's file answered 403 the way CloudFront answered it:
+            refused once    one reload (2 document loads), the screen shown, no error screen, the marker cleared
+            refused always  one reload and no third load (750 ms watched); the error screen inside the layout with its two
+                            sentences; no router fallback, no exception text; the menu works; back on the screen the
+                            person's Reload brings it up once the file answers (3 document loads)
+          Both pass against the dev server (9.2 s) and against the built bundle under vite preview (6.4 s).
+          Controls: the screen imported directly -> the first fails (no reload) and the second shows the wrong sentence;
+          the routes without errorElement -> the second fails (the router's fallback is what shows); the loader forgetting
+          that it reloaded -> the second never settles and fails at its timeout.  Restored byte for byte.
+          Whole browser suite here: 65 of 66 -- the draft board's team-logo test, which fails on every commit in this
+          workspace and passed in CI #64.
+Deploy    tests/test_deploy_spa.py: 44 passed, against a stand-in for git, npm, aws and curl that keeps a bucket in memory;
+          two of the 44 run the script as a program with recorders on the PATH (no network).
+          Seventeen one-line breakages of the script, each failing at least one test: the shell uploaded first; pruning
+          by absence instead of age (the 2026-11-20 behaviour -- it fails the test named for the incident); the build's
+          own files unprotected from the prune; the prune reaching outside assets/; the shell stored immutable; the
+          hashed files stored without a year; a failed build ignored; a failed upload ignored; a failed invalidation
+          ignored; done without waiting for the invalidation; done whatever the live site says; the live site read once
+          and never again; the edge read not checking the shell's header; not checking which build the shell names; the
+          stored headers not read back; a dirty tree allowed; a dry run that uploads.  Restored byte for byte.
+          The README block as a paste into zsh (zsh -f -i < block), five states: the pushed commit on a clean tree -> one
+          deploy, then one curl; not the pushed commit -> neither; a dirty tree -> neither; the script refusing (exit 2)
+          or failing after a change (exit 1) -> no curl.
+          From this workspace the live site does not answer the script's curl (no route out: status 0, which the script
+          reports as "answered nothing at the edge"). The read of the live site is therefore unexercised against the
+          real edge until the operator's run; its parsing is tested on HTTP/2 header text as curl prints it.
+Suite     full offline suite on this tree, PostgreSQL gates on, a background job with SIGINT's default put back:
+          1743 passed, 19 skipped in 314.18s (the 1699 of fc65da9 and these 44); ruff check api tests ops/deploy_spa.py: clean.
+Not yet   the push, CI and the deploy with the script (the operator's). The script's own read of the live site is the
+          measurement that meets acceptance 11. Then G6.
+

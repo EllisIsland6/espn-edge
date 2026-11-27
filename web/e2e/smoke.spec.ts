@@ -2868,3 +2868,86 @@ test("a refused AI key says so beside the field, with what to check, and a good 
   await expect(panel.getByRole("alert")).toHaveCount(0);
   expect(puts).toEqual([JSON.stringify({ api_key: NOT_A_KEY }), JSON.stringify({ api_key: KEY })]);
 });
+
+// WU-12. A screen loaded on demand is its own file, and a deploy gives it a new name. On
+// 2026-11-20 the hosted site answered a tab that predated a deploy with CloudFront's 403
+// for the old name, and the page showed the router's "Unexpected Application Error!". The
+// dev server serves the Analytics screen as its source path and a build serves it under a
+// hashed name; refusing either is the browser's view of "the file this tab wants is gone".
+const ANALYTICS_SCREEN_FILE = /\/(src\/pages\/Analytics\.tsx|assets\/Analytics-[\w-]+\.js)(\?.*)?$/;
+const GONE = {
+  status: 403,
+  contentType: "application/xml",
+  body: '<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code></Error>',
+};
+
+function countDocumentLoads(page: Page): { n: number } {
+  const loads = { n: 0 };
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) loads.n += 1;
+  });
+  return loads;
+}
+
+test("a screen whose file is gone reloads the page once and then shows the screen", async ({ page }) => {
+  const loads = countDocumentLoads(page);
+  let refused = 0;
+  await page.route(ANALYTICS_SCREEN_FILE, (route) => {
+    if (refused > 0) return route.continue();
+    refused += 1;
+    return route.fulfill(GONE);
+  });
+  await page.goto("/");
+  await expect(page.getByText("Alpha League")).toBeVisible();
+  expect(loads.n).toBe(1);
+  const menu = page.getByRole("navigation", { name: "Top navigation" });
+  await menu.getByRole("link", { name: "Analytics" }).click();
+  // The request was refused; the page reloaded itself, once, and the screen is there.
+  await expect(page.getByRole("heading", { name: "Analytics", level: 1 })).toBeVisible();
+  expect(refused).toBe(1);
+  expect(loads.n).toBe(2);
+  await expect(page.getByTestId("route-error")).toHaveCount(0);
+  await expect(page.getByText("Unexpected Application Error")).toHaveCount(0);
+  // A screen loaded, so the tab no longer remembers having reloaded for one.
+  expect(await page.evaluate(() => window.sessionStorage.getItem("espn-edge.chunk-reload"))).toBeNull();
+});
+
+test("a screen that still cannot load after the reload says so in the layout and does not loop", async ({ page }) => {
+  const loads = countDocumentLoads(page);
+  let gone = true;
+  let refused = 0;
+  await page.route(ANALYTICS_SCREEN_FILE, (route) => {
+    if (!gone) return route.continue();
+    refused += 1;
+    return route.fulfill(GONE);
+  });
+  await page.goto("/");
+  await expect(page.getByText("Alpha League")).toBeVisible();
+  const menu = page.getByRole("navigation", { name: "Top navigation" });
+  await menu.getByRole("link", { name: "Analytics" }).click();
+  const problem = page.getByTestId("route-error");
+  await expect(problem).toBeVisible();
+  await expect(problem).toHaveAttribute("role", "alert");
+  await expect(problem).toContainText("This screen could not be loaded.");
+  await expect(problem).toContainText("Reload to try again.");
+  // One automatic reload, then it stops: the first load, the reload, and no third.
+  expect(refused).toBe(2);
+  expect(loads.n).toBe(2);
+  await page.waitForTimeout(750);
+  expect(loads.n).toBe(2);
+  // The person's sentence -- not the router's page and not the exception's text.
+  await expect(page.getByText("Unexpected Application Error")).toHaveCount(0);
+  expect(await page.locator("body").innerText()).not.toContain("dynamically imported module");
+  // The screen failed; the site did not. The menu is still there and still works.
+  await menu.getByRole("link", { name: "Portfolio" }).click();
+  await expect(page.getByText("Alpha League")).toBeVisible();
+  await expect(problem).toHaveCount(0);
+  // Back on the screen the reload is the person's to press, and the file is there now.
+  await menu.getByRole("link", { name: "Analytics" }).click();
+  await expect(problem).toBeVisible();
+  gone = false;
+  await problem.getByRole("button", { name: "Reload" }).click();
+  await expect(page.getByRole("heading", { name: "Analytics", level: 1 })).toBeVisible();
+  expect(loads.n).toBe(3);
+  await expect(problem).toHaveCount(0);
+});
